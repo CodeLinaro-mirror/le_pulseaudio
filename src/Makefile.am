@@ -1399,6 +1399,10 @@ dist_alsapaths_DATA = \
 
 endif
 
+if HAVE_QAHW
+modlibexec_LTLIBRARIES += module-qahw-card.la
+endif
+
 if HAVE_SOLARIS
 modlibexec_LTLIBRARIES += \
 		module-solaris.la
@@ -1620,6 +1624,16 @@ module_esound_sink_la_SOURCES = modules/module-esound-sink.c
 module_esound_sink_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_esound_sink
 module_esound_sink_la_LDFLAGS = $(MODULE_LDFLAGS) $(WINSOCK_LIBS)
 module_esound_sink_la_LIBADD = $(MODULE_LIBADD)
+endif
+
+if HAVE_QAHW
+module_qahw_card_la_SOURCES = \
+        modules/qahw/module-qahw-card.c \
+        modules/qahw/qahw-sink.c modules/qahw/qahw-sink.h \
+        modules/qahw/qahw-utils.c modules/qahw/qahw-utils.h
+module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(AM_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
+module_qahw_card_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_qahw_card_la_LIBADD = $(MODULE_LIBADD) -lqahw
 endif
 
 # Pipes
