@@ -86,6 +86,30 @@ static int qahw_sink_standby(struct qahw_sink_data *qahw_sdata) {
     return 0;
 }
 
+static void qahw_sink_set_volume_cb(pa_sink *s) {
+    struct sink_data *sink_data = (struct sink_data *)s->userdata;
+    float gain;
+    int rc;
+    pa_volume_t volume;
+
+    pa_assert(sink_data);
+    pa_assert(sink_data->qahw_sdata);
+    pa_assert(sink_data->qahw_sdata->out_handle);
+
+    gain = ((float) pa_cvolume_max(&s->real_volume) * (float)QAHW_MAX_GAIN) / (float)PA_VOLUME_NORM;
+    volume = (pa_volume_t) roundf((float) gain * PA_VOLUME_NORM / QAHW_MAX_GAIN);
+
+    pa_log_debug ("qahw stream %p: gain %f\n", sink_data->qahw_sdata->out_handle, gain);
+
+    rc = qahw_out_set_volume(sink_data->qahw_sdata->out_handle, gain, gain);
+    if (rc)
+        pa_log_error("qahw stream %p: unable to set volume error %d\n", sink_data->qahw_sdata->out_handle, rc);
+    else
+        pa_cvolume_set(&s->real_volume, s->real_volume.channels, volume); /* TODO: Is this correct? */
+
+    return;
+}
+
 static int qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     audio_devices_t *audio_device;
     char kvpair[KV_PAIR_MAX_LENGTH] = { 0 };
@@ -345,6 +369,9 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
     pa_sink_set_max_request(pa_sdata->sink, sink_data->qahw_sdata->sink_buffer_size);
     pa_sink_set_max_rewind(pa_sdata->sink, 0);
     pa_sink_set_fixed_latency(pa_sdata->sink, sink_data->qahw_sdata->sink_latency_ms * PA_USEC_PER_MSEC);
+
+    pa_sink_set_set_volume_callback(pa_sdata->sink, qahw_sink_set_volume_cb);
+    pa_sdata->sink->n_volume_steps = 15; /* TODO: What should be value */
 
     pa_sdata->thread = pa_thread_new(sink_name, qahw_sink_thread_func, sink_data);
     if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
