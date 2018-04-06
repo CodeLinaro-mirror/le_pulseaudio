@@ -26,9 +26,13 @@
 #include <math.h>
 
 #include <pulse/rtclock.h>
+#include <pulsecore/core-rtclock.h>
 
 #include "qahw-sink.h"
 #include "qahw-utils.h"
+
+#include <sys/time.h>
+#include <time.h>
 
 #define QAHW_MAX_GAIN 1
 
@@ -70,6 +74,53 @@ static void qahw_fill_sink_info(struct qahw_sink_data *qahw_sdata, pa_sample_spe
     qahw_sdata->handle = sink_iohandle; /* check if its correct */
     qahw_sdata->device_url = NULL; /* TODO: useful for BT devices */
     qahw_sdata->bytes_written = 0;
+}
+
+static uint64_t qahw_sink_get_latency(struct sink_data *sink_data) {
+    int rc, delta, bytes_rendered;
+    int64_t latency = 0;
+    uint64_t frames;
+    struct qahw_sink_data *qahw_sdata;
+    struct pa_sink_data *pa_sdata;
+
+    struct timespec timestamp;
+    pa_usec_t qahw_time, now;
+
+    pa_assert(sink_data);
+    pa_assert(sink_data->pa_sdata);
+    pa_assert(sink_data->qahw_sdata);
+
+    qahw_sdata = sink_data->qahw_sdata;
+    pa_sdata = sink_data->pa_sdata;
+
+    pa_assert(pa_sdata->sink);
+    pa_assert(qahw_sdata->out_handle);
+
+    rc = qahw_out_get_presentation_position(qahw_sdata->out_handle, &frames, &timestamp);
+    if (!rc) {
+        qahw_time = pa_timespec_load(&timestamp);
+        bytes_rendered =  frames * pa_frame_size(&pa_sdata->sink->sample_spec);
+        /* calculate bytes pending to be rendered */
+        delta = qahw_sdata->bytes_written - bytes_rendered;
+
+        /* bytes written should never be less than bytes rendered */
+        if (delta < 0)
+            return 0;
+
+        now = pa_rtclock_now();
+        /* latency = bytes pending to be rendered + time elapesed after qahw_out_get_presentation_position */
+        latency = (int64_t)(pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec) + (now - qahw_time));
+
+        pa_log_debug("%s:: now %" PRId64 "us, qahw_time %" PRId64 "us, delta %" PRId64 "us, latency %" PRId64 "us", __func__, (int64_t)now,
+                     (int64_t)qahw_time,(int64_t)pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec), latency);
+    }
+
+    if (latency < 0) {
+        pa_log_error("latency is invalid (-ve), resetting it zero");
+        latency = 0;
+    }
+
+    return (uint64_t)latency;
 }
 
 static int qahw_sink_start(struct qahw_sink_data *qahw_sdata) {
@@ -145,8 +196,8 @@ static int qahw_sink_process_msg(pa_msgobject *o, int code, void *data, int64_t 
 
     switch (code) {
         case PA_SINK_MESSAGE_GET_LATENCY:
-             *((int64_t*) data) = 0;
-             break;
+             *((int64_t*) data) = qahw_sink_get_latency(sink_data);
+             return 0;
 
         case PA_SINK_MESSAGE_SET_STATE: {
             pa_sink_state_t new_state = PA_PTR_TO_UINT(data);
@@ -154,11 +205,10 @@ static int qahw_sink_process_msg(pa_msgobject *o, int code, void *data, int64_t 
 
             pa_log_debug("Sink new state is: %d", new_state);
 
-            if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(sink_data->pa_sdata->sink->thread_info.state)) {
+            if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(sink_data->pa_sdata->sink->thread_info.state))
                 r = qahw_sink_start(sink_data->qahw_sdata);
-            } else if (new_state == PA_SINK_SUSPENDED) {
+             else if (new_state == PA_SINK_SUSPENDED)
                 r = qahw_sink_standby(sink_data->qahw_sdata);
-            }
 
             /* Error */
             if (r < 0)
@@ -348,7 +398,7 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
         }
     }
 
-    pa_sdata->sink = pa_sink_new(m->core, &new_data, PA_SINK_HARDWARE);
+    pa_sdata->sink = pa_sink_new(m->core, &new_data, PA_SINK_HARDWARE | PA_SINK_LATENCY);
     pa_sink_new_data_done(&new_data);
 
     if (!pa_sdata->sink) {
