@@ -29,10 +29,14 @@
 #include "qahw-source.h"
 #include "qahw-utils.h"
 
+#define PA_ALTERNATE_SOURCE_RATE 44100
+
 static int create_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                               audio_input_flags_t flags, int source_iohandle, struct source_data *sdata);
 static int close_qahw_source(struct qahw_source_data *qahw_sdata);
 
+static const uint32_t supported_source_rates[] =
+                          {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
 static const char *get_source_name(audio_input_flags_t flags) {
     const char *name = NULL;
 
@@ -123,6 +127,59 @@ static int qahw_source_process_msg(pa_msgobject *o, int code, void *data, int64_
     }
 
     return pa_source_process_msg(o, code, data, offset, chunk);
+}
+
+static int qahw_source_update_rate_cb(pa_source *s, uint32_t rate) {
+    struct source_data *sdata = (struct source_data *) s->userdata;
+    struct pa_source_data *pa_sdata = NULL;
+    struct qahw_source_data *qahw_sdata = NULL;
+    bool supported = false;
+    uint32_t i, rc;
+    uint32_t old_rate;
+
+    pa_assert(s);
+    pa_assert(s->userdata);
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->qahw_sdata);
+
+    pa_sdata = sdata->pa_sdata;
+    qahw_sdata = sdata->qahw_sdata;
+
+    for (i = 0; i < ARRAY_SIZE(supported_source_rates) ; i++) {
+        if (/*spec->*/rate == supported_source_rates[i]) {
+            supported = true;
+            break;
+        }
+    }
+
+    if (!supported) {
+        pa_log_info("Source does not support sample rate of %d Hz", rate);
+        return -1;
+    }
+
+    if (!PA_SOURCE_IS_OPENED(s->state)) {
+        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, rate);
+
+        close_qahw_source(qahw_sdata);
+
+        old_rate = pa_sdata->source->sample_spec.rate; /*take backup*/
+        pa_sdata->source->sample_spec.rate = rate;
+
+        rc = create_qahw_source(qahw_sdata->module_handle, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, qahw_sdata->devices,
+                                qahw_sdata->flags, qahw_sdata->handle, sdata);
+        if (PA_UNLIKELY(rc)) {
+            pa_sdata->source->sample_spec.rate = old_rate; /*restore old rate if failed*/
+            pa_log_error("Could create reopen qahw source, error %d", rc);
+            return -1;
+        }
+
+        pa_source_set_fixed_latency(pa_sdata->source, pa_bytes_to_usec(qahw_sdata->source_buffer_size, &s->sample_spec));
+        return 0;
+    }
+
+    pa_log_info("Source could not set sample rate of %d Hz", rate);
+    return -1;
 }
 
 static void qahw_source_thread_func(void *userdata) {
@@ -273,6 +330,7 @@ static int create_pa_source(pa_module *m, pa_sample_spec *ss, pa_channel_map *ma
     pa_log_error("ss->rate %d ss->channels %d", ss->rate, ss->channels);
     pa_source_new_data_set_sample_spec(&new_data, ss);
     pa_source_new_data_set_channel_map(&new_data, map);
+    pa_source_new_data_set_alternate_sample_rate(&new_data, PA_ALTERNATE_SOURCE_RATE);
 
     /* associate port with source, first get port in a card then for each profile in that port check if matches with input profile */
     PA_HASHMAP_FOREACH(port, card->ports, state) {
@@ -302,6 +360,7 @@ static int create_pa_source(pa_module *m, pa_sample_spec *ss, pa_channel_map *ma
     pa_sdata->source->userdata = (void *)source_data;
     pa_sdata->source->parent.process_msg = qahw_source_process_msg;
     pa_sdata->source->set_port = qahw_source_set_port_cb;
+    pa_sdata->source->update_rate = qahw_source_update_rate_cb;
     pa_source_set_asyncmsgq(pa_sdata->source, pa_sdata->thread_mq.inq);
     pa_source_set_rtpoll(pa_sdata->source, pa_sdata->rtpoll);
 
