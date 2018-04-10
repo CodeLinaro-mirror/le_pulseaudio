@@ -35,9 +35,14 @@
 #include <time.h>
 
 #define QAHW_MAX_GAIN 1
+#define PA_ALTERNATE_SINK_RATE 44100 /* FIXME: Pass it from card */
 
 static int create_qahw_sink(qahw_module_handle_t *module_handle,pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                             audio_output_flags_t flags, int sink_iohandle, struct sink_data *sdata);
+static int close_qahw_sink(struct qahw_sink_data *qahw_sdata);
+
+static const uint32_t supported_sink_rates[] =
+                          {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
 
 static const char *get_sink_name(audio_output_flags_t flags) {
     const char *name = NULL;
@@ -221,6 +226,61 @@ static int qahw_sink_process_msg(pa_msgobject *o, int code, void *data, int64_t 
     return pa_sink_process_msg(o, code, data, offset, chunk);
 }
 
+static int qahw_sink_update_cb(pa_sink *s, uint32_t rate) {//pa_sample_spec *spec, bool passthrough) {
+    struct sink_data *sdata = (struct sink_data *) s->userdata;
+    struct pa_sink_data *pa_sdata = NULL;
+    struct qahw_sink_data *qahw_sdata = NULL;
+    bool supported = false;
+    uint32_t i, rc;
+    uint32_t old_rate;
+
+    pa_log_debug("qahw_sink_update_cb");
+
+    pa_assert(s);
+    pa_assert(s->userdata);
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->qahw_sdata);
+
+    pa_sdata = sdata->pa_sdata;
+    qahw_sdata = sdata->qahw_sdata;
+
+    for (i = 0; i < ARRAY_SIZE(supported_sink_rates) ; i++) {
+        if (/*spec->*/rate == supported_sink_rates[i]) {
+            supported = true;
+            break;
+        }
+    }
+
+    if (!supported) {
+        pa_log_info("Sink does not support sample rate of %d Hz", rate);
+        return -1;
+    }
+
+    if (!PA_SINK_IS_OPENED(s->state)) {
+        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, rate);
+
+        close_qahw_sink(qahw_sdata);
+
+        old_rate = pa_sdata->sink->sample_spec.rate; /* take backup */
+        pa_sdata->sink->sample_spec.rate = rate;
+
+        rc = create_qahw_sink(qahw_sdata->module_handle, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map, qahw_sdata->devices,
+                              qahw_sdata->flags, qahw_sdata->handle, sdata);
+        if (PA_UNLIKELY(rc)) {
+            pa_sdata->sink->sample_spec.rate = old_rate; /* restore old rate if failed */
+            pa_log_error("Could create reopen qahw sink, error %d", rc);
+            return -1;
+        }
+
+        pa_sink_set_fixed_latency(pa_sdata->sink, qahw_sdata->sink_latency_ms * 1000);
+        return 0;
+    }
+
+    pa_log_info("Sink could not set sample rate of %d Hz", rate);
+    return -1;
+}
+
 static void qahw_sink_thread_func(void *userdata) {
     struct sink_data *sink_data = (struct sink_data *)userdata;
     struct pa_sink_data *pa_sdata = sink_data->pa_sdata;
@@ -381,6 +441,7 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
     pa_log_info("ss->rate %d ss->channels %d", ss->rate, ss->channels);
     pa_sink_new_data_set_sample_spec(&new_data, ss);
     pa_sink_new_data_set_channel_map(&new_data, map);
+    pa_sink_new_data_set_alternate_sample_rate(&new_data, PA_ALTERNATE_SINK_RATE);
 
     /* associate port with sink, first get port in a card then for each profile in that port check if matches with input profile */
     PA_HASHMAP_FOREACH(port, card->ports, state) {
@@ -412,6 +473,7 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
     pa_sdata->sink->userdata = (void *)sink_data;
     pa_sdata->sink->parent.process_msg = qahw_sink_process_msg;
     pa_sdata->sink->set_port = qahw_sink_set_port_cb;
+    pa_sdata->sink->update_rate = qahw_sink_update_cb;
 
     pa_sink_set_asyncmsgq(pa_sdata->sink, pa_sdata->thread_mq.inq);
     pa_sink_set_rtpoll(pa_sdata->sink, pa_sdata->rtpoll);
