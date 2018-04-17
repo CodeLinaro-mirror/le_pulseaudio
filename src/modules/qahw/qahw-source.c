@@ -1,0 +1,418 @@
+/*
+ * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ *
+ * This library is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License version
+ * 2.1 and only version 2.1 as published by the Free Software Foundation
+ *
+ * This library is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301  USA
+ */
+
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
+#include <unistd.h>
+
+#include <pulse/rtclock.h>
+#include "qahw-source.h"
+#include "qahw-utils.h"
+
+static int create_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                              audio_input_flags_t flags, int source_iohandle, struct source_data *sdata);
+static int close_qahw_source(struct qahw_source_data *qahw_sdata);
+
+static const char *get_source_name(audio_input_flags_t flags) {
+    const char *name = NULL;
+
+    if (flags == AUDIO_INPUT_FLAG_NONE)
+        name = "audio-record";
+    else if (flags == AUDIO_INPUT_FLAG_FAST)
+        name ="record-low-latency";
+
+    return name;
+}
+
+static void qahw_fill_source_info(struct qahw_source_data *qahw_sdata, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                                audio_input_flags_t flags, int sourc_iohandle) {
+
+    qahw_sdata->config.format = get_qahw_audio_format(ss->format);
+    qahw_sdata->config.sample_rate = ss->rate;
+    qahw_sdata->config.channel_mask = audio_channel_in_mask_from_count(ss->channels);
+    qahw_sdata->devices = devices;
+    qahw_sdata->flags = flags;
+    qahw_sdata->handle = sourc_iohandle;
+}
+
+static int qahw_source_start(struct qahw_source_data *sdata) {
+    return 0;
+}
+
+static int qahw_source_standby(struct qahw_source_data *sdata) {
+    pa_assert(sdata);
+    pa_assert(sdata->in_handle);
+
+    qahw_in_standby(sdata->in_handle);
+
+    return 0;
+}
+
+static int qahw_source_set_port_cb(pa_source *s, pa_device_port *p) {
+
+    audio_devices_t *audio_device;
+    char kvpair[KV_PAIR_MAX_LENGTH] = {0};
+    struct source_data *source_data = (struct source_data *)s->userdata;
+    int rc;
+
+    pa_assert(source_data);
+    pa_assert(source_data->qahw_sdata);
+    pa_assert(source_data->qahw_sdata->in_handle);
+
+    audio_device = PA_DEVICE_PORT_DATA(p);
+    pa_assert(audio_device);
+
+    /* FIXME: use pa_sprintf_malloc() instead */
+    snprintf(kvpair, KV_PAIR_MAX_LENGTH, "%s=%d", QAHW_PARAMETER_STREAM_ROUTING, *audio_device);
+
+    rc = qahw_in_set_parameters(source_data->qahw_sdata->in_handle, kvpair);
+    if (rc) {
+        pa_log_error("qahw in routing failed %d",rc);
+    }
+
+    pa_log_debug("port name: %s kvpair %s device %d",p->name, kvpair, *audio_device);
+    return rc;
+}
+
+static int qahw_source_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
+	struct source_data *source_data = (struct source_data *)(PA_SOURCE(o)->userdata);
+    int r = 0;
+
+    pa_assert(source_data);
+    pa_assert(source_data->pa_sdata->source);
+
+    switch (code) {
+        case PA_SOURCE_MESSAGE_SET_STATE:
+            pa_log_debug("New state is: %d", PA_PTR_TO_UINT(data));
+
+            if (PA_SOURCE_IS_OPENED(PA_PTR_TO_UINT(data)) && !PA_SOURCE_IS_OPENED(source_data->pa_sdata->source->thread_info.state))
+                r = qahw_source_start(source_data->qahw_sdata);
+            else if (PA_PTR_TO_UINT(data) == PA_SOURCE_SUSPENDED)
+                r = qahw_source_standby(source_data->qahw_sdata);
+
+            /* Error */
+            if (r < 0)
+                return r;
+
+            break;
+
+        case PA_SOURCE_MESSAGE_GET_LATENCY: {
+            *((pa_usec_t*) data) = 0;
+            return 0;
+        }
+    }
+
+    return pa_source_process_msg(o, code, data, offset, chunk);
+}
+
+static void qahw_source_thread_func(void *userdata) {
+    struct source_data *source_data = (struct source_data *)userdata;
+    struct pa_source_data *pa_sdata = source_data->pa_sdata;
+    struct qahw_source_data *qahw_sdata = source_data->qahw_sdata;
+
+    pa_log_debug("Source IO Thread starting up");
+
+    pa_thread_mq_install(&pa_sdata->thread_mq);
+
+    for (;;) {
+        int ret;
+
+        if (PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
+            pa_memchunk chunk;
+            void *data;
+            qahw_in_buffer_t in_buf;
+
+            memset(&in_buf, 0, sizeof(qahw_in_buffer_t));
+
+            chunk.memblock = pa_memblock_new(pa_sdata->source->core->mempool, (size_t) qahw_sdata->source_buffer_size);
+            data = pa_memblock_acquire(chunk.memblock);
+            chunk.length = pa_memblock_get_length(chunk.memblock);
+            chunk.index = 0;
+
+            in_buf.buffer = data;
+            in_buf.bytes = chunk.length;
+
+            if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) < 0)
+                pa_log_error("Could not read data: %d", ret);
+
+            /* FIXME: don't post if read fails */
+            pa_memblock_release(chunk.memblock);
+            pa_source_post(pa_sdata->source, &chunk);
+            pa_memblock_unref(chunk.memblock);
+
+            pa_rtpoll_set_timer_absolute(pa_sdata->rtpoll, pa_rtclock_now());
+        } else {
+            pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
+        }
+
+        /* nothing to do. Let's sleep */
+        if ((ret = pa_rtpoll_run(pa_sdata->rtpoll)) < 0)
+            goto fail;
+
+        if (ret == 0)
+            goto finish;
+    }
+
+fail:
+    /* If this was no regular exit from the loop we have to continue
+     * processing messages until we received PA_MESSAGE_SHUTDOWN */
+    pa_asyncmsgq_post(pa_sdata->thread_mq.outq, PA_MSGOBJECT(pa_sdata->source->core), PA_CORE_MESSAGE_UNLOAD_MODULE, pa_sdata->source->module, 0, NULL, NULL);
+    pa_asyncmsgq_wait_for(pa_sdata->thread_mq.inq, PA_MESSAGE_SHUTDOWN);
+
+finish:
+    pa_log_debug("Source IO Thread shutting down");
+}
+
+static int create_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                              audio_input_flags_t flags, int source_iohandle, struct source_data *sdata) {
+    int rc;
+    struct qahw_source_data *qahw_sdata;
+
+    pa_assert(ss);
+    pa_assert(map);
+    pa_assert(module_handle);
+    pa_assert(sdata);
+
+    qahw_sdata = pa_xnew0(struct qahw_source_data, 1);
+
+    qahw_fill_source_info(qahw_sdata, ss, map, devices, flags, source_iohandle);
+
+    pa_log_debug("opening source with configuration flag = 0x%x, format %d, sample_rate %d, channel_mask 0x%x",
+                 qahw_sdata->flags, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask);
+
+    rc = qahw_open_input_stream(module_handle, qahw_sdata->handle, qahw_sdata->devices, &qahw_sdata->config, &qahw_sdata->in_handle, qahw_sdata->flags,
+                                qahw_sdata->device_url, AUDIO_SOURCE_MIC);
+    if (rc) {
+        qahw_sdata->in_handle = NULL;
+        pa_log_error("Could not open input stream %d", rc);
+        pa_xfree(qahw_sdata);
+        goto fail;
+    }
+    qahw_sdata->module_handle = module_handle;
+
+    pa_log_debug("qahw source opened %p", qahw_sdata->in_handle);
+
+    qahw_sdata->source_buffer_size = qahw_in_get_buffer_size(qahw_sdata->in_handle);
+    if (qahw_sdata->source_buffer_size <= 0) {
+        qahw_close_input_stream(qahw_sdata->in_handle);
+        pa_log_error("Invalid buffer size %zu", qahw_sdata->source_buffer_size);
+        pa_xfree(qahw_sdata);
+        goto fail;
+    }
+
+    sdata->qahw_sdata = qahw_sdata;
+
+fail:
+    return rc;
+}
+
+static int close_qahw_source(struct qahw_source_data *qahw_sdata) {
+    int rc = -1;
+
+    pa_assert(qahw_sdata);
+    pa_assert(qahw_sdata->in_handle);
+
+    pa_log_debug("closing qahw source %p", qahw_sdata->in_handle);
+
+    if (PA_UNLIKELY(qahw_sdata->in_handle == NULL)) {
+        pa_log_error("Invalid source handle %p", qahw_sdata->in_handle);
+    } else {
+        rc = qahw_close_input_stream(qahw_sdata->in_handle);
+        if (PA_UNLIKELY(rc)) {
+            pa_log_error(" could not close source handle %p, error  %d", qahw_sdata->in_handle, rc);
+        }
+
+        qahw_sdata->in_handle = NULL;
+    }
+
+    return rc;
+}
+
+static int create_pa_source(pa_module *m, pa_sample_spec *ss, pa_channel_map *map, char *source_name, pa_card *card,
+                          const char *profile_name, const char *driver, struct source_data *source_data) {
+    pa_source_new_data new_data;
+    struct pa_source_data *pa_sdata;
+    struct qahw_source_data *qahw_sdata = NULL;
+    pa_device_port *port;
+    pa_card_profile *profile;
+    void *state, *state2;
+
+    pa_assert(source_data->qahw_sdata);
+
+    pa_sdata = pa_xnew0(struct pa_source_data, 1);
+    pa_source_new_data_init(&new_data);
+    new_data.driver = driver;
+    new_data.module = m;
+    new_data.card = card;
+
+    pa_sdata->rtpoll = pa_rtpoll_new();
+    pa_thread_mq_init(&pa_sdata->thread_mq, m->core->mainloop, pa_sdata->rtpoll);
+
+    pa_source_new_data_set_name(&new_data, source_name);
+
+    pa_log_error("ss->rate %d ss->channels %d", ss->rate, ss->channels);
+    pa_source_new_data_set_sample_spec(&new_data, ss);
+    pa_source_new_data_set_channel_map(&new_data, map);
+
+    /* associate port with source, first get port in a card then for each profile in that port check if matches with input profile */
+    PA_HASHMAP_FOREACH(port, card->ports, state) {
+        PA_HASHMAP_FOREACH(profile, port->profiles, state2) {
+            if (!(port->direction & PA_DIRECTION_INPUT))
+                continue;
+
+            profile = pa_hashmap_get(port->profiles, profile_name);
+
+            if ((profile) && (!strcmp(profile->name, profile_name))) {
+                pa_log_error("adding port %s to source %s", port->name, source_name);
+                pa_assert_se(pa_hashmap_put(new_data.ports, port->name, port) >= 0);
+                pa_device_port_ref(port);
+            }
+        }
+    }
+
+    pa_sdata->source = pa_source_new(m->core, &new_data, PA_SOURCE_HARDWARE);
+    if (!pa_sdata->source) {
+        pa_log_error("Could not create source");
+        goto fail;
+    }
+
+    pa_log_info("pa source opened %p", pa_sdata->source);
+    pa_source_new_data_done(&new_data);
+
+    pa_sdata->source->userdata = (void *)source_data;
+    pa_sdata->source->parent.process_msg = qahw_source_process_msg;
+    pa_sdata->source->set_port = qahw_source_set_port_cb;
+    pa_source_set_asyncmsgq(pa_sdata->source, pa_sdata->thread_mq.inq);
+    pa_source_set_rtpoll(pa_sdata->source, pa_sdata->rtpoll);
+
+    qahw_sdata = source_data->qahw_sdata;
+
+    pa_source_set_max_rewind(pa_sdata->source, 0);
+    pa_source_set_fixed_latency(pa_sdata->source, pa_bytes_to_usec(qahw_sdata->source_buffer_size, ss));
+
+    source_data->pa_sdata = pa_sdata;
+
+    pa_sdata->thread = pa_thread_new(source_name, qahw_source_thread_func, source_data);
+    if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
+        pa_log_error("Could not spawn I/O thread");
+        goto fail;
+    }
+
+    pa_source_put(pa_sdata->source);
+
+    pa_xfree(source_name);
+
+    return 0;
+
+fail :
+    if (pa_sdata->rtpoll)
+        pa_rtpoll_free(pa_sdata->rtpoll);
+
+    if (pa_sdata->source) {
+        pa_source_new_data_done(&new_data);
+        pa_source_unlink(pa_sdata->source);
+        pa_source_unref(pa_sdata->source);
+    }
+
+    pa_xfree(pa_sdata);
+    source_data->pa_sdata = NULL;
+
+    return -1;
+}
+
+static int close_pa_source(struct pa_source_data *pa_sdata) {
+    pa_assert(pa_sdata);
+    pa_assert(pa_sdata->source);
+    pa_assert(pa_sdata->thread);
+    pa_assert(pa_sdata->rtpoll);
+
+    pa_log_debug("closing pa source %p", pa_sdata->source);
+
+    pa_source_unlink(pa_sdata->source);
+
+    pa_asyncmsgq_send(pa_sdata->thread_mq.inq, NULL, PA_MESSAGE_SHUTDOWN, NULL, 0, NULL);
+    pa_thread_free(pa_sdata->thread);
+
+    pa_source_unref(pa_sdata->source);
+
+    pa_thread_mq_done(&pa_sdata->thread_mq);
+
+    pa_rtpoll_free(pa_sdata->rtpoll);
+
+    return 0;
+}
+
+
+int create_source(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name, const char *profile_name,
+                  pa_sample_spec *ss, pa_channel_map *map, uint32_t source_devices, int32_t flags, int source_iohandle, source_handle_t **handle) {
+    int rc;
+    char *name;
+    struct source_data *sdata;
+
+    pa_assert(m);
+    pa_assert(card);
+    pa_assert(driver);
+    pa_assert(module_handle);
+    pa_assert(module_name);
+    pa_assert(profile_name);
+    pa_assert(ss);
+    pa_assert(map);
+
+    pa_log_debug("Opening source for profile %s", profile_name);
+    sdata = pa_xnew0(struct source_data, sizeof(struct source_data));
+
+    rc = create_qahw_source(module_handle, ss, map, source_devices, flags, source_iohandle, sdata);
+    if (PA_UNLIKELY(rc))  {
+        pa_log_error("Could not open qahw source, error %d", rc);
+        pa_xfree(sdata);
+        sdata = NULL;
+        goto exit;
+    }
+
+    name = pa_sprintf_malloc("qahw_source.%s_%s_%d", module_name, get_source_name(flags), source_iohandle);
+    pa_log_debug("Opening source for profile %s with name %s", profile_name, name);
+    rc = create_pa_source(m, ss, map, name, card, profile_name, driver, sdata);
+    if (PA_UNLIKELY(rc)) {
+        pa_log_error("Could not create pa source for source %s, error %d", name, rc);
+        close_qahw_source(sdata->qahw_sdata);
+        pa_xfree(sdata);
+        sdata = NULL;
+    }
+
+    *handle = (source_handle_t *)sdata;
+
+exit:
+    return rc;
+}
+
+void close_source(source_handle_t *handle) {
+    struct source_data *sdata = (struct source_data *)handle;
+
+    pa_assert(sdata);
+    pa_assert(sdata->qahw_sdata);
+    pa_assert(sdata->pa_sdata);
+
+    close_pa_source(sdata->pa_sdata);
+    close_qahw_source(sdata->qahw_sdata);
+    pa_xfree(sdata);
+}
