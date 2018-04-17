@@ -28,6 +28,7 @@
 #include <qahw_defs.h>
 
 #include "qahw-sink.h"
+#include "qahw-source.h"
 #include "qahw-utils.h"
 
 #define QAHW_MODULE_ID_PRIMARY "audio.primary"
@@ -39,6 +40,11 @@
 #define PA_DEFAULT_SINK_CHANNELS 2
 
 #define PA_DEFAULT_SINK_DEVICE AUDIO_DEVICE_OUT_SPEAKER
+
+#define PA_DEFAULT_SOURCE_FORMAT PA_SAMPLE_S16LE
+#define PA_DEFAULT_SOURCE_RATE 48000
+#define PA_DEFAULT_SOURCE_CHANNELS 2
+#define PA_DEFAULT_SOURCE_DEVICE AUDIO_DEVICE_IN_BUILTIN_MIC
 
 PA_MODULE_AUTHOR("QTI");
 PA_MODULE_DESCRIPTION("qahw card module");
@@ -79,6 +85,7 @@ struct userdata {
     qahw_module_handle_t *module_handle;
     uint32_t sink_devices;
     sink_handle_t **sink_handle;
+    source_handle_t **source_handle;
     uint32_t src_devices;
     int max_supported_sinks;
     int max_supported_sources;
@@ -95,7 +102,9 @@ static const struct qahw_card_ports qahw_ports[] = {
     {"default", {(char *)"headset", (char *)"wired headset", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_WIRED_HEADSET},
     {"default", {(char *)"headphone", (char *)"wired headphone", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_WIRED_HEADPHONE},
     {"default", {(char *)"lineout", (char *)"lineout", PA_AVAILABLE_YES, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_LINE},
-    {"default", {(char *)"builtin", (char *)"builtin mic", PA_AVAILABLE_YES, PA_DIRECTION_INPUT}, AUDIO_DEVICE_IN_BUILTIN_MIC}
+    {"default", {(char *)"headset-mic", (char *)"wired headset mic", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, AUDIO_DEVICE_IN_WIRED_HEADSET},
+    {"default", {(char *)"builtin-mic", (char *)"builtin mic", PA_AVAILABLE_YES, PA_DIRECTION_INPUT}, AUDIO_DEVICE_IN_BUILTIN_MIC},
+    {"default", {(char *)"hdmi-in", (char *)"hdmi input", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, AUDIO_DEVICE_IN_HDMI},
 };
 
 struct qahw_card_profile_usecases profile_sinks[] = {
@@ -104,7 +113,11 @@ struct qahw_card_profile_usecases profile_sinks[] = {
     {"default", AUDIO_OUTPUT_FLAG_RAW, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE},
 };
 
-/* TODO: Add src ports*/
+struct qahw_card_profile_usecases profile_sources[] = {
+    {"default", AUDIO_INPUT_FLAG_FAST, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE},
+    {"default", AUDIO_INPUT_FLAG_NONE, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE},
+};
+
 static void free_qahw_card_profiles(struct userdata *u, pa_hashmap *profiles) {
     pa_card_profile *p;
     void *state;
@@ -247,6 +260,44 @@ static int create_qahw_card(struct userdata *u) {
     return 0;
 }
 
+static int create_card_sources(struct userdata *u, const char *driver, const char *profile_name) {
+    int32_t source_idx, rc = -1;
+    pa_channel_map map;
+    source_handle_t *handle;
+
+    for (source_idx = 0; source_idx < u->max_supported_sources; source_idx++) {
+        if (!pa_streq(profile_sources[source_idx].profile_name, profile_name))
+            continue;
+
+        pa_channel_map_init_auto(&map, profile_sources[source_idx].ss.channels, PA_CHANNEL_MAP_DEFAULT);
+
+        rc = create_source(u->module, u->card, driver, u->module_handle, u->module_name, profile_name, &(profile_sources[source_idx].ss), &map,
+                profile_sources[source_idx].default_device, profile_sources[source_idx].flags, source_idx, &handle);
+        if (PA_UNLIKELY(rc)) {
+            pa_log_error("source create failed for profile %s, error %d ", profile_sources[source_idx].profile_name, rc);
+            handle = NULL;
+        }
+
+        u->source_handle[source_idx] = handle;
+    }
+
+    return rc;
+}
+
+static void close_card_sources(struct userdata *u, const char *profile_name) {
+    int source_idx;
+
+    for (source_idx = 0; source_idx < u->max_supported_sources; source_idx++) {
+        if (!pa_streq(profile_sources[source_idx].profile_name, profile_name))
+            continue;
+
+        if (u->source_handle[source_idx]) {
+            close_source(u->source_handle[source_idx]);
+            u->source_handle[source_idx] = NULL;
+        }
+    }
+}
+
 static int create_card_sinks(struct userdata *u, const char *driver, const char *profile_name) {
     int32_t sink_idx, rc;
     pa_channel_map map;
@@ -327,6 +378,12 @@ int pa__init(pa_module *m) {
     if (PA_UNLIKELY(create_card_sinks(u, __FILE__, DEFAULT_PROFILE)))
         goto fail;
 
+    u->max_supported_sources = ARRAY_SIZE(profile_sources);;
+    u->source_handle = pa_xnew0(source_handle_t *, u->max_supported_sources);
+
+    if (PA_UNLIKELY(create_card_sources(u, __FILE__, DEFAULT_PROFILE)))
+        goto fail;
+
     pa_log_debug("module %s loaded handle %p", u->module_name, u->module_handle);
 
     return 0;
@@ -351,6 +408,13 @@ void pa__done(pa_module *m) {
             close_card_sinks(u, profile->name);
 
         pa_xfree(u->sink_handle);
+    }
+
+    if (u->source_handle) {
+        PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
+            close_card_sources(u, profile->name);
+
+        pa_xfree(u->source_handle);
     }
 
     if (u->module_handle)
