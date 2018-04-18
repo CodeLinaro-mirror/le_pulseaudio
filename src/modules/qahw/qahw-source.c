@@ -31,6 +31,8 @@
 
 #define PA_ALTERNATE_SOURCE_RATE 44100
 
+static int restart_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                              audio_input_flags_t flags, int source_iohandle, struct qahw_source_data *qahw_sdata);
 static int create_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                               audio_input_flags_t flags, int source_iohandle, struct source_data *sdata);
 static int close_qahw_source(struct qahw_source_data *qahw_sdata);
@@ -161,13 +163,11 @@ static int qahw_source_update_rate_cb(pa_source *s, uint32_t rate) {
     if (!PA_SOURCE_IS_OPENED(s->state)) {
         pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, rate);
 
-        close_qahw_source(qahw_sdata);
-
         old_rate = pa_sdata->source->sample_spec.rate; /*take backup*/
         pa_sdata->source->sample_spec.rate = rate;
 
-        rc = create_qahw_source(qahw_sdata->module_handle, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, qahw_sdata->devices,
-                                qahw_sdata->flags, qahw_sdata->handle, sdata);
+        rc = restart_qahw_source(qahw_sdata->module_handle, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, qahw_sdata->devices,
+                                qahw_sdata->flags, qahw_sdata->handle, qahw_sdata);
         if (PA_UNLIKELY(rc)) {
             pa_sdata->source->sample_spec.rate = old_rate; /*restore old rate if failed*/
             pa_log_error("Could create reopen qahw source, error %d", rc);
@@ -210,7 +210,7 @@ static void qahw_source_thread_func(void *userdata) {
             in_buf.bytes = chunk.length;
 
             if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) < 0)
-                pa_log_error("Could not read data: %d", ret);
+                pa_log_error("Could not read data: %d qahw handle %p", ret, qahw_sdata->in_handle);
 
             /* FIXME: don't post if read fails */
             pa_memblock_release(chunk.memblock);
@@ -240,17 +240,14 @@ finish:
     pa_log_debug("Source IO Thread shutting down");
 }
 
-static int create_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                              audio_input_flags_t flags, int source_iohandle, struct source_data *sdata) {
+static int open_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                              audio_input_flags_t flags, int source_iohandle, struct qahw_source_data *qahw_sdata) {
     int rc;
-    struct qahw_source_data *qahw_sdata;
 
     pa_assert(ss);
     pa_assert(map);
     pa_assert(module_handle);
-    pa_assert(sdata);
-
-    qahw_sdata = pa_xnew0(struct qahw_source_data, 1);
+    pa_assert(qahw_sdata);
 
     qahw_fill_source_info(qahw_sdata, ss, map, devices, flags, source_iohandle);
 
@@ -262,7 +259,6 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spe
     if (rc) {
         qahw_sdata->in_handle = NULL;
         pa_log_error("Could not open input stream %d", rc);
-        pa_xfree(qahw_sdata);
         goto fail;
     }
     qahw_sdata->module_handle = module_handle;
@@ -272,12 +268,9 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spe
     qahw_sdata->source_buffer_size = qahw_in_get_buffer_size(qahw_sdata->in_handle);
     if (qahw_sdata->source_buffer_size <= 0) {
         qahw_close_input_stream(qahw_sdata->in_handle);
-        pa_log_error("Invalid buffer size %zu", qahw_sdata->source_buffer_size);
-        pa_xfree(qahw_sdata);
+        rc = -1;
         goto fail;
     }
-
-    sdata->qahw_sdata = qahw_sdata;
 
 fail:
     return rc;
@@ -305,6 +298,57 @@ static int close_qahw_source(struct qahw_source_data *qahw_sdata) {
     return rc;
 }
 
+static int restart_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                              audio_input_flags_t flags, int source_iohandle, struct qahw_source_data *qahw_sdata) {
+    int rc;
+
+    rc = close_qahw_source(qahw_sdata);
+    if (rc) {
+        pa_log_error("close_qahw_source failed, error %d", rc);
+        goto exit;
+    }
+
+    rc = open_qahw_source(module_handle, ss, map, devices, flags, source_iohandle, qahw_sdata);
+    if (rc) {
+        pa_log_error("open_qahw_source failed during recreation, error %d", rc);
+    }
+
+exit:
+    return rc;
+}
+
+static int free_qahw_source(struct qahw_source_data *qahw_sdata) {
+    int rc;
+
+    pa_assert(qahw_sdata);
+
+    rc = close_qahw_source(qahw_sdata);
+    if (rc) {
+        pa_log_error("close_qahw_source failed, error %d", rc);
+    }
+
+    pa_xfree(qahw_sdata);
+    qahw_sdata = NULL;
+
+    return rc;
+}
+
+static int create_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                              audio_input_flags_t flags, int source_iohandle, struct source_data *sdata) {
+   int rc;
+
+   sdata->qahw_sdata = pa_xnew0(struct qahw_source_data, 1);
+
+   rc = open_qahw_source(module_handle, ss, map, devices, flags, source_iohandle, sdata->qahw_sdata);
+   if (rc) {
+       pa_log_error("open_qahw_source failed, error %d", rc);
+       pa_xfree(sdata->qahw_sdata);
+       sdata->qahw_sdata = NULL;
+   }
+
+    return rc;
+}
+
 static int create_pa_source(pa_module *m, pa_sample_spec *ss, pa_channel_map *map, char *source_name, pa_card *card,
                           const char *profile_name, const char *driver, struct source_data *source_data) {
     pa_source_new_data new_data;
@@ -327,7 +371,7 @@ static int create_pa_source(pa_module *m, pa_sample_spec *ss, pa_channel_map *ma
 
     pa_source_new_data_set_name(&new_data, source_name);
 
-    pa_log_error("ss->rate %d ss->channels %d", ss->rate, ss->channels);
+    pa_log_info("ss->rate %d ss->channels %d", ss->rate, ss->channels);
     pa_source_new_data_set_sample_spec(&new_data, ss);
     pa_source_new_data_set_channel_map(&new_data, map);
     pa_source_new_data_set_alternate_sample_rate(&new_data, PA_ALTERNATE_SOURCE_RATE);
@@ -399,7 +443,7 @@ fail :
     return -1;
 }
 
-static int close_pa_source(struct pa_source_data *pa_sdata) {
+static int free_pa_source(struct pa_source_data *pa_sdata) {
     pa_assert(pa_sdata);
     pa_assert(pa_sdata->source);
     pa_assert(pa_sdata->thread);
@@ -453,7 +497,7 @@ int create_source(pa_module *m, pa_card *card, const char *driver, qahw_module_h
     rc = create_pa_source(m, ss, map, name, card, profile_name, driver, sdata);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", name, rc);
-        close_qahw_source(sdata->qahw_sdata);
+        free_qahw_source(sdata->qahw_sdata);
         pa_xfree(sdata);
         sdata = NULL;
     }
@@ -471,7 +515,7 @@ void close_source(source_handle_t *handle) {
     pa_assert(sdata->qahw_sdata);
     pa_assert(sdata->pa_sdata);
 
-    close_pa_source(sdata->pa_sdata);
-    close_qahw_source(sdata->qahw_sdata);
+    free_pa_source(sdata->pa_sdata);
+    free_qahw_source(sdata->qahw_sdata);
     pa_xfree(sdata);
 }
