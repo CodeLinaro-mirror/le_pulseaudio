@@ -37,6 +37,8 @@
 #define QAHW_MAX_GAIN 1
 #define PA_ALTERNATE_SINK_RATE 44100 /* FIXME: Pass it from card */
 
+static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                              audio_output_flags_t flags, int sink_iohandle, struct qahw_sink_data *qahw_sdata);
 static int create_qahw_sink(qahw_module_handle_t *module_handle,pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                             audio_output_flags_t flags, int sink_iohandle, struct sink_data *sdata);
 static int close_qahw_sink(struct qahw_sink_data *qahw_sdata);
@@ -116,8 +118,10 @@ static uint64_t qahw_sink_get_latency(struct sink_data *sink_data) {
         /* latency = bytes pending to be rendered + time elapesed after qahw_out_get_presentation_position */
         latency = (int64_t)(pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec) + (now - qahw_time));
 
+       /* commented to avoid heavy logging
         pa_log_debug("%s:: now %" PRId64 "us, qahw_time %" PRId64 "us, delta %" PRId64 "us, latency %" PRId64 "us", __func__, (int64_t)now,
-                     (int64_t)qahw_time,(int64_t)pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec), latency);
+                    (int64_t)qahw_time,(int64_t)pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec), latency);
+       */
     }
 
     if (latency < 0) {
@@ -260,13 +264,11 @@ static int qahw_sink_update_cb(pa_sink *s, uint32_t rate) {//pa_sample_spec *spe
     if (!PA_SINK_IS_OPENED(s->state)) {
         pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, rate);
 
-        close_qahw_sink(qahw_sdata);
-
         old_rate = pa_sdata->sink->sample_spec.rate; /* take backup */
         pa_sdata->sink->sample_spec.rate = rate;
 
-        rc = create_qahw_sink(qahw_sdata->module_handle, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map, qahw_sdata->devices,
-                              qahw_sdata->flags, qahw_sdata->handle, sdata);
+        rc = restart_qahw_sink(qahw_sdata->module_handle, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map, qahw_sdata->devices,
+                              qahw_sdata->flags, qahw_sdata->handle, qahw_sdata);
         if (PA_UNLIKELY(rc)) {
             pa_sdata->sink->sample_spec.rate = old_rate; /* restore old rate if failed */
             pa_log_error("Could create reopen qahw sink, error %d", rc);
@@ -346,16 +348,13 @@ done:
     pa_log_debug("Closing I/O thread");
 }
 
-static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                            audio_output_flags_t flags, int sink_iohandle, struct sink_data *sdata) {
+static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                            audio_output_flags_t flags, int sink_iohandle, struct qahw_sink_data *qahw_sdata) {
     int rc;
-    struct qahw_sink_data *qahw_sdata;
 
     pa_assert(ss);
     pa_assert(map);
     pa_assert(module_handle);
-
-    qahw_sdata = pa_xnew0(struct qahw_sink_data, 1);
 
     qahw_fill_sink_info(qahw_sdata, ss, map, devices, flags, sink_iohandle);
 
@@ -367,8 +366,6 @@ static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec 
     if (rc) {
         qahw_sdata->out_handle = NULL;
         pa_log_error("Could not open output stream %d", rc);
-        pa_xfree(qahw_sdata);
-        qahw_sdata = NULL;
         goto exit;
     }
 
@@ -380,18 +377,15 @@ static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec 
     if (qahw_sdata->sink_buffer_size <= 0) {
         qahw_close_output_stream(qahw_sdata->out_handle);
         pa_log_error("Invalid buffer size %zu", qahw_sdata->sink_buffer_size);
-        pa_xfree(qahw_sdata);
-        qahw_sdata = NULL;
+        rc = -1;
         goto exit;
     }
 
     qahw_sdata->sink_latency_ms = qahw_out_get_latency(qahw_sdata->out_handle);
     pa_log_debug("sink latency %dms", qahw_sdata->sink_latency_ms);
 
-    sdata->qahw_sdata = qahw_sdata;
-
 exit:
-    return qahw_sdata ? 0: -1;
+    return rc;
 }
 
 static int close_qahw_sink(struct qahw_sink_data *qahw_sdata) {
@@ -412,10 +406,60 @@ static int close_qahw_sink(struct qahw_sink_data *qahw_sdata) {
         qahw_sdata->out_handle = NULL;
     }
 
+    return rc;
+}
+
+static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                              audio_output_flags_t flags, int sink_iohandle, struct qahw_sink_data *qahw_sdata) {
+    int rc;
+
+    rc = close_qahw_sink(qahw_sdata);
+    if (rc) {
+        pa_log_error("close_qahw_sink failed, error %d", rc);
+        goto exit;
+    }
+
+    rc = open_qahw_sink(module_handle, ss, map, devices, flags, sink_iohandle, qahw_sdata);
+    if (rc) {
+        pa_log_error("open_qahw_sink failed during recreation, error %d", rc);
+    }
+
+exit:
+    return rc;
+}
+
+static int free_qahw_sink(struct qahw_sink_data *qahw_sdata) {
+    int rc;
+
+    pa_assert(qahw_sdata);
+
+    rc = close_qahw_sink(qahw_sdata);
+    if (rc) {
+        pa_log_error("close_qahw_sink failed, error %d", rc);
+    }
+
     pa_xfree(qahw_sdata);
+    qahw_sdata = NULL;
 
     return rc;
 }
+
+static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                              audio_output_flags_t flags, int sink_iohandle, struct sink_data *sdata) {
+   int rc;
+
+   sdata->qahw_sdata = pa_xnew0(struct qahw_sink_data, 1);
+
+   rc = open_qahw_sink(module_handle, ss, map, devices, flags, sink_iohandle, sdata->qahw_sdata);
+   if (rc) {
+       pa_log_error("open_qahw_sink failed, error %d", rc);
+       pa_xfree(sdata->qahw_sdata);
+       sdata->qahw_sdata = NULL;
+   }
+
+    return rc;
+}
+
 
 static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map, char *sink_name, pa_card *card,
                           const char *profile_name, const char *driver, struct sink_data *sink_data) {
@@ -443,7 +487,7 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
     pa_sink_new_data_set_channel_map(&new_data, map);
     pa_sink_new_data_set_alternate_sample_rate(&new_data, PA_ALTERNATE_SINK_RATE);
 
-    /* associate port with sink, first get port in a card then for each profile in that port check if matches with input profile */
+    /* associate port with sink, first get port in a card then for each profile in that port check if matches with output profile */
     PA_HASHMAP_FOREACH(port, card->ports, state) {
         if (!(port->direction & PA_DIRECTION_OUTPUT))
             continue;
@@ -515,7 +559,7 @@ fail :
     return -1;
 }
 
-static int close_pa_sink(struct pa_sink_data *pa_sdata) {
+static int free_pa_sink(struct pa_sink_data *pa_sdata) {
     pa_assert(pa_sdata);
     pa_assert(pa_sdata->sink);
     pa_assert(pa_sdata->thread);
@@ -570,7 +614,7 @@ int create_sink(pa_module *m, pa_card *card, const char *driver, qahw_module_han
     rc = create_pa_sink(m, ss, map, name, card, profile_name, driver, sdata);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", name, rc);
-        close_qahw_sink(sdata->qahw_sdata);
+        free_qahw_sink(sdata->qahw_sdata);
         pa_xfree(sdata);
         sdata = NULL;
     }
@@ -588,8 +632,8 @@ void close_sink(sink_handle_t *handle) {
     pa_assert(sdata->qahw_sdata);
     pa_assert(sdata->pa_sdata);
 
-    close_pa_sink(sdata->pa_sdata);
-    close_qahw_sink(sdata->qahw_sdata);
+    free_pa_sink(sdata->pa_sdata);
+    free_qahw_sink(sdata->qahw_sdata);
 
     pa_xfree(sdata);
 }
