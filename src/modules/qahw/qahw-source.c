@@ -384,7 +384,7 @@ static int create_pa_source(pa_module *m, pa_sample_spec *ss, pa_channel_map *ma
 
             profile = pa_hashmap_get(port->profiles, profile_name);
 
-            if ((profile) && (!strcmp(profile->name, profile_name))) {
+            if ((profile) && pa_streq(profile->name, profile_name)) {
                 pa_log_error("adding port %s to source %s", port->name, source_name);
                 pa_assert_se(pa_hashmap_put(new_data.ports, port->name, port) >= 0);
                 pa_device_port_ref(port);

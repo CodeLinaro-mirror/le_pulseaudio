@@ -495,7 +495,7 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
         PA_HASHMAP_FOREACH(profile, port->profiles, state2) {
             profile = pa_hashmap_get(port->profiles, profile_name);
 
-            if (profile && !pa_streq(profile->name, profile_name)) {
+            if (profile && pa_streq(profile->name, profile_name)) {
                 pa_log_debug("adding port %s to sink %s", port->name, sink_name);
                 pa_assert_se(pa_hashmap_put(new_data.ports, port->name, port) == 0);
                 pa_device_port_ref(port);
