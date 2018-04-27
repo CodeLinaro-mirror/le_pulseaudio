@@ -31,6 +31,7 @@
 #include <pulsecore/rtpoll.h>
 #include <pulsecore/sink.h>
 #include <pulsecore/memchunk.h>
+#include <pulsecore/mutex.h>
 
 #include <qahw_api.h>
 #include <qahw_defs.h>
@@ -52,6 +53,9 @@ struct qahw_sink_data {
     uint32_t sink_latency_us;
     pa_usec_t buffer_duration_us;
     uint64_t bytes_written;
+
+    pa_atomic_t wait_for_write_ready;
+    int write_fd;
 };
 
 struct pa_sink_data {
@@ -60,12 +64,16 @@ struct pa_sink_data {
     pa_rtpoll *rtpoll;
     pa_thread_mq thread_mq;
     pa_thread *thread;
+
+    pa_rtpoll_item *rtpoll_item;
 };
 
 struct sink_data {
     struct qahw_sink_data *qahw_sdata;
     struct pa_sink_data *pa_sdata;
     struct userdata *u;
+
+    pa_fdsem *fdsem; /* common resource between pa and qahw sink */
 };
 
 void deinit_sink(struct userdata *u);
