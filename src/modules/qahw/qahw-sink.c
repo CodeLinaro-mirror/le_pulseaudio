@@ -83,7 +83,7 @@ static void qahw_fill_sink_info(struct qahw_sink_data *qahw_sdata, pa_sample_spe
     qahw_sdata->bytes_written = 0;
 }
 
-static uint64_t qahw_sink_get_latency(struct sink_data *sink_data) {
+static uint64_t qahw_sink_get_latency(struct sink_data *sdata) {
     int rc, delta, bytes_rendered;
     int64_t latency = 0;
     uint64_t frames;
@@ -93,12 +93,12 @@ static uint64_t qahw_sink_get_latency(struct sink_data *sink_data) {
     struct timespec timestamp;
     pa_usec_t qahw_time, now;
 
-    pa_assert(sink_data);
-    pa_assert(sink_data->pa_sdata);
-    pa_assert(sink_data->qahw_sdata);
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->qahw_sdata);
 
-    qahw_sdata = sink_data->qahw_sdata;
-    pa_sdata = sink_data->pa_sdata;
+    qahw_sdata = sdata->qahw_sdata;
+    pa_sdata = sdata->pa_sdata;
 
     pa_assert(pa_sdata->sink);
     pa_assert(qahw_sdata->out_handle);
@@ -149,23 +149,23 @@ static int qahw_sink_standby(struct qahw_sink_data *qahw_sdata) {
 }
 
 static void qahw_sink_set_volume_cb(pa_sink *s) {
-    struct sink_data *sink_data = (struct sink_data *)s->userdata;
+    struct sink_data *sdata = (struct sink_data *)s->userdata;
     float gain;
     int rc;
     pa_volume_t volume;
 
-    pa_assert(sink_data);
-    pa_assert(sink_data->qahw_sdata);
-    pa_assert(sink_data->qahw_sdata->out_handle);
+    pa_assert(sdata);
+    pa_assert(sdata->qahw_sdata);
+    pa_assert(sdata->qahw_sdata->out_handle);
 
     gain = ((float) pa_cvolume_max(&s->real_volume) * (float)QAHW_MAX_GAIN) / (float)PA_VOLUME_NORM;
     volume = (pa_volume_t) roundf((float) gain * PA_VOLUME_NORM / QAHW_MAX_GAIN);
 
-    pa_log_debug ("qahw stream %p: gain %f\n", sink_data->qahw_sdata->out_handle, gain);
+    pa_log_debug ("qahw stream %p: gain %f\n", sdata->qahw_sdata->out_handle, gain);
 
-    rc = qahw_out_set_volume(sink_data->qahw_sdata->out_handle, gain, gain);
+    rc = qahw_out_set_volume(sdata->qahw_sdata->out_handle, gain, gain);
     if (rc)
-        pa_log_error("qahw stream %p: unable to set volume error %d\n", sink_data->qahw_sdata->out_handle, rc);
+        pa_log_error("qahw stream %p: unable to set volume error %d\n", sdata->qahw_sdata->out_handle, rc);
     else
         pa_cvolume_set(&s->real_volume, s->real_volume.channels, volume); /* TODO: Is this correct? */
 
@@ -175,12 +175,12 @@ static void qahw_sink_set_volume_cb(pa_sink *s) {
 static int qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     audio_devices_t *audio_device;
     char kvpair[KV_PAIR_MAX_LENGTH] = { 0 };
-    struct sink_data *sink_data = (struct sink_data *)s->userdata;
+    struct sink_data *sdata = (struct sink_data *)s->userdata;
     int rc;
 
-    pa_assert(sink_data);
-    pa_assert(sink_data->qahw_sdata);
-    pa_assert(sink_data->qahw_sdata->out_handle);
+    pa_assert(sdata);
+    pa_assert(sdata->qahw_sdata);
+    pa_assert(sdata->qahw_sdata->out_handle);
 
     audio_device = PA_DEVICE_PORT_DATA(p);
     pa_assert(audio_device);
@@ -188,7 +188,7 @@ static int qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     /* FIXME: use pa_sprintf_malloc() */
     snprintf(kvpair, KV_PAIR_MAX_LENGTH, "%s=%d", QAHW_PARAMETER_STREAM_ROUTING, *audio_device);
 
-    rc = qahw_out_set_parameters(sink_data->qahw_sdata->out_handle, kvpair);
+    rc = qahw_out_set_parameters(sdata->qahw_sdata->out_handle, kvpair);
     if (rc)
         pa_log_error("qahw routing failed %d",rc);
 
@@ -199,15 +199,15 @@ static int qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
 
 static int qahw_sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
 
-    struct sink_data *sink_data = (struct sink_data *)(PA_SINK(o)->userdata);
+    struct sink_data *sdata = (struct sink_data *)(PA_SINK(o)->userdata);
 
-    pa_assert(sink_data);
-    pa_assert(sink_data->pa_sdata);
-    pa_assert(sink_data->pa_sdata->sink);
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->sink);
 
     switch (code) {
         case PA_SINK_MESSAGE_GET_LATENCY:
-             *((int64_t*) data) = qahw_sink_get_latency(sink_data);
+             *((int64_t*) data) = qahw_sink_get_latency(sdata);
              return 0;
 
         case PA_SINK_MESSAGE_SET_STATE: {
@@ -216,10 +216,10 @@ static int qahw_sink_process_msg(pa_msgobject *o, int code, void *data, int64_t 
 
             pa_log_debug("Sink new state is: %d", new_state);
 
-            if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(sink_data->pa_sdata->sink->thread_info.state))
-                r = qahw_sink_start(sink_data->qahw_sdata);
+            if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(sdata->pa_sdata->sink->thread_info.state))
+                r = qahw_sink_start(sdata->qahw_sdata);
              else if (new_state == PA_SINK_SUSPENDED)
-                r = qahw_sink_standby(sink_data->qahw_sdata);
+                r = qahw_sink_standby(sdata->qahw_sdata);
 
             /* Error */
             if (r < 0)
@@ -286,9 +286,9 @@ static int qahw_sink_update_cb(pa_sink *s, uint32_t rate) {//pa_sample_spec *spe
 }
 
 static void qahw_sink_thread_func(void *userdata) {
-    struct sink_data *sink_data = (struct sink_data *)userdata;
-    struct pa_sink_data *pa_sdata = sink_data->pa_sdata;
-    struct qahw_sink_data *qahw_sdata = sink_data->qahw_sdata;
+    struct sink_data *sdata = (struct sink_data *)userdata;
+    struct pa_sink_data *pa_sdata = sdata->pa_sdata;
+    struct qahw_sink_data *qahw_sdata = sdata->qahw_sdata;
 
     pa_thread_mq_install(&pa_sdata->thread_mq);
 
@@ -459,14 +459,14 @@ static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec 
 
 
 static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map, char *sink_name, pa_card *card,
-                          const char *profile_name, const char *driver, struct sink_data *sink_data) {
+                          const char *profile_name, const char *driver, struct sink_data *sdata) {
     pa_sink_new_data new_data;
     struct pa_sink_data *pa_sdata;
     pa_device_port *port;
     pa_card_profile *profile;
     void *state, *state2;
 
-    pa_assert(sink_data->qahw_sdata);
+    pa_assert(sdata->qahw_sdata);
 
     pa_sdata = pa_xnew0(struct pa_sink_data, 1);
     pa_sink_new_data_init(&new_data);
@@ -509,9 +509,9 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
     }
 
     pa_log_debug("pa sink opened %p", pa_sdata->sink);
-    sink_data->pa_sdata = pa_sdata;
+    sdata->pa_sdata = pa_sdata;
 
-    pa_sdata->sink->userdata = (void *)sink_data;
+    pa_sdata->sink->userdata = (void *)sdata;
     pa_sdata->sink->parent.process_msg = qahw_sink_process_msg;
     pa_sdata->sink->set_port = qahw_sink_set_port_cb;
     pa_sdata->sink->update_rate = qahw_sink_update_cb;
@@ -519,14 +519,14 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
     pa_sink_set_asyncmsgq(pa_sdata->sink, pa_sdata->thread_mq.inq);
     pa_sink_set_rtpoll(pa_sdata->sink, pa_sdata->rtpoll);
 
-    pa_sink_set_max_request(pa_sdata->sink, sink_data->qahw_sdata->sink_buffer_size);
+    pa_sink_set_max_request(pa_sdata->sink, sdata->qahw_sdata->sink_buffer_size);
     pa_sink_set_max_rewind(pa_sdata->sink, 0);
-    pa_sink_set_fixed_latency(pa_sdata->sink, sink_data->qahw_sdata->sink_latency_us);
+    pa_sink_set_fixed_latency(pa_sdata->sink, sdata->qahw_sdata->sink_latency_us);
 
     pa_sink_set_set_volume_callback(pa_sdata->sink, qahw_sink_set_volume_cb);
     pa_sdata->sink->n_volume_steps = 15; /* TODO: What should be value */
 
-    pa_sdata->thread = pa_thread_new(sink_name, qahw_sink_thread_func, sink_data);
+    pa_sdata->thread = pa_thread_new(sink_name, qahw_sink_thread_func, sdata);
     if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
         pa_log_error("Could not spawn I/O thread");
         goto fail;
@@ -549,7 +549,7 @@ fail :
         pa_sink_unref(pa_sdata->sink);
 
     pa_xfree(pa_sdata);
-    sink_data->pa_sdata = NULL;
+    sdata->pa_sdata = NULL;
 
     pa_xfree(sink_name);
 
