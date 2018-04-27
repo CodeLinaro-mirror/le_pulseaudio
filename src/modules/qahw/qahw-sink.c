@@ -174,7 +174,7 @@ static void qahw_sink_set_volume_cb(pa_sink *s) {
 
 static int qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     audio_devices_t *audio_device;
-    char kvpair[KV_PAIR_MAX_LENGTH] = { 0 };
+    char *kvpair;
     struct sink_data *sdata = (struct sink_data *)s->userdata;
     int rc;
 
@@ -185,14 +185,15 @@ static int qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     audio_device = PA_DEVICE_PORT_DATA(p);
     pa_assert(audio_device);
 
-    /* FIXME: use pa_sprintf_malloc() */
-    snprintf(kvpair, KV_PAIR_MAX_LENGTH, "%s=%d", QAHW_PARAMETER_STREAM_ROUTING, *audio_device);
+    kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_STREAM_ROUTING, *audio_device);
 
     rc = qahw_out_set_parameters(sdata->qahw_sdata->out_handle, kvpair);
     if (rc)
         pa_log_error("qahw routing failed %d",rc);
 
     pa_log_debug("port name: %s kvpair %s device %d",p->name, kvpair, *audio_device);
+
+    pa_xfree(kvpair);
 
     return rc;
 }
