@@ -49,7 +49,7 @@ struct qahw_sink_data {
     const char *device_url;
 
     size_t sink_buffer_size;
-    uint32_t sink_latency_ms;
+    uint32_t sink_latency_us;
     pa_usec_t buffer_duration_us;
     uint64_t bytes_written;
 };
