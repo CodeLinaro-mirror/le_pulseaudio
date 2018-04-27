@@ -116,12 +116,14 @@ static uint64_t qahw_sink_get_latency(struct sink_data *sink_data) {
 
         now = pa_rtclock_now();
         /* latency = bytes pending to be rendered + time elapesed after qahw_out_get_presentation_position */
-        latency = (int64_t)(pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec) + (now - qahw_time));
+        latency = (int64_t)(pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec) - (now - qahw_time));
 
        /* commented to avoid heavy logging
         pa_log_debug("%s:: now %" PRId64 "us, qahw_time %" PRId64 "us, delta %" PRId64 "us, latency %" PRId64 "us", __func__, (int64_t)now,
                     (int64_t)qahw_time,(int64_t)pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec), latency);
        */
+    } else {
+        latency = (int64_t)(pa_bytes_to_usec(qahw_sdata->bytes_written, &pa_sdata->sink->sample_spec));
     }
 
     if (latency < 0) {
@@ -275,7 +277,7 @@ static int qahw_sink_update_cb(pa_sink *s, uint32_t rate) {//pa_sample_spec *spe
             return -1;
         }
 
-        pa_sink_set_fixed_latency(pa_sdata->sink, qahw_sdata->sink_latency_ms * 1000);
+        pa_sink_set_fixed_latency(pa_sdata->sink, qahw_sdata->sink_latency_us);
         return 0;
     }
 
@@ -375,8 +377,9 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *s
         goto exit;
     }
 
-    qahw_sdata->sink_latency_ms = qahw_out_get_latency(qahw_sdata->out_handle);
-    pa_log_debug("sink latency %dms", qahw_sdata->sink_latency_ms);
+    /*FIXME: Add DSP latency */
+    qahw_sdata->sink_latency_us = pa_bytes_to_usec(qahw_sdata->sink_buffer_size, ss);
+    pa_log_debug("sink latency %dus", qahw_sdata->sink_latency_us);
 
 exit:
     return rc;
@@ -518,7 +521,7 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
 
     pa_sink_set_max_request(pa_sdata->sink, sink_data->qahw_sdata->sink_buffer_size);
     pa_sink_set_max_rewind(pa_sdata->sink, 0);
-    pa_sink_set_fixed_latency(pa_sdata->sink, sink_data->qahw_sdata->sink_latency_ms * PA_USEC_PER_MSEC);
+    pa_sink_set_fixed_latency(pa_sdata->sink, sink_data->qahw_sdata->sink_latency_us);
 
     pa_sink_set_set_volume_callback(pa_sdata->sink, qahw_sink_set_volume_cb);
     pa_sdata->sink->n_volume_steps = 15; /* TODO: What should be value */
