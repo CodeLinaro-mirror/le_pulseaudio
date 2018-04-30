@@ -31,6 +31,7 @@
 #include "qahw-source.h"
 #include "qahw-utils.h"
 #include "qahw-jack.h"
+#include "qahw-loopback.h"
 
 #define QAHW_MODULE_ID_PRIMARY "audio.primary"
 #define QAHW_CARD_NAME_PREFIX "qahw."
@@ -472,6 +473,8 @@ int pa__init(pa_module *m) {
     if (PA_UNLIKELY(create_card_sources(u, __FILE__, DEFAULT_PROFILE)))
         goto fail;
 
+    pa_qahw_loopback_init(u->module_handle, u->core, u->card);
+
     pa_log_debug("module %s loaded handle %p", u->module_name, u->module_handle);
 
     return 0;
@@ -490,6 +493,8 @@ void pa__done(pa_module *m) {
 
     if (!(u = m->userdata))
         return;
+
+    pa_qahw_loopback_deinit();
 
     if (u->sink_handle) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
