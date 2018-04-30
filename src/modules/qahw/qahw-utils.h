@@ -33,5 +33,9 @@ audio_format_t get_qahw_audio_format(pa_sample_format_t format);
 const char* pa_qahw_jack_type_to_port_name(pa_qahw_jack_type_t jack_type);
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_encoding(pa_encoding_t pa_format);
 audio_channel_mask_t pa_qahw_util_get_channel_mask_from_num_channels(unsigned int num_channels);
+unsigned int pa_qahw_util_get_num_channels_from_channel_mask(audio_channel_mask_t channel_mask);
+pa_encoding_t pa_qahw_util_get_pa_encoding_from_qahw_format(audio_format_t qahw_format);
+const char *pa_qahw_util_audio_device_to_port_name(audio_devices_t audio_device, pa_hashmap *ports);
+pa_sample_format_t pa_qahw_util_get_pa_sample_from_qahw_format(audio_format_t format);
 
 #endif
