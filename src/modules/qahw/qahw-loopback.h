@@ -16,22 +16,16 @@
  * 02110-1301  USA
  */
 
-#ifndef fooqahwutilsfoo
-#define fooqahwutilsfoo
+#ifndef fooqahwpaloopbackhfoo
+#define fooqahwpaloopbackhfoo
 
-#include <pulse/sample.h>
+#include <pulsecore/core.h>
+#include <pulsecore/card.h>
 
 #include <qahw_api.h>
 #include <qahw_defs.h>
 
-#include "qahw-jack.h"
-
-#define KV_PAIR_MAX_LENGTH 100
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
-
-audio_format_t get_qahw_audio_format(pa_sample_format_t format);
-const char* pa_qahw_jack_type_to_port_name(pa_qahw_jack_type_t jack_type);
-audio_format_t pa_qahw_util_get_qahw_format_from_pa_encoding(pa_encoding_t pa_format);
-audio_channel_mask_t pa_qahw_util_get_channel_mask_from_num_channels(unsigned int num_channels);
+void pa_qahw_loopback_init(qahw_module_handle_t *module_handle, pa_core *core, pa_card *card);
+void pa_qahw_loopback_deinit(void);
 
 #endif

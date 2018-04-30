@@ -57,3 +57,66 @@ const char* pa_qahw_jack_type_to_port_name(pa_qahw_jack_type_t jack_type) {
             return NULL;
     }
 }
+
+audio_format_t pa_qahw_util_get_qahw_format_from_pa_encoding(pa_encoding_t pa_format) {
+    audio_format_t qahw_format = AUDIO_FORMAT_INVALID;
+
+    switch (pa_format) {
+        case PA_ENCODING_ANY:
+            qahw_format = AUDIO_FORMAT_DEFAULT;
+            break;
+        case PA_ENCODING_PCM:
+            qahw_format = AUDIO_FORMAT_PCM_16_BIT;
+            break;
+        case PA_ENCODING_AC3_IEC61937:
+            qahw_format = AUDIO_FORMAT_AC3;
+            break;
+        case PA_ENCODING_EAC3_IEC61937:
+            qahw_format = AUDIO_FORMAT_E_AC3;
+            break;
+        case PA_ENCODING_TRUEHD_IEC61937:
+            qahw_format = AUDIO_FORMAT_DOLBY_TRUEHD;
+            break;
+        default:
+            pa_log_error("PA format encoding not supported in QAHW\n");
+            break;
+    }
+
+    return qahw_format;
+}
+
+audio_channel_mask_t pa_qahw_util_get_channel_mask_from_num_channels(unsigned int num_channels) {
+    audio_channel_mask_t channel_mask = AUDIO_CHANNEL_INVALID;
+
+    switch (num_channels) {
+        case 1:
+            channel_mask = AUDIO_CHANNEL_OUT_MONO;
+            break;
+        case 2:
+            channel_mask = AUDIO_CHANNEL_OUT_STEREO;
+            break;
+        case 3:
+            channel_mask = AUDIO_CHANNEL_OUT_2POINT1;
+            break;
+        case 4:
+            channel_mask = AUDIO_CHANNEL_OUT_QUAD;
+            break;
+        case 5:
+            channel_mask = AUDIO_CHANNEL_OUT_PENTA;
+            break;
+        case 6:
+            channel_mask = AUDIO_CHANNEL_OUT_5POINT1;
+            break;
+        case 7:
+            channel_mask = AUDIO_CHANNEL_OUT_6POINT1;
+            break;
+        case 8:
+            channel_mask = AUDIO_CHANNEL_OUT_7POINT1;
+            break;
+        default:
+            pa_log_error("Unsupported number of channels\n");
+            break;
+    }
+
+    return channel_mask;
+}
