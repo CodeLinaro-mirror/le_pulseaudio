@@ -1415,6 +1415,10 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/qcs405-amic-snd-card.conf
 endif
 
+if HAVE_QSTHW
+modlibexec_LTLIBRARIES += module-qsthw.la
+endif
+
 if HAVE_SOLARIS
 modlibexec_LTLIBRARIES += \
 		module-solaris.la
@@ -1657,6 +1661,13 @@ module_qahw_card_la_SOURCES = \
 module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(QAHW_API_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
 module_qahw_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qahw_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqahw
+endif
+
+if HAVE_QSTHW
+module_qsthw_la_SOURCES = modules/module-qsthw.c
+module_qsthw_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) $(QSTHW_CFLAGS) -Werror -DPA_MODULE_NAME=module_qsthw
+module_qsthw_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_qsthw_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqtisoundtriggerhw
 endif
 
 # Pipes
