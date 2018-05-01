@@ -855,6 +855,18 @@ AS_IF([test "x$with_qahw" != "xno"], [QAHW_CFLAGS="-I$with_qahw"])
 
 AC_SUBST(QAHW_CFLAGS)
 
+#### QSTHW support (optional) ####
+
+AC_ARG_WITH([qsthw],
+    AS_HELP_STRING([--without-qsthw],[Disable optional QSTHW support]),[],[with_qsthw=no])
+AM_CONDITIONAL([HAVE_QSTHW], [test "x$with_qsthw" != "xno"])
+
+QSTHW_CFLAGS=
+AS_IF([test "x$with_qsthw" != "xno"], [HAVE_QSTHW=1])
+AS_IF([test "x$with_qsthw" != "xno"], [QSTHW_CFLAGS="-I$with_qsthw"])
+
+AC_SUBST(QSTHW_CFLAGS)
+
 #### EsounD support (optional) ####
 
 AC_ARG_ENABLE([esound],
@@ -1601,6 +1613,7 @@ AS_IF([test "x$HAVE_OSS_OUTPUT" = "x1"], ENABLE_OSS_OUTPUT=yes, ENABLE_OSS_OUTPU
 AS_IF([test "x$HAVE_OSS_WRAPPER" = "x1"], ENABLE_OSS_WRAPPER=yes, ENABLE_OSS_WRAPPER=no)
 AS_IF([test "x$HAVE_ALSA" = "x1"], ENABLE_ALSA=yes, ENABLE_ALSA=no)
 AS_IF([test "x$HAVE_QAHW" = "x1"], ENABLE_QAHW=yes, ENABLE_QAHW=no)
+AS_IF([test "x$HAVE_QSTHW" = "x1"], ENABLE_QSTHW=yes, ENABLE_QSTHW=no)
 AS_IF([test "x$HAVE_COREAUDIO" = "x1"], ENABLE_COREAUDIO=yes, ENABLE_COREAUDIO=no)
 AS_IF([test "x$HAVE_SOLARIS" = "x1"], ENABLE_SOLARIS=yes, ENABLE_SOLARIS=no)
 AS_IF([test "x$HAVE_WAVEOUT" = "x1"], ENABLE_WAVEOUT=yes, ENABLE_WAVEOUT=no)
@@ -1665,6 +1678,7 @@ echo "
     Enable EsounD:                 ${ENABLE_ESOUND}
     Enable Alsa:                   ${ENABLE_ALSA}
     Enable Qahw:                   ${ENABLE_QAHW}
+    Enable Qsthw:                  ${ENABLE_QSTHW}
     Enable CoreAudio:              ${ENABLE_COREAUDIO}
     Enable Solaris:                ${ENABLE_SOLARIS}
     Enable WaveOut:                ${ENABLE_WAVEOUT}
