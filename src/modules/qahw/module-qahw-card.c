@@ -299,7 +299,7 @@ static void close_card_sources(struct userdata *u, const char *profile_name) {
 }
 
 static int create_card_sinks(struct userdata *u, const char *driver, const char *profile_name) {
-    int32_t sink_idx, rc;
+    int32_t sink_idx, rc = 0;
     pa_channel_map map;
     sink_handle_t *handle;
 
