@@ -69,6 +69,27 @@ static const char *get_sink_name(audio_output_flags_t flags) {
     return name;
 }
 
+audio_io_handle_t pa_qahw_sink_get_io_handle(sink_handle_t *handle) {
+    struct sink_data *sdata = (struct sink_data *)handle;
+    pa_assert(sdata);
+    pa_assert(sdata->qahw_sdata);
+    return sdata->qahw_sdata->handle;
+}
+
+int pa_qahw_sink_get_index(sink_handle_t *handle) {
+    struct sink_data *sdata = (struct sink_data *)handle;
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    return sdata->pa_sdata->sink->index;
+}
+
+int pa_qahw_sink_get_flags(sink_handle_t *handle) {
+    struct sink_data *sdata = (struct sink_data *)handle;
+    pa_assert(sdata);
+    pa_assert(sdata->qahw_sdata);
+    return sdata->qahw_sdata->flags;
+}
+
 static int qahw_out_write_cb(qahw_stream_callback_event_t event, void *param, void *userdata) {
     struct sink_data *sdata = (struct sink_data *)userdata;
 
@@ -591,7 +612,7 @@ static int alloc_common_sink_resources(struct sink_data *sdata) {
        pa_log_error("Could not create fdsem");
        return -1;
    }
-   
+
    return 0;
 }
 

@@ -860,6 +860,16 @@ AS_IF([test "x$with_qahw" != "xno"], [QAHW_CFLAGS="-I$with_qahw"])
 
 AC_SUBST(QAHW_CFLAGS)
 
+AC_ARG_WITH([qahw_api],
+    AS_HELP_STRING([--without-qahw-api],[Disable optional QAHW API support]),[],[with_qahw_api=no])
+AM_CONDITIONAL([HAVE_QAHW_API], [test "x$with_qahw_api" != "xno"])
+
+QAHW_API_CFLAGS=
+AS_IF([test "x$with_qahw_api" != "xno"], [HAVE_QAHW_API=1])
+AS_IF([test "x$with_qahw_api" != "xno"], [QAHW_API_CFLAGS="-I$with_qahw_api"])
+
+AC_SUBST(QAHW_API_CFLAGS)
+
 #### EsounD support (optional) ####
 
 AC_ARG_ENABLE([esound],
