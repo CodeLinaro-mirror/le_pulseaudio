@@ -24,17 +24,26 @@
 #include <pulsecore/core-util.h>
 #include <pulsecore/modargs.h>
 
+#include <string.h>
+
 #include <qahw_api.h>
 #include <qahw_defs.h>
 
-#include "qahw-sink.h"
 #include "qahw-source.h"
 #include "qahw-utils.h"
 #include "qahw-jack.h"
 #include "qahw-loopback.h"
 #include "qahw-card-extn.h"
+#include "qahw-effect.h"
 
-#define QAHW_MODULE_ID_PRIMARY "audio.primary"
+#define CONC(A,B) (A B)
+#define QAHW_MODULE_ID_PREFIX "audio."
+#define QAHW_MODULE_PRIMARY "primary"
+
+#ifndef QAHW_MODULE_ID_PRIMARY
+#define QAHW_MODULE_ID_PRIMARY CONC(QAHW_MODULE_ID_PREFIX, QAHW_MODULE_PRIMARY)
+#endif
+
 #define QAHW_CARD_NAME_PREFIX "qahw."
 #define DEFAULT_PROFILE "default"
 
@@ -90,6 +99,8 @@ struct userdata {
     uint32_t sink_devices;
     sink_handle_t **sink_handle;
     source_handle_t **source_handle;
+    pa_qahw_effect_handle_t effect_handle;
+    pa_qahw_effect_status *effect_status;
     uint32_t src_devices;
     int max_supported_sinks;
     int max_supported_sources;
@@ -123,6 +134,34 @@ struct qahw_card_profile_usecases profile_sources[] = {
     {"default", AUDIO_INPUT_FLAG_FAST, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE},
     {"default", AUDIO_INPUT_FLAG_NONE, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE},
 };
+
+pa_qahw_effect_data sink_effects_info[] = {
+    {AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_NON_BLOCKING, {true, true, true, true, false}},
+    {AUDIO_OUTPUT_FLAG_FAST, {false, false, false, false, false}},
+    {AUDIO_OUTPUT_FLAG_RAW, {false, false, false, false, false}},
+};
+
+pa_qahw_port_effect_data port_effects_info[] = {
+    {"speaker", {false, false, false, false, true}},
+    {"headset", {false, false, false, false, false}},
+    {"headphone", {false, false, false, false, false}},
+    {"lineout", {false, false, false, false, false}},
+    {"headset-mic", {false, false, false, false, false}},
+    {"builtin-mic", {false, false, false, false, false}},
+    {"hdmi-in", {false, false, false, false, false}},
+};
+
+static void pa_qahw_card_fill_sink_effect_status(pa_qahw_effect_status *effect_status, sink_handle_t *handle) {
+    int i = 0;
+
+    pa_assert(effect_status);
+    pa_assert(handle);
+
+    effect_status->handle = handle;
+    effect_status->sink_id = pa_qahw_sink_get_index(handle);
+    for (i = 0; i < PA_QAHW_EFFECT_MAX; i++)
+        effect_status->effect_loaded[i] = false;
+}
 
 static void pa_qahw_jack_callback(pa_qahw_jack_event_t event, pa_qahw_jack_event_data_t *event_data, void *prv_data) {
     const char *port_name = NULL;
@@ -203,7 +242,6 @@ static void jack_detection_enable(struct userdata *u) {
     } else {
         u->jack_handle = jack_handle;
     }
-
 }
 
 static void free_qahw_card_profiles(struct userdata *u, pa_hashmap *profiles) {
@@ -409,6 +447,7 @@ static int create_card_sinks(struct userdata *u, const char *driver, const char 
         }
 
         u->sink_handle[sink_idx] = handle;
+        pa_qahw_card_fill_sink_effect_status(&u->effect_status[sink_idx], handle);
     }
 
     return rc;
@@ -422,15 +461,19 @@ static void close_card_sinks(struct userdata *u, const char *profile_name) {
             continue;
 
         if (u->sink_handle[sink_idx]) {
+            pa_qahw_free_sink_effects(u->effect_handle, pa_qahw_sink_get_index(u->sink_handle[sink_idx]));
             close_sink(u->sink_handle[sink_idx]);
             u->sink_handle[sink_idx] = NULL;
         }
     }
+    pa_xfree(u->effect_status);
 }
 
 int pa__init(pa_module *m) {
     struct userdata *u;
     pa_modargs *ma;
+    char *dbus_path;
+    pa_dbus_protocol *dbus_protocol = NULL;
 
     pa_assert(m);
 
@@ -467,6 +510,8 @@ int pa__init(pa_module *m) {
 
     jack_detection_enable(u);
 
+    u->effect_status = (pa_qahw_effect_status *)pa_xnew0(pa_qahw_effect_status, ARRAY_SIZE(profile_sinks));
+
     if (PA_UNLIKELY(create_card_sinks(u, __FILE__, DEFAULT_PROFILE)))
         goto fail;
 
@@ -480,6 +525,11 @@ int pa__init(pa_module *m) {
     pa_qahw_loopback_init(u->module_handle, u->core, u->card);
 
     pa_log_debug("module %s loaded handle %p", u->module_name, u->module_handle);
+
+    dbus_path = pa_sprintf_malloc("%s/%s", QAHW_EFFECT_OBJECT_PATH, QAHW_MODULE_PRIMARY);
+    dbus_protocol = pa_dbus_protocol_get(u->core);
+    u->effect_handle = pa_qahw_init_effect(dbus_path, dbus_protocol, sink_effects_info, port_effects_info,
+                                           u->effect_status, u->card, u->max_supported_sinks, u->max_supported_sources);
 
     return 0;
 
@@ -507,6 +557,8 @@ void pa__done(pa_module *m) {
 
         pa_xfree(u->sink_handle);
     }
+
+    pa_qahw_deinit_effect(u->effect_handle);
 
     if (u->source_handle) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)

@@ -82,6 +82,10 @@ struct sink_data {
 void deinit_sink(struct userdata *u);
 void init_sink(struct userdata *u);
 
+audio_io_handle_t pa_qahw_sink_get_io_handle(sink_handle_t *handle);
+int pa_qahw_sink_get_index(sink_handle_t *handle);
+int pa_qahw_sink_get_flags(sink_handle_t *handle);
+
 /* create qahw session and pa sink */
 int create_sink(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name,
                  const char *profile_name, pa_sample_spec *ss, pa_channel_map *map, uint32_t sink_devices, int32_t flags,
