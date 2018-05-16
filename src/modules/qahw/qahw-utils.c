@@ -43,3 +43,17 @@ audio_format_t get_qahw_audio_format(pa_sample_format_t format) {
 
     return qahw_format;
 }
+
+const char* pa_qahw_jack_type_to_port_name(pa_qahw_jack_type_t jack_type) {
+
+    switch (jack_type) {
+        case PA_QAHW_JACK_TYPE_WIRED_HEADSET:
+            return "headset";
+        case PA_QAHW_JACK_TYPE_WIRED_HEADPHONE:
+            return "headphone";
+        case PA_QAHW_JACK_TYPE_LINEOUT:
+            return "lineout";
+        default:
+            return NULL;
+    }
+}
