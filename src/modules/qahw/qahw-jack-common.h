@@ -16,20 +16,37 @@
  * 02110-1301  USA
  */
 
-#ifndef fooqahwutilsfoo
-#define fooqahwutilsfoo
+#ifndef fooqahwjackcommonhfoo
+#define fooqahwjackcommonhfoo
 
-#include <pulse/sample.h>
-
-#include <qahw_api.h>
-#include <qahw_defs.h>
+#include <pulsecore/core-error.h>
+#include <pulsecore/module.h>
+#include <pulsecore/namereg.h>
+#include <pulsecore/core-util.h>
 
 #include "qahw-jack.h"
+#include "qahw-utils.h"
 
-#define KV_PAIR_MAX_LENGTH 100
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+#define JACK_HEADSET_DEVICE_PATH "/dev/input"
 
-audio_format_t get_qahw_audio_format(pa_sample_format_t format);
-const char* pa_qahw_jack_type_to_port_name(pa_qahw_jack_type_t jack_type);
+struct pa_qahw_jack_info {
+    pa_qahw_jack_type_t jack_type;
+    char* name;
+};
 
+struct pa_qahw_jack_data {
+    pa_module *module;
+    pa_qahw_jack_type_t jack_type;
+    int fd;
+    pa_io_event *io;
+    pa_qahw_jack_callback_t callback;
+    void *prv_data;
+
+    int switch_values;
+    pa_available_t jack_status;
+};
+
+struct pa_qahw_jack_data* pa_qahw_evdev_jack_device_open(pa_qahw_jack_type_t jack_type, pa_module *m, pa_qahw_jack_callback_t callback, void *prv_data);
+int pa_qahw_evdev_jack_device_close(struct pa_qahw_jack_data *jdata);
 #endif
+

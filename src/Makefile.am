@@ -1631,7 +1631,9 @@ module_qahw_card_la_SOURCES = \
         modules/qahw/module-qahw-card.c \
         modules/qahw/qahw-sink.c modules/qahw/qahw-sink.h \
         modules/qahw/qahw-source.c modules/qahw/qahw-source.h \
-        modules/qahw/qahw-utils.c modules/qahw/qahw-utils.h
+        modules/qahw/qahw-utils.c modules/qahw/qahw-utils.h \
+        modules/qahw/qahw-jack.c modules/qahw/qahw-jack.h \
+        modules/qahw/qahw-jack-evdev.c modules/qahw/qahw-jack-common.h
 module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(AM_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
 module_qahw_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qahw_card_la_LIBADD = $(MODULE_LIBADD) -lqahw

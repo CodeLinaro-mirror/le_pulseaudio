@@ -30,6 +30,7 @@
 #include "qahw-sink.h"
 #include "qahw-source.h"
 #include "qahw-utils.h"
+#include "qahw-jack.h"
 
 #define QAHW_MODULE_ID_PRIMARY "audio.primary"
 #define QAHW_CARD_NAME_PREFIX "qahw."
@@ -89,6 +90,8 @@ struct userdata {
     uint32_t src_devices;
     int max_supported_sinks;
     int max_supported_sources;
+
+    pa_qahw_jack_handle_t *jack_handle;
 };
 
 /* FIXME: this will have to come from configuration at some point */
@@ -101,7 +104,7 @@ static const struct qahw_card_ports qahw_ports[] = {
     {"default", {(char *)"speaker", (char *)"speaker", PA_AVAILABLE_YES, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_SPEAKER},
     {"default", {(char *)"headset", (char *)"wired headset", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_WIRED_HEADSET},
     {"default", {(char *)"headphone", (char *)"wired headphone", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_WIRED_HEADPHONE},
-    {"default", {(char *)"lineout", (char *)"lineout", PA_AVAILABLE_YES, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_LINE},
+    {"default", {(char *)"lineout", (char *)"lineout", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_LINE},
     {"default", {(char *)"headset-mic", (char *)"wired headset mic", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, AUDIO_DEVICE_IN_WIRED_HEADSET},
     {"default", {(char *)"builtin-mic", (char *)"builtin mic", PA_AVAILABLE_YES, PA_DIRECTION_INPUT}, AUDIO_DEVICE_IN_BUILTIN_MIC},
     {"default", {(char *)"hdmi-in", (char *)"hdmi input", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, AUDIO_DEVICE_IN_HDMI},
@@ -117,6 +120,86 @@ struct qahw_card_profile_usecases profile_sources[] = {
     {"default", AUDIO_INPUT_FLAG_FAST, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE},
     {"default", AUDIO_INPUT_FLAG_NONE, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE},
 };
+
+static void pa_qahw_jack_callback(pa_qahw_jack_event_t event, pa_qahw_jack_event_data_t *event_data, void *prv_data) {
+    const char *port_name = NULL;
+    pa_available_t status = PA_AVAILABLE_UNKNOWN;
+    pa_device_port *port;
+    pa_card *card;
+
+    pa_assert(prv_data);
+
+    card = (pa_card *)prv_data;
+
+    if ((event != PA_QAHW_JACK_AVAILABLE) && (event != PA_QAHW_JACK_UNAVAILABLE)) {
+        pa_log_error("unsupport qahw jack event");
+        return;
+    }
+
+    pa_assert(event_data);
+
+    if (event_data->jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS) {
+        pa_log_info("PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS not supported currently");
+        return;
+    }
+
+    status = (event == PA_QAHW_JACK_AVAILABLE) ? PA_AVAILABLE_YES: PA_AVAILABLE_NO;
+
+    port_name = pa_qahw_jack_type_to_port_name(event_data->jack_type);
+    if (port_name != NULL) {
+        pa_log_info("port %s satus %d", port_name, status);
+        port = pa_hashmap_get(card->ports, port_name);
+        if (port)
+            pa_device_port_set_available(port, status);
+        else
+            pa_log_error("unsupported port %s", port_name);
+
+        /* for headset, change status of headset-mic as well */
+        if (pa_streq(port_name, "headset")) {
+            port = pa_hashmap_get(card->ports, "headset-mic");
+            if (port)
+                pa_device_port_set_available(port, status);
+        }
+    } else {
+        pa_log_error("unsupport jack type %d", event_data->jack_type);
+    }
+
+    return;
+}
+
+static void jack_detection_disable(pa_qahw_jack_handle_t *jhandle) {
+    pa_assert(jhandle);
+
+    pa_qahw_jack_disable(jhandle);
+
+    return;
+}
+
+static void jack_detection_enable(struct userdata *u) {
+    int rc;
+    pa_qahw_jack_handle_t *jack_handle;
+    pa_qahw_jack_type_t jack_types = PA_QAHW_JACK_TYPE_INVALID;
+
+    if (pa_hashmap_get(u->card->ports,"headset") || pa_hashmap_get(u->card->ports,"headphone") || pa_hashmap_get(u->card->ports,"headset-mic"))
+        jack_types = PA_QAHW_JACK_TYPE_WIRED_HEADSET | PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS | PA_QAHW_JACK_TYPE_WIRED_HEADPHONE;
+
+    if (pa_hashmap_get(u->card->ports,"lineout"))
+        jack_types |= PA_QAHW_JACK_TYPE_LINEOUT;
+
+    /*TODO: Add HDMI/SPDIF later */
+
+    if (jack_types == PA_QAHW_JACK_TYPE_INVALID)
+        pa_log_error("skipping jack enable as PA_QAHW_JACK_TYPE_INVALID");
+
+    rc = pa_qahw_jack_enable(u->module, jack_types, pa_qahw_jack_callback, &jack_handle, (void *)u->card);
+    if (rc) {
+        pa_log_error("enable qahw jack failed %d", rc);
+        u->jack_handle = NULL;
+    } else {
+        u->jack_handle = jack_handle;
+    }
+
+}
 
 static void free_qahw_card_profiles(struct userdata *u, pa_hashmap *profiles) {
     pa_card_profile *p;
@@ -384,6 +467,8 @@ int pa__init(pa_module *m) {
     if (PA_UNLIKELY(create_card_sources(u, __FILE__, DEFAULT_PROFILE)))
         goto fail;
 
+    jack_detection_enable(u);
+
     pa_log_debug("module %s loaded handle %p", u->module_name, u->module_handle);
 
     return 0;
@@ -419,6 +504,9 @@ void pa__done(pa_module *m) {
 
     if (u->module_handle)
         qahw_unload_module(u->module_handle);
+
+    if (u->jack_handle)
+        jack_detection_disable(u->jack_handle);
 
     free_qahw_card(u);
 
