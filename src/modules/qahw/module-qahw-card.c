@@ -61,6 +61,7 @@ static const char* const valid_modargs[] = {
 struct qahw_card_ports {
     const char *profile_name;
     pa_device_port_new_data data;
+    unsigned priority;
     audio_devices_t qahw_port; /* qahw device */
 };
 
@@ -101,13 +102,13 @@ static const pa_card_profile qahw_card_profiles[] = {
 
 /* FIXME: this will have to come from configuration at some point */
 static const struct qahw_card_ports qahw_ports[] = {
-    {"default", {(char *)"speaker", (char *)"speaker", PA_AVAILABLE_YES, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_SPEAKER},
-    {"default", {(char *)"headset", (char *)"wired headset", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_WIRED_HEADSET},
-    {"default", {(char *)"headphone", (char *)"wired headphone", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_WIRED_HEADPHONE},
-    {"default", {(char *)"lineout", (char *)"lineout", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, AUDIO_DEVICE_OUT_LINE},
-    {"default", {(char *)"headset-mic", (char *)"wired headset mic", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, AUDIO_DEVICE_IN_WIRED_HEADSET},
-    {"default", {(char *)"builtin-mic", (char *)"builtin mic", PA_AVAILABLE_YES, PA_DIRECTION_INPUT}, AUDIO_DEVICE_IN_BUILTIN_MIC},
-    {"default", {(char *)"hdmi-in", (char *)"hdmi input", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, AUDIO_DEVICE_IN_HDMI},
+    {"default", {(char *)"speaker", (char *)"speaker", PA_AVAILABLE_YES, PA_DIRECTION_OUTPUT}, 100, AUDIO_DEVICE_OUT_SPEAKER},
+    {"default", {(char *)"headset", (char *)"wired headset", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, 500, AUDIO_DEVICE_OUT_WIRED_HEADSET},
+    {"default", {(char *)"headphone", (char *)"wired headphone", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, 300,  AUDIO_DEVICE_OUT_WIRED_HEADPHONE},
+    {"default", {(char *)"lineout", (char *)"lineout", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, 200, AUDIO_DEVICE_OUT_LINE},
+    {"default", {(char *)"headset-mic", (char *)"wired headset mic", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, 500, AUDIO_DEVICE_IN_WIRED_HEADSET},
+    {"default", {(char *)"builtin-mic", (char *)"builtin mic", PA_AVAILABLE_YES, PA_DIRECTION_INPUT}, 100, AUDIO_DEVICE_IN_BUILTIN_MIC},
+    {"default", {(char *)"hdmi-in", (char *)"hdmi input", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, 50, AUDIO_DEVICE_IN_HDMI},
 };
 
 struct qahw_card_profile_usecases profile_sinks[] = {
@@ -273,6 +274,8 @@ static void create_qahw_card_ports(struct userdata *u, pa_hashmap *ports, pa_has
 
         qahw_port = PA_DEVICE_PORT_DATA(port);
         *qahw_port = u->qahw_ports[idx].qahw_port;
+
+        port->priority = u->qahw_ports[idx].priority;
 
         /* Sanity check that we don't have duplicates */
         pa_assert_se(pa_hashmap_put(ports, port->name, port) >= 0);
