@@ -53,6 +53,8 @@ const char* pa_qahw_jack_type_to_port_name(pa_qahw_jack_type_t jack_type) {
             return "headphone";
         case PA_QAHW_JACK_TYPE_LINEOUT:
             return "lineout";
+        case PA_QAHW_JACK_TYPE_HDMI:
+            return "hdmi-in";
         default:
             return NULL;
     }

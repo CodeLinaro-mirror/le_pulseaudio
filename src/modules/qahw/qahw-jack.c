@@ -87,6 +87,16 @@ int pa_qahw_jack_enable(pa_module *m, pa_qahw_jack_type_t jack_types, pa_qahw_ja
             u->jack_count++;
     }
 
+    if (jack_types & PA_QAHW_JACK_TYPE_HDMI) {
+        pa_log_info("Enabling QAHW_JACK_TYPE_HDMI detection");
+
+        u->jdata[u->jack_count] = pa_qahw_hdmi_jack_detection_enable(PA_QAHW_JACK_TYPE_HDMI, m, callback, prv_data);
+        if (!u->jdata[u->jack_count])
+            pa_log_error("Enabling QAHW_JACK_TYPE_HDMI detection failed");
+        else
+            u->jack_count++;
+    }
+
     if (u->jack_count <= 0)
         goto fail;
 
@@ -117,6 +127,9 @@ void pa_qahw_jack_disable(pa_qahw_jack_handle_t *jack_handle) {
         } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS) {
             pa_log_debug("Disabling PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS detection");
             pa_qahw_evdev_jack_device_close(jdata);
+        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI) {
+            pa_log_debug("Disabling QAHW_JACK_TYPE_HDMI detection");
+            pa_qahw_hdmi_jack_detection_disable(jdata);
         }
     }
     pa_xfree(u);

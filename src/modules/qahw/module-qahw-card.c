@@ -189,6 +189,8 @@ static void jack_detection_enable(struct userdata *u) {
         jack_types |= PA_QAHW_JACK_TYPE_LINEOUT;
 
     /*TODO: Add HDMI/SPDIF later */
+    if (pa_hashmap_get(u->card->ports,"hdmi-in"))
+        jack_types |= PA_QAHW_JACK_TYPE_HDMI;
 
     if (jack_types == PA_QAHW_JACK_TYPE_INVALID)
         pa_log_error("skipping jack enable as PA_QAHW_JACK_TYPE_INVALID");
