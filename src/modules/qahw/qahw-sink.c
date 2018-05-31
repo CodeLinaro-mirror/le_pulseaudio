@@ -670,6 +670,9 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
        goto fail;
    }
 
+   /* keep pa sink and qahw port in sync, qahw is opened with some default port, update qahw with active port decided by pa sink */
+   qahw_sink_set_port_cb(pa_sdata->sink, pa_sdata->sink->active_port);
+
    pa_sink_put(pa_sdata->sink);
 
    return 0;
