@@ -40,7 +40,7 @@
 #define PA_DEFAULT_SINK_RATE 48000
 #define PA_DEFAULT_SINK_CHANNELS 2
 
-#define PA_DEFAULT_SINK_DEVICE AUDIO_DEVICE_OUT_WIRED_HEADPHONE
+#define PA_DEFAULT_SINK_DEVICE AUDIO_DEVICE_OUT_SPEAKER
 
 #define PA_DEFAULT_SOURCE_FORMAT PA_SAMPLE_S16LE
 #define PA_DEFAULT_SOURCE_RATE 48000
@@ -461,6 +461,8 @@ int pa__init(pa_module *m) {
     u->max_supported_sinks = ARRAY_SIZE(profile_sinks);
     u->sink_handle = pa_xnew0(sink_handle_t *, u->max_supported_sinks);
 
+    jack_detection_enable(u);
+
     if (PA_UNLIKELY(create_card_sinks(u, __FILE__, DEFAULT_PROFILE)))
         goto fail;
 
@@ -469,8 +471,6 @@ int pa__init(pa_module *m) {
 
     if (PA_UNLIKELY(create_card_sources(u, __FILE__, DEFAULT_PROFILE)))
         goto fail;
-
-    jack_detection_enable(u);
 
     pa_log_debug("module %s loaded handle %p", u->module_name, u->module_handle);
 
