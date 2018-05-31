@@ -314,10 +314,13 @@ static int qahw_sink_update_cb(pa_sink *s, uint32_t rate) {//pa_sample_spec *spe
     }
 
     if (!PA_SINK_IS_OPENED(s->state)) {
-        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, rate);
 
         old_rate = pa_sdata->sink->sample_spec.rate; /* take backup */
         pa_sdata->sink->sample_spec.rate = rate;
+
+        qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port));
+
+        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, rate);
 
         rc = restart_qahw_sink(qahw_sdata->module_handle, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map, qahw_sdata->devices,
                               qahw_sdata->flags, qahw_sdata->handle, sdata);
@@ -446,8 +449,8 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *s
 
     qahw_fill_sink_info(qahw_sdata, ss, map, devices, flags, sink_iohandle);
 
-    pa_log_debug("opening sink with configuration flag = 0x%x, format %d, sample_rate %d, channel_mask 0x%x",
-                 qahw_sdata->flags, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask);
+    pa_log_debug("opening sink with configuration flag = 0x%x, format %d, sample_rate %d, channel_mask 0x%x device %d",
+                 qahw_sdata->flags, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask, qahw_sdata->devices);
 
     rc = qahw_open_output_stream(module_handle, qahw_sdata->handle, qahw_sdata->devices, qahw_sdata->flags, &qahw_sdata->config,
             &qahw_sdata->out_handle, qahw_sdata->device_url);
