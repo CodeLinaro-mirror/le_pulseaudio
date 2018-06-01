@@ -330,6 +330,8 @@ static int qahw_sink_update_cb(pa_sink *s, uint32_t rate) {//pa_sample_spec *spe
             return -1;
         }
 
+        pa_qahw_sink_extn_sink_handle_update(sdata->sink_extn_handle, qahw_sdata->out_handle);
+
         pa_sink_set_fixed_latency(pa_sdata->sink, qahw_sdata->sink_latency_us);
         return 0;
     }
@@ -765,6 +767,16 @@ int create_sink(pa_module *m, pa_card *card, const char *driver, qahw_module_han
         free_common_sink_resources(sdata);
         pa_xfree(sdata);
         sdata = NULL;
+        goto exit;
+    }
+
+    rc = pa_qahw_sink_extn_create(sdata->pa_sdata->sink->core, sdata->qahw_sdata->out_handle, sdata->pa_sdata->sink->index, &sdata->sink_extn_handle);
+    if (PA_UNLIKELY(rc)) {
+        pa_log_error("Could not create qahw sink extn %s, error %d", name, rc);
+        free_qahw_sink(sdata);
+        free_pa_sink(sdata);
+        pa_xfree(sdata);
+        sdata = NULL;
     }
 
     pa_xfree(name);
@@ -780,6 +792,7 @@ void close_sink(sink_handle_t *handle) {
 
     pa_assert(sdata);
 
+    pa_qahw_sink_extn_free(sdata->sink_extn_handle);
     free_pa_sink(sdata);
     free_qahw_sink(sdata);
     free_common_sink_resources(sdata);
