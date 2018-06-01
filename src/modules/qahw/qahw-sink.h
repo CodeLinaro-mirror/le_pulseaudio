@@ -36,6 +36,8 @@
 #include <qahw_api.h>
 #include <qahw_defs.h>
 
+#include "qahw-sink-extn.h"
+
 typedef size_t sink_handle_t;
 
 struct qahw_sink_data {
@@ -71,6 +73,7 @@ struct pa_sink_data {
 struct sink_data {
     struct qahw_sink_data *qahw_sdata;
     struct pa_sink_data *pa_sdata;
+    sink_extn_handle_t *sink_extn_handle;
     struct userdata *u;
 
     pa_fdsem *fdsem; /* common resource between pa and qahw sink */
