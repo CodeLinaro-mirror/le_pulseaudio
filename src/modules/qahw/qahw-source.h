@@ -35,6 +35,8 @@
 #include <qahw_api.h>
 #include <qahw_defs.h>
 
+#include "qahw-source-extn.h"
+
 typedef size_t source_handle_t;
 
 struct qahw_source_data {
@@ -62,6 +64,7 @@ struct pa_source_data {
 struct source_data {
     struct qahw_source_data *qahw_sdata;
     struct pa_source_data *pa_sdata;
+    source_extn_handle_t *source_extn_handle;
     struct userdata *u;
 };
 

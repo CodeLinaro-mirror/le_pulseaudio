@@ -174,6 +174,8 @@ static int qahw_source_update_rate_cb(pa_source *s, uint32_t rate) {
             return -1;
         }
 
+        pa_qahw_source_extn_source_handle_update(sdata->source_extn_handle, qahw_sdata->in_handle);
+
         pa_source_set_fixed_latency(pa_sdata->source, pa_bytes_to_usec(qahw_sdata->source_buffer_size, &s->sample_spec));
         return 0;
     }
@@ -501,6 +503,16 @@ int create_source(pa_module *m, pa_card *card, const char *driver, qahw_module_h
         sdata = NULL;
     }
 
+    rc = pa_qahw_source_extn_create(sdata->pa_sdata->source->core, sdata->qahw_sdata->in_handle, sdata->pa_sdata->source->index, &sdata->source_extn_handle);
+    if (PA_UNLIKELY(rc)) {
+        pa_log_error("Could not create qahw source extn %s, error %d", name, rc);
+        free_qahw_source(sdata->qahw_sdata);
+        free_pa_source(sdata->pa_sdata);
+        pa_xfree(sdata);
+        sdata = NULL;
+    }
+
+
     *handle = (source_handle_t *)sdata;
 
 exit:
@@ -514,6 +526,7 @@ void close_source(source_handle_t *handle) {
     pa_assert(sdata->qahw_sdata);
     pa_assert(sdata->pa_sdata);
 
+    pa_qahw_source_extn_free(sdata->source_extn_handle);
     free_pa_source(sdata->pa_sdata);
     free_qahw_source(sdata->qahw_sdata);
     pa_xfree(sdata);
