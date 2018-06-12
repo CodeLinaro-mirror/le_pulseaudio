@@ -113,10 +113,8 @@ static const struct qahw_card_ports qahw_ports[] = {
 
 struct qahw_card_profile_usecases profile_sinks[] = {
     {"default", AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_NON_BLOCKING, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE},
-   /*
     {"default", AUDIO_OUTPUT_FLAG_FAST, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE},
     {"default", AUDIO_OUTPUT_FLAG_RAW, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE},
-   */
 };
 
 struct qahw_card_profile_usecases profile_sources[] = {

@@ -368,7 +368,7 @@ static void qahw_sink_thread_func(void *userdata) {
                 pa_assert(chunk.length == qahw_sdata->sink_buffer_size);
 
                 data = pa_memblock_acquire(chunk.memblock);
-                out_buf.buffer = data;
+                out_buf.buffer = (char*)data + chunk.index;
                 out_buf.bytes = chunk.length;
             } else {
                 /* Update buffer offset and size based on last write size*/
