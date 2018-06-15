@@ -21,6 +21,8 @@
 
 #include <pulsecore/dbus-util.h>
 #include <pulsecore/protocol-dbus.h>
+#include <pulsecore/core-util.h>
+
 #include "qahw-sink.h"
 
 #define QAHW_EFFECT_OBJECT_PATH "/org/pulseaudio/core1/effect"
@@ -48,7 +50,7 @@ typedef struct {
 
 typedef struct {
     uint32_t sink_id;
-    sink_handle_t *handle;
+    pa_qahw_sink_handle_t *handle;
     bool effect_loaded[PA_QAHW_EFFECT_MAX];
 } pa_qahw_effect_status;
 
