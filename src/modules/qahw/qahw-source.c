@@ -92,7 +92,7 @@ static const char *pa_qahw_source_get_name_from_flags(audio_input_flags_t flags)
 static void pa_qahw_source_fill_info(qahw_source_data *qahw_sdata, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                                 audio_input_flags_t flags, int source_iohandle) {
 
-    qahw_sdata->config.format = get_qahw_audio_format(ss->format);
+    qahw_sdata->config.format = pa_qahw_util_get_qahw_format_from_pa_sample(ss->format);
     qahw_sdata->config.sample_rate = ss->rate;
     qahw_sdata->config.channel_mask = audio_channel_in_mask_from_count(ss->channels);
     qahw_sdata->devices = devices;

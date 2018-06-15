@@ -173,7 +173,7 @@ static int pa_qahw_out_write_cb(qahw_stream_callback_event_t event, void *param,
 static void pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                                 audio_output_flags_t flags, int sink_iohandle) {
 
-    qahw_sdata->config.format = get_qahw_audio_format(ss->format);
+    qahw_sdata->config.format = pa_qahw_util_get_qahw_format_from_pa_sample(ss->format);
     qahw_sdata->config.sample_rate = ss->rate;
     qahw_sdata->config.channel_mask = audio_channel_out_mask_from_count(ss->channels); /* TODO: le get channel mask for pa map */
 
