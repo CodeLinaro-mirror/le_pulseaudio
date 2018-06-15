@@ -23,7 +23,7 @@
 #include "pulsecore/log.h"
 #include "qahw-utils.h"
 
-audio_format_t get_qahw_audio_format(pa_sample_format_t format) {
+audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {
     audio_format_t qahw_format;
 
     switch(format) {
@@ -44,7 +44,7 @@ audio_format_t get_qahw_audio_format(pa_sample_format_t format) {
     return qahw_format;
 }
 
-const char* pa_qahw_jack_type_to_port_name(pa_qahw_jack_type_t jack_type) {
+const char* pa_qahw_util_jack_type_to_port_name(pa_qahw_jack_type_t jack_type) {
 
     switch (jack_type) {
         case PA_QAHW_JACK_TYPE_WIRED_HEADSET:

@@ -187,7 +187,7 @@ static void pa_qahw_jack_callback(pa_qahw_jack_event_t event, pa_qahw_jack_event
 
     status = (event == PA_QAHW_JACK_AVAILABLE) ? PA_AVAILABLE_YES: PA_AVAILABLE_NO;
 
-    port_name = pa_qahw_jack_type_to_port_name(event_data->jack_type);
+    port_name = pa_qahw_util_jack_type_to_port_name(event_data->jack_type);
     if (port_name != NULL) {
         pa_log_info("port %s satus %d", port_name, status);
         port = pa_hashmap_get(card->ports, port_name);

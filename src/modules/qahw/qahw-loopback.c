@@ -205,11 +205,11 @@ static void pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct 
         (cfg->ext.device.type == AUDIO_DEVICE_OUT_WIRED_HEADPHONE) ||
         (cfg->ext.device.type == AUDIO_DEVICE_OUT_LINE)) {
 
-        cfg->format = get_qahw_audio_format(bitwidth);
+        cfg->format = pa_qahw_util_get_qahw_format_from_pa_sample(bitwidth);
 
     } else {
         if (format == PA_ENCODING_PCM)
-            cfg->format = get_qahw_audio_format(bitwidth);
+            cfg->format = pa_qahw_util_get_qahw_format_from_pa_sample(bitwidth);
         else
             cfg->format = pa_qahw_util_get_qahw_format_from_pa_encoding(format);
     }
