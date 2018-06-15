@@ -97,7 +97,7 @@ struct userdata {
     struct qahw_card_ports *qahw_ports;
     qahw_module_handle_t *module_handle;
     uint32_t sink_devices;
-    sink_handle_t **sink_handle;
+    pa_qahw_sink_handle_t **sink_handle;
     source_handle_t **source_handle;
     pa_qahw_effect_handle_t effect_handle;
     pa_qahw_effect_status *effect_status;
@@ -151,7 +151,7 @@ pa_qahw_port_effect_data port_effects_info[] = {
     {"hdmi-in", {false, false, false, false, false}},
 };
 
-static void pa_qahw_card_fill_sink_effect_status(pa_qahw_effect_status *effect_status, sink_handle_t *handle) {
+static void pa_qahw_card_fill_sink_effect_status(pa_qahw_effect_status *effect_status, pa_qahw_sink_handle_t *handle) {
     int i = 0;
 
     pa_assert(effect_status);
@@ -429,7 +429,7 @@ static void close_card_sources(struct userdata *u, const char *profile_name) {
 static int create_card_sinks(struct userdata *u, const char *driver, const char *profile_name) {
     int32_t sink_idx, rc = 0;
     pa_channel_map map;
-    sink_handle_t *handle;
+    pa_qahw_sink_handle_t *handle;
 
     pa_log_info("ss.format %d ss.rate %d ss.channels %d",u->ss.format, u->ss.rate, u->ss.channels);
 
@@ -439,7 +439,7 @@ static int create_card_sinks(struct userdata *u, const char *driver, const char 
 
         pa_channel_map_init_auto(&map, PA_DEFAULT_SINK_CHANNELS, PA_CHANNEL_MAP_DEFAULT);
 
-        rc = create_sink(u->module, u->card, driver, u->module_handle, u->module_name, profile_name, &(profile_sinks[sink_idx].ss), &map,
+        rc = pa_qahw_sink_create(u->module, u->card, driver, u->module_handle, u->module_name, profile_name, &(profile_sinks[sink_idx].ss), &map,
                          profile_sinks[sink_idx].default_device, profile_sinks[sink_idx].flags, sink_idx, &handle);
         if (PA_UNLIKELY(rc)) {
             pa_log_error("sink create failed for profile %s, error %d ", profile_sinks[sink_idx].profile_name, rc);
@@ -462,7 +462,7 @@ static void close_card_sinks(struct userdata *u, const char *profile_name) {
 
         if (u->sink_handle[sink_idx]) {
             pa_qahw_free_sink_effects(u->effect_handle, pa_qahw_sink_get_index(u->sink_handle[sink_idx]));
-            close_sink(u->sink_handle[sink_idx]);
+            pa_qahw_sink_close(u->sink_handle[sink_idx]);
             u->sink_handle[sink_idx] = NULL;
         }
     }
@@ -506,7 +506,7 @@ int pa__init(pa_module *m) {
     create_qahw_card(u);
 
     u->max_supported_sinks = ARRAY_SIZE(profile_sinks);
-    u->sink_handle = pa_xnew0(sink_handle_t *, u->max_supported_sinks);
+    u->sink_handle = pa_xnew0(pa_qahw_sink_handle_t *, u->max_supported_sinks);
 
     jack_detection_enable(u);
 

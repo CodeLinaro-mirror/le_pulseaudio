@@ -563,7 +563,7 @@ static void pa_qahw_sink_get_parameters(DBusConnection *conn, DBusMessage *msg, 
     free(param);
 }
 
-int pa_qahw_sink_extn_sink_handle_update(sink_extn_handle_t *handle, qahw_stream_handle_t *out_handle) {
+int pa_qahw_sink_extn_sink_handle_update(pa_qahw_sink_extn_handle_t *handle, qahw_stream_handle_t *out_handle) {
     struct pa_qahw_sink_extn_data *qahw_extn_sdata = (struct pa_qahw_sink_extn_data *)handle;
 
     pa_assert(handle);
@@ -574,7 +574,7 @@ int pa_qahw_sink_extn_sink_handle_update(sink_extn_handle_t *handle, qahw_stream
     return 0;
 }
 
-int pa_qahw_sink_extn_create(pa_core *core, qahw_stream_handle_t *out_handle, int pa_sink_index, sink_extn_handle_t **handle) {
+int pa_qahw_sink_extn_create(pa_core *core, qahw_stream_handle_t *out_handle, int pa_sink_index, pa_qahw_sink_extn_handle_t **handle) {
 
     struct pa_qahw_sink_extn_data *qahw_extn_sdata;
 
@@ -589,14 +589,14 @@ int pa_qahw_sink_extn_create(pa_core *core, qahw_stream_handle_t *out_handle, in
 
     pa_assert_se(pa_dbus_protocol_add_interface(qahw_extn_sdata->dbus_protocol, qahw_extn_sdata->obj_path, &sink_interface_info, qahw_extn_sdata) >= 0);
 
-    *handle = (sink_extn_handle_t *)qahw_extn_sdata;
+    *handle = (pa_qahw_sink_extn_handle_t *)qahw_extn_sdata;
 
     pa_log_info("pa_qahw_sink_extn created for sink %d", pa_sink_index);
 
     return 0;
 }
 
-int pa_qahw_sink_extn_free(sink_extn_handle_t *handle) {
+int pa_qahw_sink_extn_free(pa_qahw_sink_extn_handle_t *handle) {
     struct pa_qahw_sink_extn_data *qahw_extn_sdata = (struct pa_qahw_sink_extn_data *)handle;
 
     pa_assert(qahw_extn_sdata);
