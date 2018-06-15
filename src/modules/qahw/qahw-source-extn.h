@@ -23,10 +23,10 @@
 
 #include <qahw_defs.h>
 
-typedef size_t source_extn_handle_t;
+typedef size_t pa_qahw_source_extn_handle_t;
 
-int pa_qahw_source_extn_create(pa_core *core, qahw_stream_handle_t *in_handle, int pa_source_index, source_extn_handle_t **handle);
-int pa_qahw_source_extn_free(source_extn_handle_t *handle);
-int pa_qahw_source_extn_source_handle_update(source_extn_handle_t *handle, qahw_stream_handle_t *in_handle);
+int pa_qahw_source_extn_create(pa_core *core, qahw_stream_handle_t *in_handle, int pa_source_index, pa_qahw_source_extn_handle_t **handle);
+int pa_qahw_source_extn_free(pa_qahw_source_extn_handle_t *handle);
+int pa_qahw_source_extn_source_handle_update(pa_qahw_source_extn_handle_t *handle, qahw_stream_handle_t *in_handle);
 
 #endif
