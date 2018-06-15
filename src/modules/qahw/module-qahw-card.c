@@ -98,7 +98,7 @@ struct userdata {
     qahw_module_handle_t *module_handle;
     uint32_t sink_devices;
     pa_qahw_sink_handle_t **sink_handle;
-    source_handle_t **source_handle;
+    pa_qahw_source_handle_t **source_handle;
     pa_qahw_effect_handle_t effect_handle;
     pa_qahw_effect_status *effect_status;
     uint32_t src_devices;
@@ -391,7 +391,7 @@ static int create_qahw_card(struct userdata *u) {
 static int create_card_sources(struct userdata *u, const char *driver, const char *profile_name) {
     int32_t source_idx, rc = -1;
     pa_channel_map map;
-    source_handle_t *handle;
+    pa_qahw_source_handle_t *handle;
 
     for (source_idx = 0; source_idx < u->max_supported_sources; source_idx++) {
         if (!pa_streq(profile_sources[source_idx].profile_name, profile_name))
@@ -399,7 +399,7 @@ static int create_card_sources(struct userdata *u, const char *driver, const cha
 
         pa_channel_map_init_auto(&map, profile_sources[source_idx].ss.channels, PA_CHANNEL_MAP_DEFAULT);
 
-        rc = create_source(u->module, u->card, driver, u->module_handle, u->module_name, profile_name, &(profile_sources[source_idx].ss), &map,
+        rc = pa_qahw_source_create(u->module, u->card, driver, u->module_handle, u->module_name, profile_name, &(profile_sources[source_idx].ss), &map,
                 profile_sources[source_idx].default_device, profile_sources[source_idx].flags, source_idx, &handle);
         if (PA_UNLIKELY(rc)) {
             pa_log_error("source create failed for profile %s, error %d ", profile_sources[source_idx].profile_name, rc);
@@ -420,7 +420,7 @@ static void close_card_sources(struct userdata *u, const char *profile_name) {
             continue;
 
         if (u->source_handle[source_idx]) {
-            close_source(u->source_handle[source_idx]);
+            pa_qahw_source_close(u->source_handle[source_idx]);
             u->source_handle[source_idx] = NULL;
         }
     }
@@ -516,7 +516,7 @@ int pa__init(pa_module *m) {
         goto fail;
 
     u->max_supported_sources = ARRAY_SIZE(profile_sources);;
-    u->source_handle = pa_xnew0(source_handle_t *, u->max_supported_sources);
+    u->source_handle = pa_xnew0(pa_qahw_source_handle_t *, u->max_supported_sources);
 
     if (PA_UNLIKELY(create_card_sources(u, __FILE__, DEFAULT_PROFILE)))
         goto fail;
