@@ -161,10 +161,13 @@ static int qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, bool p
     }
 
     if (!PA_SOURCE_IS_OPENED(s->state)) {
-        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, spec->rate);
-
         old_rate = pa_sdata->source->sample_spec.rate; /*take backup*/
         pa_sdata->source->sample_spec.rate = spec->rate;
+
+        qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->source->active_port));
+
+        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, spec->rate);
+
 
         rc = restart_qahw_source(qahw_sdata->module_handle, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, qahw_sdata->devices,
                                 qahw_sdata->flags, qahw_sdata->handle, qahw_sdata);
@@ -252,8 +255,8 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spec 
 
     qahw_fill_source_info(qahw_sdata, ss, map, devices, flags, source_iohandle);
 
-    pa_log_debug("opening source with configuration flag = 0x%x, format %d, sample_rate %d, channel_mask 0x%x",
-                 qahw_sdata->flags, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask);
+    pa_log_debug("opening source with configuration flag = 0x%x, format %d, sample_rate %d, channel_mask 0x%x device %d",
+                 qahw_sdata->flags, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask, qahw_sdata->devices);
 
     rc = qahw_open_input_stream(module_handle, qahw_sdata->handle, qahw_sdata->devices, &qahw_sdata->config, &qahw_sdata->in_handle, qahw_sdata->flags,
                                 qahw_sdata->device_url, AUDIO_SOURCE_MIC);
