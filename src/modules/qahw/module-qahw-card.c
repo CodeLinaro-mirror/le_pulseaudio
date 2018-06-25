@@ -490,13 +490,41 @@ static int pa_qahw_card_get_usecase_id_from_source_port(char *port_name, pa_qahw
     return rc;
 }
 
+static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name, 
+                                 const char *profile_name, pa_qahw_card_usecase_info_t *usecase_info, pa_qahw_card_source_usecase_id_t source_id,
+                                 pa_qahw_source_handle_t **source_handle) {
+    uint32_t rc = 0;
 
-static int pa_qahw_card_create_sources(struct userdata *u, const char *driver, const char *profile_name) {
+    pa_channel_map map;
+
+    pa_assert(module);
+    pa_assert(card);
+    pa_assert(driver);
+    pa_assert(module);
+    pa_assert(module_handle);
+    pa_assert(module_name);
+    pa_assert(profile_name);
+    pa_assert(driver);
+    pa_assert(usecase_info);
+
+    pa_log_info("%s: ss.format %d ss.rate %d ss.channels %d", __func__, usecase_info->ss.format, usecase_info->ss.rate, usecase_info->ss.channels);
+
+    pa_channel_map_init_auto(&map, usecase_info->ss.channels, PA_CHANNEL_MAP_DEFAULT);
+
+    rc = pa_qahw_source_create(module, card, driver, module_handle, module_name, profile_name, &usecase_info->ss, &map,
+            usecase_info->default_device, usecase_info->flags, source_id, source_handle);
+    if (rc) {
+        pa_log_error("%s: source %d create failed for profile %s, error %d ", __func__, source_id, profile_name, rc);
+    }
+
+    return rc;
+}
+
+static int pa_qahw_card_create_sources(struct userdata *u, const char *profile_name) {
     uint32_t rc = 0;
     int32_t source_idx;
     uint32_t profile_idx;
 
-    pa_channel_map map;
     pa_qahw_source_handle_t *handle;
 
     pa_log_info("%s: ss.format %d ss.rate %d ss.channels %d", __func__, u->ss.format, u->ss.rate, u->ss.channels);
@@ -511,12 +539,8 @@ static int pa_qahw_card_create_sources(struct userdata *u, const char *driver, c
             continue;
         }
 
-        pa_channel_map_init_auto(&map, PA_DEFAULT_SOURCE_CHANNELS, PA_CHANNEL_MAP_DEFAULT);
-
-        rc = pa_qahw_source_create(u->module, u->card, driver, u->module_handle, u->module_name, profile_name, &(supported_sources[source_idx].ss), &map,
-                                 supported_sources[source_idx].default_device, supported_sources[source_idx].flags,
-                                 profile_sources[profile_idx].usecase_id.source_id, &handle);
-        if (PA_UNLIKELY(rc)) {
+        rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, profile_name, &supported_sources[source_idx], profile_sources[profile_idx].usecase_id.source_id, &handle);
+        if (rc) {
             pa_log_error("%s: source %d create failed for profile %s, error %d ", __func__, profile_sources[profile_idx].usecase_id.source_id,
                          profile_sources[profile_idx].profile_name, rc);
             handle = NULL;
@@ -526,6 +550,12 @@ static int pa_qahw_card_create_sources(struct userdata *u, const char *driver, c
     }
 
     return rc;
+}
+
+static void pa_qahw_card_remove_source(pa_qahw_source_handle_t *source_handle) {
+    pa_assert(source_handle);
+
+    pa_qahw_source_close(source_handle);
 }
 
 static void pa_qahw_card_free_sources(struct userdata *u, const char *profile_name) {
@@ -543,7 +573,7 @@ static void pa_qahw_card_free_sources(struct userdata *u, const char *profile_na
         }
 
         if (u->source_handle[source_idx]) {
-            pa_qahw_source_close(u->source_handle[source_idx]);
+            pa_qahw_card_remove_source(u->source_handle[source_idx]);
             u->source_handle[source_idx] = NULL;
         }
     }
@@ -727,7 +757,7 @@ int pa__init(pa_module *m) {
     u->max_supported_sources = ARRAY_SIZE(profile_sources);;
     u->source_handle = pa_xnew0(pa_qahw_source_handle_t *, u->max_supported_sources);
 
-    if (PA_UNLIKELY(pa_qahw_card_create_sources(u, __FILE__, DEFAULT_PROFILE)))
+    if (PA_UNLIKELY(pa_qahw_card_create_sources(u, DEFAULT_PROFILE)))
         goto fail;
 
     pa_qahw_module_extn_init(u->core, u ->card, u->module_handle);
