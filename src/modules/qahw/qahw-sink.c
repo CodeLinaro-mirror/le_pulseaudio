@@ -282,7 +282,7 @@ static int qahw_sink_process_msg(pa_msgobject *o, int code, void *data, int64_t 
     return pa_sink_process_msg(o, code, data, offset, chunk);
 }
 
-static int qahw_sink_update_cb(pa_sink *s, uint32_t rate) {//pa_sample_spec *spec, bool passthrough) {
+static int qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool passthrough) {
     struct sink_data *sdata = (struct sink_data *) s->userdata;
     struct pa_sink_data *pa_sdata = NULL;
     struct qahw_sink_data *qahw_sdata = NULL;
@@ -302,25 +302,25 @@ static int qahw_sink_update_cb(pa_sink *s, uint32_t rate) {//pa_sample_spec *spe
     qahw_sdata = sdata->qahw_sdata;
 
     for (i = 0; i < ARRAY_SIZE(supported_sink_rates) ; i++) {
-        if (/*spec->*/rate == supported_sink_rates[i]) {
+        if (spec->rate == supported_sink_rates[i]) {
             supported = true;
             break;
         }
     }
 
     if (!supported) {
-        pa_log_info("Sink does not support sample rate of %d Hz", rate);
+        pa_log_info("Sink does not support sample rate of %d Hz", spec->rate);
         return -1;
     }
 
     if (!PA_SINK_IS_OPENED(s->state)) {
 
         old_rate = pa_sdata->sink->sample_spec.rate; /* take backup */
-        pa_sdata->sink->sample_spec.rate = rate;
+        pa_sdata->sink->sample_spec.rate = spec->rate;
 
         qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port));
 
-        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, rate);
+        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, spec->rate);
 
         rc = restart_qahw_sink(qahw_sdata->module_handle, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map, qahw_sdata->devices,
                               qahw_sdata->flags, qahw_sdata->handle, sdata);
@@ -336,7 +336,7 @@ static int qahw_sink_update_cb(pa_sink *s, uint32_t rate) {//pa_sample_spec *spe
         return 0;
     }
 
-    pa_log_info("Sink could not set sample rate of %d Hz", rate);
+    pa_log_info("Sink could not set sample rate of %d Hz", spec->rate);
     return -1;
 }
 
@@ -651,7 +651,7 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
     pa_sdata->sink->userdata = (void *)sdata;
     pa_sdata->sink->parent.process_msg = qahw_sink_process_msg;
     pa_sdata->sink->set_port = qahw_sink_set_port_cb;
-    pa_sdata->sink->update_rate = qahw_sink_update_cb;
+    pa_sdata->sink->reconfigure = qahw_sink_reconfigure_cb;
 
     pa_sink_set_asyncmsgq(pa_sdata->sink, pa_sdata->thread_mq.inq);
     pa_sink_set_rtpoll(pa_sdata->sink, pa_sdata->rtpoll);

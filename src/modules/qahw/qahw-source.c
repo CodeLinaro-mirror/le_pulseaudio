@@ -131,7 +131,7 @@ static int qahw_source_process_msg(pa_msgobject *o, int code, void *data, int64_
     return pa_source_process_msg(o, code, data, offset, chunk);
 }
 
-static int qahw_source_update_rate_cb(pa_source *s, uint32_t rate) {
+static int qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, bool passthrough) {
     struct source_data *sdata = (struct source_data *) s->userdata;
     struct pa_source_data *pa_sdata = NULL;
     struct qahw_source_data *qahw_sdata = NULL;
@@ -149,22 +149,22 @@ static int qahw_source_update_rate_cb(pa_source *s, uint32_t rate) {
     qahw_sdata = sdata->qahw_sdata;
 
     for (i = 0; i < ARRAY_SIZE(supported_source_rates) ; i++) {
-        if (/*spec->*/rate == supported_source_rates[i]) {
+        if (spec->rate == supported_source_rates[i]) {
             supported = true;
             break;
         }
     }
 
     if (!supported) {
-        pa_log_info("Source does not support sample rate of %d Hz", rate);
+        pa_log_info("Source does not support sample rate of %d Hz", spec->rate);
         return -1;
     }
 
     if (!PA_SOURCE_IS_OPENED(s->state)) {
-        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, rate);
+        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, spec->rate);
 
         old_rate = pa_sdata->source->sample_spec.rate; /*take backup*/
-        pa_sdata->source->sample_spec.rate = rate;
+        pa_sdata->source->sample_spec.rate = spec->rate;
 
         rc = restart_qahw_source(qahw_sdata->module_handle, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, qahw_sdata->devices,
                                 qahw_sdata->flags, qahw_sdata->handle, qahw_sdata);
@@ -180,7 +180,7 @@ static int qahw_source_update_rate_cb(pa_source *s, uint32_t rate) {
         return 0;
     }
 
-    pa_log_info("Source could not set sample rate of %d Hz", rate);
+    pa_log_info("Source could not set sample rate of %d Hz", spec->rate);
     return -1;
 }
 
@@ -405,7 +405,7 @@ static int create_pa_source(pa_module *m, pa_sample_spec *ss, pa_channel_map *ma
     pa_sdata->source->userdata = (void *)source_data;
     pa_sdata->source->parent.process_msg = qahw_source_process_msg;
     pa_sdata->source->set_port = qahw_source_set_port_cb;
-    pa_sdata->source->update_rate = qahw_source_update_rate_cb;
+    pa_sdata->source->reconfigure = qahw_source_reconfigure_cb;
     pa_source_set_asyncmsgq(pa_sdata->source, pa_sdata->thread_mq.inq);
     pa_source_set_rtpoll(pa_sdata->source, pa_sdata->rtpoll);
 
