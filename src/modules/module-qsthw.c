@@ -55,6 +55,7 @@ struct qsthw_session_data {
     char *obj_path;
 };
 
+static int unload_sm(DBusConnection *conn, struct qsthw_session_data *ses_data);
 static void get_properties(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_version(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void global_set_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -314,6 +315,39 @@ static void event_callback(struct sound_trigger_recognition_event *event, void *
 
     pa_dbus_protocol_send_signal(ses_data->common->dbus_protocol, message);
     dbus_message_unref(message);
+}
+
+static DBusHandlerResult disconnection_filter_cb(DBusConnection *conn,
+                              DBusMessage *msg, void *userdata) {
+    struct qsthw_session_data *ses_data = userdata;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    if (dbus_message_is_signal(msg, "org.freedesktop.DBus.Local", "Disconnected")) {
+        /* connection died, unload the session for which callback got triggered */
+        pa_log_info("connection died for session %d", ses_data->ses_handle);
+        unload_sm(conn, ses_data);
+    }
+
+    return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+}
+
+static int unload_sm(DBusConnection *conn, struct qsthw_session_data *ses_data) {
+    sound_model_handle_t sm_handle = ses_data->ses_handle;
+    int status = 0;
+
+    dbus_connection_remove_filter(conn, disconnection_filter_cb, ses_data);
+    status = qsthw_unload_sound_model(ses_data->common->st_mod_handle, sm_handle);
+
+    pa_assert_se(pa_dbus_protocol_remove_interface(ses_data->common->dbus_protocol,
+            ses_data->obj_path, session_interface_info.name) >= 0);
+
+    pa_xfree(ses_data->obj_path);
+    pa_xfree(ses_data);
+
+    return status;
 }
 
 /* implementations exposed by session specific object path */
@@ -613,9 +647,8 @@ static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *user
 
 static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     struct qsthw_session_data *ses_data = userdata;
-    int status = 0;
     DBusError error;
-    sound_model_handle_t sm_handle;
+    int status = 0;
 
     pa_assert(conn);
     pa_assert(msg);
@@ -623,19 +656,13 @@ static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *use
 
     dbus_error_init(&error);
 
-    sm_handle = ses_data->ses_handle;
-    status = qsthw_unload_sound_model(ses_data->common->st_mod_handle, sm_handle);
+    status = unload_sm(conn, ses_data);
     if (OK != status) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "unload_sound_model failed");
         dbus_error_free(&error);
         return;
     }
 
-    pa_assert_se(pa_dbus_protocol_remove_interface(ses_data->common->dbus_protocol,
-            ses_data->obj_path, session_interface_info.name) >= 0);
-
-    pa_xfree(ses_data->obj_path);
-    pa_xfree(ses_data);
     pa_dbus_send_empty_reply(conn, msg);
 }
 
@@ -802,6 +829,8 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     pa_assert_se(pa_dbus_protocol_add_interface(ses_data->common->dbus_protocol,
             ses_data->obj_path, &session_interface_info, ses_data) >= 0);
 
+    pa_assert_se(dbus_connection_add_filter(conn, disconnection_filter_cb, ses_data, NULL));
+
     pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_OBJECT_PATH, &ses_data->obj_path);
 }
 
@@ -927,7 +956,7 @@ int pa__init(pa_module *m) {
     m_data->module_name = pa_xstrdup(pa_modargs_get_value(ma, "module", QSTHW_MODULE_ID_PRIMARY));
 
     if (pa_streq(m_data->module_name, QSTHW_MODULE_ID_PRIMARY)) {
-        pa_log_debug("Loading qsthw module %s ", m_data->module_name);
+        pa_log_debug("Loading qsthw module %s", m_data->module_name);
         m_data->obj_path = pa_sprintf_malloc("%s/%s", QSTHW_DBUS_OBJECT_PATH_PREFIX,
                              "primary");
     } else {
