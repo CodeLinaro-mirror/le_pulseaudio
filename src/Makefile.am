@@ -1629,6 +1629,7 @@ endif
 if HAVE_QAHW
 module_qahw_card_la_SOURCES = \
         modules/qahw/module-qahw-card.c \
+        modules/qahw/module-qahw-card-extn.c modules/qahw/qahw-card-extn.h \
         modules/qahw/qahw-sink.c modules/qahw/qahw-sink.h \
         modules/qahw/qahw-source.c modules/qahw/qahw-source.h \
         modules/qahw/qahw-utils.c modules/qahw/qahw-utils.h \
