@@ -126,13 +126,14 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
             j++;
         }
 
-        if ((dev_path != NULL) && pa_streq(switch_name, "hpd_state") && (atoi(switch_state) == 1)) {
-            pa_log_info("qahw jack type %d available", jdata->jack_type);
-            jdata->callback(PA_QAHW_JACK_AVAILABLE, &event_data, jdata->prv_data);
-        }
-        else if ((dev_path != NULL) && pa_streq(switch_name, "hpd_state") && (atoi(switch_state) == 0)) {
-            pa_log_info("qahw jack type %d not available", jdata->jack_type);
-            jdata->callback(PA_QAHW_JACK_UNAVAILABLE, &event_data, jdata->prv_data);
+        if ((dev_path != NULL) && (switch_name != NULL) && (switch_state != NULL)) {
+            if (pa_streq(switch_name, "hpd_state") && (atoi(switch_state) == 1)) {
+                pa_log_info("qahw jack type %d available", jdata->jack_type);
+                jdata->callback(PA_QAHW_JACK_AVAILABLE, &event_data, jdata->prv_data);
+            } else if (pa_streq(switch_name, "hpd_state") && (atoi(switch_state) == 0)) {
+                pa_log_info("qahw jack type %d not available", jdata->jack_type);
+                jdata->callback(PA_QAHW_JACK_UNAVAILABLE, &event_data, jdata->prv_data);
+            }
         }
     }
 }
