@@ -85,7 +85,9 @@ typedef struct {
 
 typedef struct {
     pa_qahw_card_usecase_id_t usecase_id;
+    pa_qahw_card_usecase_type_t usecase_type;
     int flags; /* sink or src flags */
+    pa_encoding_t encoding;
     pa_sample_spec ss;
     uint32_t default_device;
 } pa_qahw_card_usecase_info;
@@ -163,14 +165,14 @@ static const pa_qahw_card_port_to_profile_mapping port_profile[] = {
 };
 
 static pa_qahw_card_usecase_info supported_sinks[] = {
-    { { PA_QAHW_CARD_SINK_OFFLOAD_0}, AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_NON_BLOCKING, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE },
-    { { PA_QAHW_CARD_SINK_ULL_0}, AUDIO_OUTPUT_FLAG_FAST, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE },
-    { { PA_QAHW_CARD_SINK_LL_0}, AUDIO_OUTPUT_FLAG_RAW, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE },
+    { { PA_QAHW_CARD_SINK_OFFLOAD_0}, PA_QAHW_CARD_USECASE_TYPE_STATIC, AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_NON_BLOCKING, PA_ENCODING_PCM, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE },
+    { { PA_QAHW_CARD_SINK_ULL_0},  PA_QAHW_CARD_USECASE_TYPE_STATIC, AUDIO_OUTPUT_FLAG_FAST, PA_ENCODING_PCM, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE },
+    { { PA_QAHW_CARD_SINK_LL_0}, PA_QAHW_CARD_USECASE_TYPE_STATIC, AUDIO_OUTPUT_FLAG_RAW, PA_ENCODING_PCM, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE },
 };
 
 static pa_qahw_card_usecase_info supported_sources[] = {
-    { { PA_QAHW_CARD_SOURCE_REGULAR_0}, AUDIO_INPUT_FLAG_NONE, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE},
-    { { PA_QAHW_CARD_SOURCE_LL_0 }, AUDIO_INPUT_FLAG_FAST, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE},
+    { { PA_QAHW_CARD_SOURCE_REGULAR_0 }, PA_QAHW_CARD_USECASE_TYPE_STATIC, AUDIO_INPUT_FLAG_NONE, PA_ENCODING_PCM, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE },
+    { { PA_QAHW_CARD_SOURCE_LL_0}, PA_QAHW_CARD_USECASE_TYPE_STATIC, AUDIO_INPUT_FLAG_FAST, PA_ENCODING_PCM, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE },
 };
 
 pa_qahw_effect_data sink_effects_info[] = {
@@ -490,8 +492,8 @@ static int pa_qahw_card_get_usecase_id_from_source_port(char *port_name, pa_qahw
     return rc;
 }
 
-static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name, 
-                                 const char *profile_name, pa_qahw_card_usecase_info_t *usecase_info, pa_qahw_card_source_usecase_id_t source_id,
+static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name,
+                                 const char *profile_name, pa_qahw_card_usecase_info *usecase_info, pa_qahw_card_source_usecase_id_t source_id,
                                  pa_qahw_source_handle_t **source_handle) {
     uint32_t rc = 0;
 
@@ -511,7 +513,7 @@ static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char 
 
     pa_channel_map_init_auto(&map, usecase_info->ss.channels, PA_CHANNEL_MAP_DEFAULT);
 
-    rc = pa_qahw_source_create(module, card, driver, module_handle, module_name, profile_name, &usecase_info->ss, &map,
+    rc = pa_qahw_source_create(module, card, driver, module_handle, module_name, profile_name, usecase_info->encoding, &usecase_info->ss, &map,
             usecase_info->default_device, usecase_info->flags, source_id, source_handle);
     if (rc) {
         pa_log_error("%s: source %d create failed for profile %s, error %d ", __func__, source_id, profile_name, rc);
@@ -520,7 +522,7 @@ static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char 
     return rc;
 }
 
-static int pa_qahw_card_create_sources(struct userdata *u, const char *profile_name) {
+static int pa_qahw_card_create_sources(struct userdata *u, const char *profile_name, pa_qahw_card_usecase_type_t usecase_type) {
     uint32_t rc = 0;
     int32_t source_idx;
     uint32_t profile_idx;
@@ -538,6 +540,9 @@ static int pa_qahw_card_create_sources(struct userdata *u, const char *profile_n
             pa_log_error("%s: unsupported source source_idx %d ", __func__, source_idx);
             continue;
         }
+
+        if (supported_sources[source_idx].usecase_type != usecase_type)
+            continue;
 
         rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, profile_name, &supported_sources[source_idx], profile_sources[profile_idx].usecase_id.source_id, &handle);
         if (rc) {
@@ -615,7 +620,7 @@ static int pa_qahw_card_get_sink_idx_from_usecase(pa_qahw_card_sink_usecase_id_t
     return idx;
 }
 
-static int pa_qahw_card_add_sink(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name, 
+static int pa_qahw_card_add_sink(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name,
                                  const char *profile_name, pa_qahw_card_usecase_info *usecase_info, pa_qahw_card_sink_usecase_id_t sink_id,
                                  pa_qahw_sink_handle_t **sink_handle) {
     uint32_t rc = 0;
@@ -645,7 +650,7 @@ static int pa_qahw_card_add_sink(pa_module *module, pa_card *card, const char *d
     return rc;
 }
 
-static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_name) {
+static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_name, pa_qahw_card_usecase_type_t usecase_type) {
     uint32_t rc = 0;
     int32_t sink_idx;
     uint32_t profile_idx;
@@ -663,6 +668,9 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
             pa_log_error("%s: unsupported sink sink_idx %d ", __func__, sink_idx);
             continue;
         }
+
+        if (supported_sinks[sink_idx].usecase_type != usecase_type)
+            continue;
 
         rc = pa_qahw_card_add_sink(u->module, u->card, u->driver, u->module_handle, u->module_name, profile_name, &supported_sinks[sink_idx], profile_sinks[profile_idx].usecase_id.sink_id, &handle);
         if (rc) {
@@ -751,13 +759,13 @@ int pa__init(pa_module *m) {
 
     u->effect_status = (pa_qahw_effect_status *)pa_xnew0(pa_qahw_effect_status, ARRAY_SIZE(profile_sinks));
 
-    if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, DEFAULT_PROFILE)))
+    if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, DEFAULT_PROFILE, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
         goto fail;
 
     u->max_supported_sources = ARRAY_SIZE(profile_sources);;
     u->source_handle = pa_xnew0(pa_qahw_source_handle_t *, u->max_supported_sources);
 
-    if (PA_UNLIKELY(pa_qahw_card_create_sources(u, DEFAULT_PROFILE)))
+    if (PA_UNLIKELY(pa_qahw_card_create_sources(u, DEFAULT_PROFILE, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
         goto fail;
 
     pa_qahw_module_extn_init(u->core, u ->card, u->module_handle);

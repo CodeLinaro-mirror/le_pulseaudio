@@ -38,6 +38,11 @@ typedef union {
     pa_qahw_card_sink_usecase_id_t sink_id;
 } pa_qahw_card_usecase_id_t;
 
+typedef enum {
+    PA_QAHW_CARD_USECASE_TYPE_STATIC = 0,
+    PA_QAHW_CARD_USECASE_TYPE_DYNAMIC = 1,
+} pa_qahw_card_usecase_type_t;
+
 typedef struct {
     audio_devices_t device;
     pa_qahw_card_usecase_id_t usecase_id;
