@@ -79,6 +79,11 @@ audio_format_t pa_qahw_util_get_qahw_format_from_pa_encoding(pa_encoding_t pa_fo
         case PA_ENCODING_TRUEHD_IEC61937:
             qahw_format = AUDIO_FORMAT_DOLBY_TRUEHD;
             break;
+        case PA_ENCODING_UNKNOWN_IEC61937:
+        case PA_ENCODING_UNKNOWN_4X_IEC61937:
+        case PA_ENCODING_UNKNOWN_HBR_IEC61937:
+            qahw_format = AUDIO_FORMAT_IEC61937;
+            break;
         default:
             pa_log_error("PA format encoding not supported in QAHW\n");
             break;

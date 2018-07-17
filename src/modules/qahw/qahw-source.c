@@ -34,6 +34,7 @@
 #include <pulsecore/rtpoll.h>
 #include <pulsecore/sink.h>
 #include <pulsecore/memchunk.h>
+#include <pulsecore/core-format.h>
 
 #include "qahw-source.h"
 #include "qahw-utils.h"
@@ -290,8 +291,10 @@ static void pa_qahw_source_thread_func(void *userdata) {
             in_buf.buffer = data;
             in_buf.bytes = chunk.length;
 
-            if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) < 0)
+            if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) < 0) 
                 pa_log_error("Could not read data: %d qahw handle %p", ret, qahw_sdata->in_handle);
+            else 
+                chunk.length = ret;
 
             /* FIXME: don't post if read fails */
             pa_memblock_release(chunk.memblock);
@@ -429,7 +432,8 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t
 }
 
 static int create_pa_source(pa_module *m, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, char *source_name, pa_card *card,
-                           const char *profile_name, const char *driver, pa_qahw_source_data *source_data, pa_qahw_card_source_usecase_id_t source_id) {
+                           const char *profile_name, const char *driver, pa_qahw_source_data *source_data,
+                           pa_qahw_card_source_usecase_id_t source_id, pa_qahw_card_usecase_type_t usecase_type) {
     pa_source_new_data new_data;
     pa_source_data *pa_sdata;
     qahw_source_data *qahw_sdata = NULL;
@@ -437,6 +441,7 @@ static int create_pa_source(pa_module *m, pa_encoding_t encoding, pa_sample_spec
     pa_card_profile *profile;
     void *state, *state2;
     pa_format_info *format;
+    pa_sample_spec new_ss;
 
     bool port_source_mapping = false;
 
@@ -457,8 +462,15 @@ static int create_pa_source(pa_module *m, pa_encoding_t encoding, pa_sample_spec
 
     pa_source_new_data_set_name(&new_data, source_name);
 
-    pa_log_info("ss->rate %d ss->channels %d", ss->rate, ss->channels);
-    pa_source_new_data_set_sample_spec(&new_data, ss);
+    memcpy(&new_ss, ss, sizeof(pa_sample_spec));
+
+    /* convert to transmission to media rate, as pa expects same
+       for PA_ENCODING_UNKNOWN_4X_IEC61937 media_rate = transmission_rate/4 */
+    if (encoding == PA_ENCODING_UNKNOWN_4X_IEC61937)
+        new_ss.rate = ss->rate / 4;
+
+    pa_log_info("ss->rate %d ss->channels %d", new_ss.rate, new_ss.channels);
+    pa_source_new_data_set_sample_spec(&new_data, &new_ss);
     pa_source_new_data_set_channel_map(&new_data, map);
     pa_source_new_data_set_alternate_sample_rate(&new_data, PA_ALTERNATE_SOURCE_RATE);
 
@@ -472,6 +484,7 @@ static int create_pa_source(pa_module *m, pa_encoding_t encoding, pa_sample_spec
                 continue;
 
             profile = pa_hashmap_get(port->profiles, profile_name);
+                pa_log_error(" port %s to source %s", port->name, source_name);
 
             if ((profile) && pa_streq(profile->name, profile_name)) {
                 pa_log_error("adding port %s to source %s", port->name, source_name);
@@ -504,18 +517,31 @@ static int create_pa_source(pa_module *m, pa_encoding_t encoding, pa_sample_spec
     pa_source_set_asyncmsgq(pa_sdata->source, pa_sdata->thread_mq.inq);
     pa_source_set_rtpoll(pa_sdata->source, pa_sdata->rtpoll);
 
-    /* source only supports only one format */
-    format = pa_format_info_new();
-    format->encoding = encoding;
+    /* Source only supports only one format */
     pa_sdata->formats = pa_idxset_new(NULL, NULL);
-    pa_format_info_set_rate(format, ss->rate);
+
+    /* dynamic source support only single static configuration and pa client is supposed open session with same configuration hence publish
+       complete source config.
+    */
+    if ((usecase_type == PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) && (encoding == PA_ENCODING_PCM))
+        format = pa_format_info_from_sample_spec2(&new_ss, map, true, true, true);
+    /* for non pcm and dynamic source,  only publish encoding and sample rate, other format params are determined ased on format */
+    else if (usecase_type == PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) {
+        format = pa_format_info_new();
+        pa_format_info_set_rate(format, new_ss.rate);
+    /* for non pcm only publish encoding */
+    } else  {
+        format = pa_format_info_new();
+    }
+
+    format->encoding = encoding;
+
     pa_idxset_put(pa_sdata->formats, format, NULL);
 
     qahw_sdata = source_data->qahw_sdata;
 
     pa_source_set_max_rewind(pa_sdata->source, 0);
-    pa_source_set_fixed_latency(pa_sdata->source, pa_bytes_to_usec(qahw_sdata->source_buffer_size, ss));
-
+    pa_source_set_fixed_latency(pa_sdata->source, pa_bytes_to_usec(qahw_sdata->source_buffer_size, &new_ss));
 
     pa_sdata->thread = pa_thread_new(source_name, pa_qahw_source_thread_func, source_data);
     if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
@@ -573,10 +599,31 @@ static int free_pa_source(pa_source_data *pa_sdata) {
     return 0;
 }
 
+int pa_qahw_source_get_config(pa_qahw_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
+    pa_qahw_source_data *sdata = (pa_qahw_source_data *)handle;
+    pa_format_info *f;
+
+    uint32_t i;
+    int ret = -1;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->source);
+
+    PA_IDXSET_FOREACH(f, sdata->pa_sdata->formats, i) {
+        /* currently a source supports single format */
+        pa_format_info_to_sample_spec(f, ss, map);
+        *encoding = f->encoding;
+        ret = 0;
+        break;
+    }
+
+    return ret;
+}
 
 int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name, const char *profile_name,
                           pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t source_devices, int32_t flags,
-                          pa_qahw_card_source_usecase_id_t source_id, pa_qahw_source_handle_t **handle) {
+                          pa_qahw_card_source_usecase_id_t source_id, pa_qahw_card_usecase_type_t usecase_type, pa_qahw_source_handle_t **handle) {
     int rc;
     char *name;
     pa_qahw_source_data *sdata;
@@ -603,7 +650,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
 
     name = pa_sprintf_malloc("qahw_source.%s_%s_%d", module_name, pa_qahw_source_get_name_from_flags(flags), source_id);
     pa_log_debug("Opening source for profile %s with name %s", profile_name, name);
-    rc = create_pa_source(m, encoding, ss, map, name, card, profile_name, driver, sdata, source_id);
+    rc = create_pa_source(m, encoding, ss, map, name, card, profile_name, driver, sdata, source_id, usecase_type);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", name, rc);
         free_qahw_source(sdata->qahw_sdata);

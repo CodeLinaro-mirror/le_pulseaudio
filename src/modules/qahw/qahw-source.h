@@ -33,7 +33,8 @@ typedef size_t pa_qahw_source_handle_t;
 /*create qahw session and pa source */
 int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name,
                  const char *profile_name, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t source_devices, int32_t flags,
-                 pa_qahw_card_source_usecase_id_t source_id, pa_qahw_source_handle_t **handle);
+                 pa_qahw_card_source_usecase_id_t source_id, pa_qahw_card_usecase_type_t usecase_type, pa_qahw_source_handle_t **handle);
+int pa_qahw_source_get_config(pa_qahw_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding);
 void pa_qahw_source_close(pa_qahw_source_handle_t *handle);
 
 #endif
