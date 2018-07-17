@@ -32,6 +32,7 @@
 #include "qahw-source.h"
 #include "qahw-utils.h"
 #include "qahw-jack.h"
+#include "qahw-jack-format.h"
 #include "qahw-loopback.h"
 #include "qahw-card-extn.h"
 #include "qahw-effect.h"
@@ -58,6 +59,8 @@
 #define PA_DEFAULT_SOURCE_RATE 48000
 #define PA_DEFAULT_SOURCE_CHANNELS 2
 #define PA_DEFAULT_SOURCE_DEVICE AUDIO_DEVICE_IN_BUILTIN_MIC
+
+#define PA_DEFAULT_MAX_DYNAMIC_SOURCE_PER_PORT 1 /*currently only 1 dynamic source supported per port */
 
 PA_MODULE_AUTHOR("QTI");
 PA_MODULE_DESCRIPTION("qahw card module");
@@ -137,6 +140,10 @@ static int pa_qahw_card_get_usecase_id_from_sink_port(char *port_name, pa_qahw_c
 static int pa_qahw_card_get_sink_idx_from_usecase(pa_qahw_card_sink_usecase_id_t sink_id);
 static int pa_qahw_card_get_source_idx_from_usecase(pa_qahw_card_source_usecase_id_t source_id);
 static int pa_qahw_card_get_usecase_id_from_source_port(char *port_name, pa_qahw_card_source_usecase_id_t *source_id);
+static char *pa_qahw_card_get_profile_from_source_id(pa_qahw_card_source_usecase_id_t source_id);
+static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name,
+                                 const char *profile_name, pa_qahw_card_usecase_info *usecase_info, pa_qahw_card_source_usecase_id_t source_id,
+                                 pa_qahw_card_usecase_type_t usecase_type, pa_qahw_source_handle_t **source_handle);
 
 /* FIXME: this will have to come from configuration at some point */
 static const pa_card_profile qahw_card_profiles[] = {
@@ -173,6 +180,7 @@ static pa_qahw_card_usecase_info supported_sinks[] = {
 static pa_qahw_card_usecase_info supported_sources[] = {
     { { PA_QAHW_CARD_SOURCE_REGULAR_0 }, PA_QAHW_CARD_USECASE_TYPE_STATIC, AUDIO_INPUT_FLAG_NONE, PA_ENCODING_PCM, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE },
     { { PA_QAHW_CARD_SOURCE_LL_0}, PA_QAHW_CARD_USECASE_TYPE_STATIC, AUDIO_INPUT_FLAG_FAST, PA_ENCODING_PCM, {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE },
+    { { PA_QAHW_CARD_SOURCE_REGULAR_1 }, PA_QAHW_CARD_USECASE_TYPE_DYNAMIC, QAHW_INPUT_FLAG_TIMESTAMP|QAHW_INPUT_FLAG_COMPRESS, PA_ENCODING_UNKNOWN_IEC61937, {AUDIO_FORMAT_IEC61937, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS}, PA_DEFAULT_SOURCE_DEVICE},
 };
 
 pa_qahw_effect_data sink_effects_info[] = {
@@ -200,6 +208,7 @@ static const pa_qahw_usecase_id_profile_mapping profile_sinks[] = {
 static const pa_qahw_usecase_id_profile_mapping profile_sources[] = {
     { { PA_QAHW_CARD_SOURCE_REGULAR_0 }, "default" },
     { { PA_QAHW_CARD_SOURCE_LL_0 }, "default" },
+    { { PA_QAHW_CARD_SOURCE_REGULAR_1 }, "default" },
 };
 
 static const pa_qahw_card_port_to_usecase_id_mapping sink_port_to_usecase_mapping[] = {
@@ -212,6 +221,7 @@ static const pa_qahw_card_port_to_usecase_id_mapping sink_port_to_usecase_mappin
 static const pa_qahw_card_port_to_usecase_id_mapping source_port_to_usecase_mapping[] = {
     { "headset-mic", { PA_QAHW_CARD_SOURCE_REGULAR_0| PA_QAHW_CARD_SOURCE_LL_0 } },
     { "builtin-mic", { PA_QAHW_CARD_SOURCE_REGULAR_0| PA_QAHW_CARD_SOURCE_LL_0 } },
+    { "hdmi-in", { PA_QAHW_CARD_SOURCE_REGULAR_1 } },
 };
 
 static void pa_qahw_card_fill_sink_effect_status(pa_qahw_effect_status *effect_status, pa_qahw_sink_handle_t *handle) {
@@ -224,20 +234,196 @@ static void pa_qahw_card_fill_sink_effect_status(pa_qahw_effect_status *effect_s
     effect_status->sink_id = pa_qahw_sink_get_index(handle);
     for (i = 0; i < PA_QAHW_EFFECT_MAX; i++)
         effect_status->effect_loaded[i] = false;
+
+ return;
+}
+
+static unsigned int num_of_set_bits(int value) {
+    unsigned int count = 0;
+    while (value) {
+        value &= (value-1) ;
+        count++;
+    }
+    return count;
+}
+
+static void pa_qahw_card_remove_dynamic_source(pa_device_port *port, struct userdata *u) {
+    int source_idx;
+    int rc;
+
+    pa_qahw_card_source_usecase_id_t source_id;
+
+    pa_assert(port);
+
+    pa_log_debug("%s:", __func__);
+
+    rc = pa_qahw_card_get_usecase_id_from_source_port(port->name, &source_id);
+    if (rc) {
+        pa_log_error("%s: port %s not supported by any source", __func__, port->name);
+        goto exit;
+    }
+
+    source_idx = pa_qahw_card_get_source_idx_from_usecase(source_id);
+    if ((source_idx < 0) || source_idx >= (int32_t)ARRAY_SIZE(supported_sources)) {
+        pa_log_error("%s: unsupported source source_idx %d ",__func__, source_idx);
+        goto exit;
+    }
+
+    if (supported_sources[source_idx].usecase_type != PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) {
+        pa_log_error("%s: not a dynamic usecase %d, not creating any source ", __func__, supported_sources[source_idx].usecase_type);
+        goto exit;
+    }
+
+    if (!u->source_handle[source_idx]) {
+        pa_log_error("%s: no dynamic usecase present, skip removal of source ", __func__);
+        goto exit;
+    }
+
+    pa_qahw_source_close(u->source_handle[source_idx]);
+    u->source_handle[source_idx] = NULL;
+
+exit:
+    return;
+}
+
+static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_config_t *config, struct userdata *u) {
+    int source_idx;
+    int rc;
+    char* profile_name;
+    bool reconfigure = false;
+
+    pa_qahw_card_usecase_info source_info;
+    pa_qahw_source_handle_t *handle;
+    pa_qahw_card_source_usecase_id_t source_id;
+    pa_qahw_card_port_device_data *port_device_data;
+
+    pa_sample_spec ss;
+    pa_encoding_t encoding;
+    pa_channel_map map;
+
+    pa_assert(port);
+    pa_assert(config);
+    pa_assert(u);
+
+    pa_log_debug("%s:", __func__);
+
+    port_device_data = PA_DEVICE_PORT_DATA(port);
+    pa_assert(port_device_data);
+
+    rc = pa_qahw_card_get_usecase_id_from_source_port(port->name, &source_id);
+    if (rc) {
+        pa_log_error("%s: port %s not supported by any source", __func__, port->name);
+        goto exit;
+    }
+
+    if (num_of_set_bits((int)source_id) >  PA_DEFAULT_MAX_DYNAMIC_SOURCE_PER_PORT) {
+        pa_log_error("%s: Invalid configuration, port %s has more than 1(%d) dynamic source configured", __func__, port->name, num_of_set_bits((int) source_id));
+        goto exit;
+    }
+
+    source_idx = pa_qahw_card_get_source_idx_from_usecase(source_id);
+    if ((source_idx < 0) || source_idx >= (int32_t)ARRAY_SIZE(supported_sources)) {
+        pa_log_error("%s: unsupported source source_idx %d ", __func__, source_idx);
+        goto exit;
+    }
+
+    if (supported_sources[source_idx].usecase_type != PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) {
+        pa_log_error("%s: not a dynamic usecase %d, not creating any source ", __func__, supported_sources[source_idx].usecase_type);
+        goto exit;
+    }
+
+    profile_name = pa_qahw_card_get_profile_from_source_id(source_id);
+    if (!profile_name) {
+        pa_log_info("%s: Invalid profile ", __func__);
+        goto exit;
+    }
+
+    memcpy(&source_info, &supported_sources[source_idx], sizeof(pa_qahw_card_usecase_info));
+
+    source_info.ss.format = PA_SAMPLE_S16LE; /* format is don't care for IEC61937 pa capture */
+    source_info.ss.rate = config->sample_rate;
+
+    if ((config->mode == PA_QAHW_JACK_INPUT_MODE_COMPRESS) && (config->layout == 0)) {
+        source_info.ss.channels = 2;
+        if (config->sample_rate == 192000) {
+            source_info.encoding = PA_ENCODING_UNKNOWN_4X_IEC61937; /* EAC3 */
+        } else {
+            source_info.encoding = PA_ENCODING_UNKNOWN_IEC61937; /* Non HBR */
+        }
+    } else if (config->mode == PA_QAHW_JACK_INPUT_MODE_COMPRESS && config->layout == 1) {
+        source_info.ss.channels = 8;
+        source_info.encoding = PA_ENCODING_UNKNOWN_HBR_IEC61937; /* HBR */
+    } else if (config->mode == PA_QAHW_JACK_INPUT_MODE_PCM) {
+        source_info.encoding = PA_ENCODING_PCM; /* PCM */
+        if (config->layout == 0) {
+            source_info.ss.channels = 2;
+        } else if (config->layout == 1) {
+            source_info.ss.channels = 8;
+            /* FIXME: get channel map from channel allocation and update map with correct channel count. For multichannel pcm transmission rate will be 8
+               and 2 for other uscasese,
+            */
+        }
+    } else {
+        pa_log_error("%s: not a valid configure info", __func__);
+        goto exit;
+    }
+
+        /* check if reconfigure is needed if yes then recreate the source */
+    if (u->source_handle[source_idx]) {
+        rc = pa_qahw_source_get_config(u->source_handle[source_idx], &ss, &map, &encoding);
+        if (rc) {
+            pa_log_error("%s: pa_qahw_source_get_config failed %d", __func__, rc);
+            goto exit;
+        }
+
+        pa_log_info("%s: old encoding %d format %s rate %d channels %d", __func__, source_info.encoding, pa_sample_format_to_string(source_info.ss.format), source_info.ss.rate, source_info.ss.channels);
+        pa_log_info("%s: new encoding %d format %s rate %d channels %d", __func__, encoding, pa_sample_format_to_string(ss.format), ss.rate, ss.channels);
+
+        if (source_info.encoding != encoding) {
+            reconfigure = true;
+        /* pa_qahw_source_get_config returns media sample rate and source_info.ss.rate is transmission sample rate, hence multiple by 4 to get transmission rate*/
+        } else if ((source_info.encoding == PA_ENCODING_UNKNOWN_4X_IEC61937) && (source_info.ss.rate != ss.rate * 4)) {
+            reconfigure = true;
+        } else if ((source_info.encoding == PA_ENCODING_PCM) && ((source_info.ss.rate != ss.rate * 4 || source_info.ss.channels != map.channels))) {
+            reconfigure = true;
+        }
+
+        if (reconfigure) {
+            pa_log_info("%s: source reconfiguraiton needed, closing old source and createing new one", __func__);
+            pa_qahw_card_remove_dynamic_source(port, u);
+        } else {
+            pa_log_info("%s: source already exits", __func__);
+            goto exit;
+        }
+    }
+
+    source_info.default_device = port_device_data->device;
+
+    rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, profile_name, &source_info, source_id, supported_sources[source_idx].usecase_type, &handle);
+    if (rc) {
+        pa_log_error("%s: source %d create failed for profile %s, error %d ", __func__, source_id, profile_name, rc);
+        handle = NULL;
+    }
+
+    u->source_handle[source_idx] = handle;
+
+exit:
+   return;
+
 }
 
 static void pa_qahw_card_jack_callback(pa_qahw_jack_event_t event, pa_qahw_jack_event_data_t *event_data, void *prv_data) {
     const char *port_name = NULL;
     pa_available_t status = PA_AVAILABLE_UNKNOWN;
     pa_device_port *port;
-    pa_card *card;
+    struct userdata *u;
 
     pa_assert(prv_data);
 
-    card = (pa_card *)prv_data;
+    u  = (struct userdata *)prv_data;
 
-    if ((event != PA_QAHW_JACK_AVAILABLE) && (event != PA_QAHW_JACK_UNAVAILABLE)) {
-        pa_log_error("unsupport qahw jack event");
+    if ((event != PA_QAHW_JACK_AVAILABLE) && (event != PA_QAHW_JACK_UNAVAILABLE) && (event != PA_QAHW_JACK_CONFIG_UPDATE)) {
+        pa_log_error("%s: unsupport qahw jack event %d",__func__, event);
         return;
     }
 
@@ -248,20 +434,37 @@ static void pa_qahw_card_jack_callback(pa_qahw_jack_event_t event, pa_qahw_jack_
         return;
     }
 
-    status = (event == PA_QAHW_JACK_AVAILABLE) ? PA_AVAILABLE_YES: PA_AVAILABLE_NO;
+    if (event == PA_QAHW_JACK_AVAILABLE)
+        status = PA_AVAILABLE_YES;
+    else if (event == PA_QAHW_JACK_UNAVAILABLE)
+        status = PA_AVAILABLE_NO;
 
     port_name = pa_qahw_util_jack_type_to_port_name(event_data->jack_type);
     if (port_name != NULL) {
-        pa_log_info("port %s satus %d", port_name, status);
-        port = pa_hashmap_get(card->ports, port_name);
-        if (port)
-            pa_device_port_set_available(port, status);
-        else
-            pa_log_error("unsupported port %s", port_name);
+        pa_log_info("port %s satus %d event %x", port_name, status, event);
+        port = pa_hashmap_get(u->card->ports, port_name);
+        if (port) {
+            if (event == PA_QAHW_JACK_AVAILABLE) {
+                pa_device_port_set_available(port, status);
+             } else if (event == PA_QAHW_JACK_UNAVAILABLE) {
+                 pa_device_port_set_available(port, status);
 
+                 if (port->direction == PA_DIRECTION_INPUT) {
+                     pa_qahw_card_remove_dynamic_source(port, u);
+                 }
+             } else if ((event == PA_QAHW_JACK_CONFIG_UPDATE) && (port->available == PA_AVAILABLE_YES)) {
+                 if (port->direction == PA_DIRECTION_INPUT) {
+                     pa_qahw_card_add_dynamic_source(port, (pa_qahw_jack_config_t *)event_data->pa_qahw_jack_info, u);
+                 }
+                 } else {
+                pa_log_error("unsupported event %d", event);
+            }
+        } else {
+            pa_log_error("unsupported port %s", port_name);
+        }
         /* for headset, change status of headset-mic as well */
         if (pa_streq(port_name, "headset")) {
-            port = pa_hashmap_get(card->ports, "headset-mic");
+            port = pa_hashmap_get(u->card->ports, "headset-mic");
             if (port)
                 pa_device_port_set_available(port, status);
         }
@@ -298,7 +501,7 @@ static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
     if (jack_types == PA_QAHW_JACK_TYPE_INVALID)
         pa_log_error("skipping jack enable as PA_QAHW_JACK_TYPE_INVALID");
 
-    rc = pa_qahw_jack_enable(u->module, jack_types, pa_qahw_card_jack_callback, &jack_handle, (void *)u->card);
+    rc = pa_qahw_jack_enable(u->module, jack_types, pa_qahw_card_jack_callback, &jack_handle, (void *)u);
     if (rc) {
         pa_log_error("enable qahw jack failed %d", rc);
         u->jack_handle = NULL;
@@ -456,6 +659,21 @@ static int pa_qahw_card_create(struct userdata *u) {
     return 0;
 }
 
+static char *pa_qahw_card_get_profile_from_source_id(pa_qahw_card_source_usecase_id_t source_id) {
+    uint32_t idx;
+    char *profile_name = NULL;
+
+    for (idx = 0; idx < ARRAY_SIZE(profile_sources); idx++) {
+        if (profile_sources[idx].usecase_id.source_id == source_id) {
+            profile_name = (char *)profile_sources[idx].profile_name;
+            pa_log_debug("%s: found profile %s for source id = %d", __func__, profile_name, source_id);
+            break;
+        }
+    }
+
+    return profile_name;
+}
+
 static int pa_qahw_card_get_source_idx_from_usecase(pa_qahw_card_source_usecase_id_t source_id) {
     int idx = -1;
 
@@ -494,7 +712,7 @@ static int pa_qahw_card_get_usecase_id_from_source_port(char *port_name, pa_qahw
 
 static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name,
                                  const char *profile_name, pa_qahw_card_usecase_info *usecase_info, pa_qahw_card_source_usecase_id_t source_id,
-                                 pa_qahw_source_handle_t **source_handle) {
+                                 pa_qahw_card_usecase_type_t usecase_type, pa_qahw_source_handle_t **source_handle) {
     uint32_t rc = 0;
 
     pa_channel_map map;
@@ -514,7 +732,7 @@ static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char 
     pa_channel_map_init_auto(&map, usecase_info->ss.channels, PA_CHANNEL_MAP_DEFAULT);
 
     rc = pa_qahw_source_create(module, card, driver, module_handle, module_name, profile_name, usecase_info->encoding, &usecase_info->ss, &map,
-            usecase_info->default_device, usecase_info->flags, source_id, source_handle);
+            usecase_info->default_device, usecase_info->flags, source_id, usecase_type, source_handle);
     if (rc) {
         pa_log_error("%s: source %d create failed for profile %s, error %d ", __func__, source_id, profile_name, rc);
     }
@@ -544,7 +762,7 @@ static int pa_qahw_card_create_sources(struct userdata *u, const char *profile_n
         if (supported_sources[source_idx].usecase_type != usecase_type)
             continue;
 
-        rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, profile_name, &supported_sources[source_idx], profile_sources[profile_idx].usecase_id.source_id, &handle);
+        rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, profile_name, &supported_sources[source_idx], profile_sources[profile_idx].usecase_id.source_id, supported_sources[source_idx].usecase_type, &handle);
         if (rc) {
             pa_log_error("%s: source %d create failed for profile %s, error %d ", __func__, profile_sources[profile_idx].usecase_id.source_id,
                          profile_sources[profile_idx].profile_name, rc);
