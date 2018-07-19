@@ -1232,6 +1232,7 @@ modlibexec_LTLIBRARIES += \
 		module-filter-heuristics.la \
 		module-role-ducking.la \
 		module-role-exclusive.la \
+		module-role-ignore.la \
 		module-allow-passthrough.la
 
 if HAVE_ESOUND
@@ -1949,6 +1950,11 @@ module_role_exclusive_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_role_exclusive_la_LIBADD = $(MODULE_LIBADD)
 module_role_exclusive_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_exclusive
 
+# Ignore certain streams while others are active (e.g. mute tones when there is active voice-prompt)
+module_role_ignore_la_SOURCES = modules/module-role-ignore.c
+module_role_ignore_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_role_ignore_la_LIBADD = $(MODULE_LIBADD)
+module_role_ignore_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_ignore
 
 # Device description restore module
 module_device_manager_la_SOURCES = modules/module-device-manager.c
