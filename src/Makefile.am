@@ -1260,6 +1260,7 @@ modlibexec_LTLIBRARIES += \
 		module-filter-apply.la \
 		module-filter-heuristics.la \
 		module-role-ducking.la \
+		module-role-exclusive.la \
 		module-allow-passthrough.la
 
 if HAVE_ESOUND
@@ -1981,6 +1982,13 @@ module_role_cork_la_SOURCES = modules/module-role-cork.c \
 module_role_cork_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_role_cork_la_LIBADD = $(MODULE_LIBADD)
 module_role_cork_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_cork
+
+# Stream get exclusive hold on the sink while any active stream of same role will be corked/muted
+module_role_exclusive_la_SOURCES = modules/module-role-exclusive.c
+module_role_exclusive_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_role_exclusive_la_LIBADD = $(MODULE_LIBADD)
+module_role_exclusive_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_exclusive
+
 
 # Device description restore module
 module_device_manager_la_SOURCES = modules/module-device-manager.c
