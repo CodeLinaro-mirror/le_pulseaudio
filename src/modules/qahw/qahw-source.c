@@ -39,8 +39,13 @@
 #include "qahw-source.h"
 #include "qahw-utils.h"
 #include "qahw-source-extn.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <math.h>
 
 #define PA_ALTERNATE_SOURCE_RATE 44100
+//#define SOURCE_DUMP_ENABLED
 
 typedef struct {
     qahw_stream_handle_t *in_handle;
@@ -52,6 +57,7 @@ typedef struct {
     audio_config_t config;
 
     const char *device_url;
+    int write_fd;
 
     size_t source_buffer_size;
 } qahw_source_data;
@@ -295,7 +301,11 @@ static void pa_qahw_source_thread_func(void *userdata) {
                 pa_log_error("Could not read data: %d qahw handle %p", ret, qahw_sdata->in_handle);
             else 
                 chunk.length = ret;
-
+#ifdef SOURCE_DUMP_ENABLED
+            pa_log_error(" chunk length %d chunk index %d in_buf.bytes %d ",chunk.length, chunk.index, ret);
+            if ((ret = write(qahw_sdata->write_fd, in_buf.buffer, ret)) < 0)
+                    pa_log_error("write to fd failed %d", ret);
+#endif
             /* FIXME: don't post if read fails */
             pa_memblock_release(chunk.memblock);
             pa_source_post(pa_sdata->source, &chunk);
@@ -325,13 +335,24 @@ finish:
 static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                               audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata) {
     int rc;
+#ifdef SOURCE_DUMP_ENABLED
+    char *file_name;
+#endif
 
     pa_assert(ss);
     pa_assert(map);
     pa_assert(module_handle);
     pa_assert(qahw_sdata);
-
     pa_qahw_source_fill_info(qahw_sdata, encoding, ss, map, devices, flags, source_id);
+#ifdef SOURCE_DUMP_ENABLED
+    file_name = pa_sprintf_malloc("/data/pcmdump_source_%d", qahw_sdata->handle);
+
+    qahw_sdata->write_fd = open(file_name, O_RDWR | O_TRUNC | O_CREAT, S_IRWXU);
+    if(qahw_sdata->write_fd < 0)
+        pa_log_error("Could not open write fd %d for source index %d", qahw_sdata->write_fd, qahw_sdata->handle);
+
+    pa_xfree(file_name);
+#endif
 
     pa_log_debug("opening source with configuration flag = 0x%x, encoding %d,format %d, sample_rate %d, channel_mask 0x%x device %d",
                  qahw_sdata->flags, encoding, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask, qahw_sdata->devices);
@@ -376,6 +397,9 @@ static int close_qahw_source(qahw_source_data *qahw_sdata) {
 
         qahw_sdata->in_handle = NULL;
     }
+#ifdef SOURCE_DUMP_ENABLED
+    close(qahw_sdata->write_fd);
+#endif
 
     return rc;
 }
