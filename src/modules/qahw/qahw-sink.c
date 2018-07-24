@@ -291,7 +291,8 @@ static void qahw_sink_thread_func(void *userdata) {
     pa_thread_mq_install(&pa_sdata->thread_mq);
 
     while (true) {
-       int rc;
+        int rc;
+        bool wait = true;
 
         if (pa_sdata->sink->thread_info.rewind_requested)
             pa_sink_process_rewind(pa_sdata->sink, 0);
@@ -319,18 +320,11 @@ static void qahw_sink_thread_func(void *userdata) {
 
             pa_memblock_release(chunk.memblock);
             pa_memblock_unref(chunk.memblock);
-#if 0
-            /* its not needed as hal write is blocking call */
-            /* Now sleep for one fragment duration */
-            pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, qahw_sdata->buffer_duration_us);
-            pa_log_debug("Sleep");
-#endif
-        } else {
-            /* Disable the timer since we're not running */
-            pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
+
+            wait = false;
         }
 
-        rc = pa_rtpoll_run(pa_sdata->rtpoll);
+        rc = pa_rtpoll_run(pa_sdata->rtpoll, wait);
         if (rc < 0) {
             pa_log_error("pa_rtpoll_run() returned an error: %d", rc);
             goto fail;
