@@ -1639,7 +1639,8 @@ module_qahw_card_la_SOURCES = \
         modules/qahw/qahw-jack-evdev.c modules/qahw/qahw-jack-common.h \
         modules/qahw/qahw-loopback.c modules/qahw/qahw-loopback.h \
         modules/qahw/qahw-jack-hdmi.c \
-        modules/qahw/qahw-effect.c modules/qahw/qahw-effect.h
+        modules/qahw/qahw-effect.c modules/qahw/qahw-effect.h \
+        modules/qahw/qahw-format-detection.c modules/qahw/qahw-jack-format.h
 module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(QAHW_API_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
 module_qahw_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qahw_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqahw
