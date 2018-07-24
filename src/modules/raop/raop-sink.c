@@ -363,7 +363,7 @@ static void thread_func(void *userdata) {
         }
 
         /* Polling (audio data + control socket + timing socket). */
-        if ((ret = pa_rtpoll_run(u->rtpoll)) < 0)
+        if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0)
             goto fail;
         else if (ret == 0)
             goto finish;

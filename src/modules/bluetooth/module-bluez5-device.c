@@ -1543,7 +1543,7 @@ static void thread_func(void *userdata) {
         if (disable_timer)
             pa_rtpoll_set_timer_disabled(u->rtpoll);
 
-        if ((ret = pa_rtpoll_run(u->rtpoll)) < 0) {
+        if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0) {
             pa_log_debug("pa_rtpoll_run failed with: %d", ret);
             goto fail;
         }

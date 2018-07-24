@@ -58,7 +58,7 @@ void pa_rtpoll_free(pa_rtpoll *p);
  * is triggered. Returns negative on error, positive if the loop
  * should continue to run, 0 when the loop should be terminated
  * cleanly. */
-int pa_rtpoll_run(pa_rtpoll *f);
+int pa_rtpoll_run(pa_rtpoll *f, bool wait);
 
 void pa_rtpoll_set_timer_absolute(pa_rtpoll *p, pa_usec_t usec);
 void pa_rtpoll_set_timer_relative(pa_rtpoll *p, pa_usec_t usec);

@@ -735,7 +735,7 @@ static void thread_func(void *userdata) {
                 pa_sink_process_rewind(ca_sink->pa_sink, 0);
         }
 
-        ret = pa_rtpoll_run(u->rtpoll);
+        ret = pa_rtpoll_run(u->rtpoll, true);
 
         if (ret < 0)
             goto fail;

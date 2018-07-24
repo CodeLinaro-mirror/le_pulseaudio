@@ -201,7 +201,7 @@ static void reset_all_revents(pa_rtpoll *p) {
     }
 }
 
-int pa_rtpoll_run(pa_rtpoll *p) {
+int pa_rtpoll_run(pa_rtpoll *p, bool wait) {
     pa_rtpoll_item *i;
     int r = 0;
     struct timeval timeout;
@@ -283,7 +283,7 @@ int pa_rtpoll_run(pa_rtpoll *p) {
     pa_zero(timeout);
 
     /* Calculate timeout */
-    if (!p->quit && p->timer_enabled) {
+    if (wait && !p->quit && p->timer_enabled) {
         struct timeval now;
         pa_rtclock_get(&now);
 
@@ -311,10 +311,10 @@ int pa_rtpoll_run(pa_rtpoll *p) {
         struct timespec ts;
         ts.tv_sec = timeout.tv_sec;
         ts.tv_nsec = timeout.tv_usec * 1000;
-        r = ppoll(p->pollfd, p->n_pollfd_used, (p->quit || p->timer_enabled) ? &ts : NULL, NULL);
+        r = ppoll(p->pollfd, p->n_pollfd_used, (!wait || p->quit || p->timer_enabled) ? &ts : NULL, NULL);
     }
 #else
-    r = pa_poll(p->pollfd, p->n_pollfd_used, (p->quit || p->timer_enabled) ? (int) ((timeout.tv_sec*1000) + (timeout.tv_usec / 1000)) : -1);
+    r = pa_poll(p->pollfd, p->n_pollfd_used, (!wait || p->quit || p->timer_enabled) ? (int) ((timeout.tv_sec*1000) + (timeout.tv_usec / 1000)) : -1);
 #endif
 
     p->timer_elapsed = r == 0;
