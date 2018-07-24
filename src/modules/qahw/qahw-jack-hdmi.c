@@ -29,8 +29,12 @@
 #include <stdbool.h>
 
 #include "qahw-jack-common.h"
+#include "qahw-jack-format.h"
 
 #define HDMI_JACK_SYS_PATH  "/sys/devices/virtual/switch/hpd_state/state"
+
+static pa_qahw_jack_config_t curr_port_config = {0, 16, 0, 0, 0, -1};
+static pa_qahw_jack_event_t jack_status = PA_QAHW_JACK_ERROR;
 
 static int poll_data_event_init(void) {
     struct sockaddr_nl sock_addr;
@@ -87,6 +91,7 @@ static void check_hdmi_connection(struct pa_qahw_jack_data *jdata, pa_qahw_jack_
 
     if (value == 1) {
         pa_log_info("qahw jack type %d available", jdata->jack_type);
+        jack_status = PA_QAHW_JACK_AVAILABLE;
         jdata->callback(PA_QAHW_JACK_AVAILABLE, &event_data, jdata->prv_data);
     }
 }
@@ -129,10 +134,19 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
         if ((dev_path != NULL) && (switch_name != NULL) && (switch_state != NULL)) {
             if (pa_streq(switch_name, "hpd_state") && (atoi(switch_state) == 1)) {
                 pa_log_info("qahw jack type %d available", jdata->jack_type);
+                jack_status = PA_QAHW_JACK_AVAILABLE;
                 jdata->callback(PA_QAHW_JACK_AVAILABLE, &event_data, jdata->prv_data);
             } else if (pa_streq(switch_name, "hpd_state") && (atoi(switch_state) == 0)) {
                 pa_log_info("qahw jack type %d not available", jdata->jack_type);
+                jack_status = PA_QAHW_JACK_UNAVAILABLE;
                 jdata->callback(PA_QAHW_JACK_UNAVAILABLE, &event_data, jdata->prv_data);
+            } else if ((pa_streq(switch_name, "audio_format") || pa_streq(switch_name, "channels") ||
+                                                               pa_streq(switch_name, "sample_rate"))) {
+                if (pa_qahw_hdmi_jack_get_config(&curr_port_config) && (jack_status == PA_QAHW_JACK_AVAILABLE)) {
+                    pa_log_info("qahw jack type %d config update", jdata->jack_type);
+                    event_data.pa_qahw_jack_info = &curr_port_config;
+                    jdata->callback(PA_QAHW_JACK_CONFIG_UPDATE, &event_data, jdata->prv_data);
+                }
             }
         }
     }

@@ -36,6 +36,7 @@ typedef enum {
     PA_QAHW_JACK_ERROR,
     PA_QAHW_JACK_AVAILABLE,
     PA_QAHW_JACK_UNAVAILABLE,
+    PA_QAHW_JACK_CONFIG_UPDATE,
 } pa_qahw_jack_event_t;
 
 typedef struct pa_qahw_jack_event_data {
