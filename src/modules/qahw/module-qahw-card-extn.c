@@ -567,6 +567,7 @@ int pa_qahw_module_extn_deinit(void) {
 
     pa_xfree(qahw_extn_mdata->obj_path);
     pa_xfree(qahw_extn_mdata);
+    qahw_extn_mdata = NULL;
 
     return 0;
 }
