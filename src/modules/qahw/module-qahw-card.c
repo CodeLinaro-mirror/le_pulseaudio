@@ -70,7 +70,6 @@ static const char* const valid_modargs[] = {
 };
 
 typedef struct {
-    const char *profile_name;
     pa_device_port_new_data data;
     unsigned priority;
     audio_devices_t qahw_port; /* qahw device */
@@ -82,6 +81,11 @@ typedef struct {
     pa_sample_spec ss;
     uint32_t default_device;
 } pa_qahw_card_profile_usecase;
+
+typedef struct {
+    char *port_name;
+    char *profile_name;
+} pa_qahw_card_port_to_profile_mapping;
 
 struct userdata {
     pa_core *core;
@@ -112,15 +116,25 @@ static const pa_card_profile qahw_card_profiles[] = {
     {(pa_card *)NULL, (char *)"default", (char *)"Default qahw profile", NULL, NULL, 10, PA_AVAILABLE_YES, 3, 2, 8, 8},
 };
 
-/* FIXME: this will have to come from configuration at some point */
 static const pa_qahw_card_port qahw_ports[] = {
-    {"default", {(char *)"speaker", (char *)"speaker", PA_AVAILABLE_YES, PA_DIRECTION_OUTPUT}, 100, AUDIO_DEVICE_OUT_SPEAKER},
-    {"default", {(char *)"headset", (char *)"wired headset", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, 500, AUDIO_DEVICE_OUT_WIRED_HEADSET},
-    {"default", {(char *)"headphone", (char *)"wired headphone", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, 300,  AUDIO_DEVICE_OUT_WIRED_HEADPHONE},
-    {"default", {(char *)"lineout", (char *)"lineout", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, 200, AUDIO_DEVICE_OUT_LINE},
-    {"default", {(char *)"headset-mic", (char *)"wired headset mic", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, 500, AUDIO_DEVICE_IN_WIRED_HEADSET},
-    {"default", {(char *)"builtin-mic", (char *)"builtin mic", PA_AVAILABLE_YES, PA_DIRECTION_INPUT}, 100, AUDIO_DEVICE_IN_BUILTIN_MIC},
-    {"default", {(char *)"hdmi-in", (char *)"hdmi input", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, 50, AUDIO_DEVICE_IN_HDMI},
+    { {(char *)"speaker", (char *)"speaker", PA_AVAILABLE_YES, PA_DIRECTION_OUTPUT}, 100, AUDIO_DEVICE_OUT_SPEAKER },
+    { {(char *)"headset", (char *)"wired headset", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, 500, AUDIO_DEVICE_OUT_WIRED_HEADSET },
+    { {(char *)"headphone", (char *)"wired headphone", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, 300,  AUDIO_DEVICE_OUT_WIRED_HEADPHONE },
+    { {(char *)"lineout", (char *)"lineout", PA_AVAILABLE_NO, PA_DIRECTION_OUTPUT}, 200, AUDIO_DEVICE_OUT_LINE },
+    { {(char *)"headset-mic", (char *)"wired headset mic", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, 500, AUDIO_DEVICE_IN_WIRED_HEADSET },
+    { {(char *)"builtin-mic", (char *)"builtin mic", PA_AVAILABLE_YES, PA_DIRECTION_INPUT}, 100, AUDIO_DEVICE_IN_BUILTIN_MIC },
+    { {(char *)"hdmi-in", (char *)"hdmi input", PA_AVAILABLE_NO, PA_DIRECTION_INPUT}, 50, AUDIO_DEVICE_IN_HDMI },
+};
+
+/* FIXME: this will have to come from configuration at some point */
+static const pa_qahw_card_port_to_profile_mapping port_profile[] = {
+    { (char *)"speaker", (char* ) "default"},
+    { (char *)"headset", (char* ) "default"},
+    { (char *)"headphone", (char* ) "default"},
+    { (char *)"lineout", (char* ) "default"},
+    { (char *)"headset-mic", (char* ) "default"},
+    { (char *)"builtin-mic", (char* ) "default"},
+    { (char *)"hdmi-in", (char* ) "default"},
 };
 
 static pa_qahw_card_profile_usecase profile_sinks[] = {
@@ -280,44 +294,47 @@ static void pa_qahw_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_
     pa_device_port_new_data port_data;
     pa_card_profile *profile = NULL;
     audio_devices_t *qahw_port = NULL;
-    int idx;
-    int port_count;
+
+    uint32_t port_idx;
+    uint32_t profile_idx;
 
     pa_assert(u);
     pa_assert(ports);
     pa_assert(profiles);
 
-    port_count = sizeof(qahw_ports) / sizeof(qahw_ports[0]);
-
-    for (idx = 0; idx < port_count; idx++) {
-        if (!(profile = pa_hashmap_get(profiles, qahw_ports[idx].profile_name))) {
-            /* Skip adding port if profile is not yet created */
-            pa_log_debug("Skipping port %s for non-existent profile %s", qahw_ports[idx].data.name,
-                    qahw_ports[idx].profile_name);
-            continue;
-        }
-
+    for (port_idx = 0; port_idx < ARRAY_SIZE(qahw_ports); port_idx++) {
         pa_device_port_new_data_init(&port_data);
 
-        pa_device_port_new_data_set_name(&port_data, qahw_ports[idx].data.name);
-        pa_device_port_new_data_set_description(&port_data, qahw_ports[idx].data.description);
-        pa_device_port_new_data_set_direction(&port_data, qahw_ports[idx].data.direction);
-        pa_device_port_new_data_set_available(&port_data, qahw_ports[idx].data.available);
+        pa_device_port_new_data_set_name(&port_data, qahw_ports[port_idx].data.name);
+        pa_device_port_new_data_set_description(&port_data, qahw_ports[port_idx].data.description);
+        pa_device_port_new_data_set_direction(&port_data, qahw_ports[port_idx].data.direction);
+        pa_device_port_new_data_set_available(&port_data, qahw_ports[port_idx].data.available);
 
         port = pa_device_port_new(u->core, &port_data, sizeof(audio_devices_t));
 
         qahw_port = PA_DEVICE_PORT_DATA(port);
-        *qahw_port = qahw_ports[idx].qahw_port;
+        *qahw_port = qahw_ports[port_idx].qahw_port;
 
-        port->priority = qahw_ports[idx].priority;
+        port->priority = qahw_ports[port_idx].priority;
 
         /* Sanity check that we don't have duplicates */
         pa_assert_se(pa_hashmap_put(ports, port->name, port) >= 0);
 
         pa_device_port_new_data_done(&port_data);
 
-        /* Add port to a profile */
-        pa_hashmap_put(port->profiles, profile->name, profile);
+        /* Add port to profiles */
+        for (profile_idx = 0; profile_idx < ARRAY_SIZE(port_profile); profile_idx++) {
+            if (pa_streq(qahw_ports[port_idx].data.name, port_profile[profile_idx].port_name)) {
+                /*check if its valid profile */
+                if (!(profile = pa_hashmap_get(profiles, port_profile[profile_idx].profile_name))) {
+                    /* Skip adding port if profile is not yet created */
+                    pa_log_debug("Skipping port %s for non-existent profile %s", qahw_ports[port_idx].data.name,
+                            port_profile[profile_idx].profile_name);
+                    continue;
+                }
+                pa_hashmap_put(port->profiles, profile->name, profile);
+            }
+        }
     }
 }
 
