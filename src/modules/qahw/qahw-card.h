@@ -16,24 +16,26 @@
  * 02110-1301  USA
  */
 
-#ifndef fooqahwpasourcehfoo
-#define fooqahwpasourcehfoo
+#ifndef foomoduleqahwcardfoo
+#define foomoduleqahwcardfoo
 
-#include <pulse/sample.h>
-#include <pulsecore/card.h>
-#include <pulsecore/core.h>
+typedef enum {
+    PA_QAHW_CARD_SINK_NONE= 0x0,
+    PA_QAHW_CARD_SINK_LL_0 = 0x1,
+    PA_QAHW_CARD_SINK_ULL_0 = 0x2,
+    PA_QAHW_CARD_SINK_OFFLOAD_0 = 0x4,
+} pa_qahw_card_sink_usecase_id_t;
 
-#include <qahw_api.h>
-#include <qahw_defs.h>
+typedef enum {
+    PA_QAHW_CARD_SOURCE_NONE = 0x0,
+    PA_QAHW_CARD_SOURCE_REGULAR_0 = 0x1,
+    PA_QAHW_CARD_SOURCE_LL_0 = 0x2,
+    PA_QAHW_CARD_SOURCE_REGULAR_1 = 0x4,
+} pa_qahw_card_source_usecase_id_t;
 
-#include "qahw-card.h"
-
-typedef size_t pa_qahw_source_handle_t;
-
-/*create qahw session and pa source */
-int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name,
-                 const char *profile_name, pa_sample_spec *ss, pa_channel_map *map, uint32_t source_devices, int32_t flags,
-                 pa_qahw_card_source_usecase_id_t source_id, pa_qahw_source_handle_t **handle);
-void pa_qahw_source_close(pa_qahw_source_handle_t *handle);
+typedef union {
+    pa_qahw_card_source_usecase_id_t source_id;
+    pa_qahw_card_sink_usecase_id_t sink_id;
+} pa_qahw_card_usecase_id_t;
 
 #endif

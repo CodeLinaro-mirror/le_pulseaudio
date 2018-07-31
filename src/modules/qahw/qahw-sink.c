@@ -94,9 +94,9 @@ typedef struct {
 } pa_qahw_sink_data;
 
 static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                              audio_output_flags_t flags, int sink_iohandle, pa_qahw_sink_data *sdata);
+                             audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
 static int create_qahw_sink(qahw_module_handle_t *module_handle,pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                            audio_output_flags_t flags, int sink_iohandle, pa_qahw_sink_data *sdata);
+                            audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
 static int close_qahw_sink(pa_qahw_sink_data *sdata);
 static int free_pa_sink(pa_qahw_sink_data *sdata);
 
@@ -171,8 +171,7 @@ static int pa_qahw_out_write_cb(qahw_stream_callback_event_t event, void *param,
 }
 
 static void pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                                audio_output_flags_t flags, int sink_iohandle) {
-
+                                audio_output_flags_t flags, int sink_id) {
     qahw_sdata->config.format = pa_qahw_util_get_qahw_format_from_pa_sample(ss->format);
     qahw_sdata->config.sample_rate = ss->rate;
     qahw_sdata->config.channel_mask = audio_channel_out_mask_from_count(ss->channels); /* TODO: le get channel mask for pa map */
@@ -187,7 +186,7 @@ static void pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_sample_spec *s
 
     qahw_sdata->devices = devices;
     qahw_sdata->flags = flags;
-    qahw_sdata->handle = sink_iohandle; /* check if its correct */
+    qahw_sdata->handle = sink_id; /* check if its correct */
     qahw_sdata->device_url = NULL; /* TODO: useful for BT devices */
     qahw_sdata->bytes_written = 0;
 }
@@ -506,7 +505,7 @@ done:
 }
 
 static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                            audio_output_flags_t flags, int sink_iohandle, pa_qahw_sink_data *sdata) {
+                            audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata) {
     int rc;
     qahw_sink_data *qahw_sdata;
 #ifdef SINK_DUMP_ENABLED
@@ -521,7 +520,7 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *s
 
     qahw_sdata = sdata->qahw_sdata;
 
-    pa_qahw_sink_fill_info(qahw_sdata, ss, map, devices, flags, sink_iohandle);
+    pa_qahw_sink_fill_info(qahw_sdata, ss, map, devices, flags, sink_id);
 
     pa_log_debug("opening sink with configuration flag = 0x%x, format %d, sample_rate %d, channel_mask 0x%x device %d",
                  qahw_sdata->flags, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask, qahw_sdata->devices);
@@ -600,7 +599,7 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
 }
 
 static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                              audio_output_flags_t flags, int sink_iohandle, pa_qahw_sink_data *sdata) {
+                              audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata) {
     int rc;
 
     rc = close_qahw_sink(sdata);
@@ -609,7 +608,7 @@ static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec
         goto exit;
     }
 
-    rc = open_qahw_sink(module_handle, ss, map, devices, flags, sink_iohandle, sdata);
+    rc = open_qahw_sink(module_handle, ss, map, devices, flags, sink_id, sdata);
     if (rc) {
         pa_log_error("open_qahw_sink failed during recreation, error %d", rc);
     }
@@ -635,12 +634,12 @@ static int free_qahw_sink(pa_qahw_sink_data *sdata) {
 }
 
 static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                            audio_output_flags_t flags, int sink_iohandle, pa_qahw_sink_data *sdata) {
+                            audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata) {
    int rc;
 
    sdata->qahw_sdata = pa_xnew0(qahw_sink_data, 1);
 
-   rc = open_qahw_sink(module_handle, ss, map, devices, flags, sink_iohandle, sdata);
+   rc = open_qahw_sink(module_handle, ss, map, devices, flags, sink_id, sdata);
    if (rc) {
        pa_log_error("open_qahw_sink failed, error %d", rc);
        pa_xfree(sdata->qahw_sdata);
@@ -796,7 +795,7 @@ static int free_pa_sink(pa_qahw_sink_data *sdata) {
 }
 
 int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name, const char *profile_name,
-                pa_sample_spec *ss, pa_channel_map *map, uint32_t sink_devices, int32_t flags, int sink_iohandle, pa_qahw_sink_handle_t **handle) {
+                pa_sample_spec *ss, pa_channel_map *map, uint32_t sink_devices, int32_t flags, pa_qahw_card_sink_usecase_id_t sink_id, pa_qahw_sink_handle_t **handle) {
     int rc;
     char *name;
     pa_qahw_sink_data *sdata;
@@ -820,7 +819,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
         goto exit;
     }
 
-    rc = create_qahw_sink(module_handle, ss, map, sink_devices, flags, sink_iohandle, sdata);
+    rc = create_qahw_sink(module_handle, ss, map, sink_devices, flags, sink_id, sdata);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could create open qahw sink, error %d", rc);
         pa_qahw_sink_free_common_resources(sdata);
@@ -829,7 +828,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
         goto exit;
     }
 
-    name = pa_sprintf_malloc("qahw_sink.%s_%s_%d", module_name, pa_qahw_sink_get_name_from_flags(flags), sink_iohandle);
+    name = pa_sprintf_malloc("qahw_sink.%s_%s_%d", module_name, pa_qahw_sink_get_name_from_flags(flags), sink_id);
     pa_log_debug("Opening sink for profile %s with name %s", profile_name, name);
 
     rc = create_pa_sink(m, ss, map, name, card, profile_name, driver, sdata);

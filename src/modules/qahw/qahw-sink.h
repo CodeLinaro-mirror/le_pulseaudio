@@ -27,6 +27,7 @@
 #include <qahw_api.h>
 #include <qahw_defs.h>
 
+#include "qahw-card.h"
 #include "qahw-sink-extn.h"
 
 typedef size_t pa_qahw_sink_handle_t;
@@ -38,7 +39,7 @@ int pa_qahw_sink_get_flags(pa_qahw_sink_handle_t *handle);
 /* create qahw session and pa sink */
 int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name,
                  const char *profile_name, pa_sample_spec *ss, pa_channel_map *map, uint32_t sink_devices, int32_t flags,
-                 int sink_idx, pa_qahw_sink_handle_t **handle);
+                 pa_qahw_card_sink_usecase_id_t sink_id, pa_qahw_sink_handle_t **handle);
 void pa_qahw_sink_close(pa_qahw_sink_handle_t *handle);
 
 #endif
