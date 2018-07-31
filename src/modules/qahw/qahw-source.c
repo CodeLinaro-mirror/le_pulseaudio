@@ -524,6 +524,8 @@ static int create_pa_source(pa_module *m, pa_encoding_t encoding, pa_sample_spec
         goto fail;
     }
 
+    pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_qahw_source_get_name_from_flags(source_data->qahw_sdata->flags));
+
     pa_sdata->source = pa_source_new(m->core, &new_data, PA_SOURCE_HARDWARE);
     if (!pa_sdata->source) {
         pa_log_error("Could not create source");
