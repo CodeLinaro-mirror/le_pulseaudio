@@ -68,8 +68,14 @@ PA_MODULE_VERSION(PACKAGE_VERSION);
 PA_MODULE_LOAD_ONCE(true);
 
 /* We don't have any module arguments */
+PA_MODULE_USAGE(
+        "module=audio.primary"
+        "use_dolby_hw_loopback=<enable dsp loopbck for dolby, if this flag is enabled then iec61937 capture will be disabled> "
+);
+
 static const char* const valid_modargs[] = {
     "module",
+    "use_dolby_hw_loopback",
     NULL
 };
 
@@ -115,6 +121,7 @@ struct userdata {
     pa_card *card;
     const char *driver;
     char *module_name;
+    bool use_dolby_hw_loopback;
     pa_module *module;
     pa_hashmap *profiles;
     pa_modargs *modargs;
@@ -245,6 +252,17 @@ static unsigned int num_of_set_bits(int value) {
         count++;
     }
     return count;
+}
+
+static bool pa_qahw_card_is_dynamic_source_supported_for_port(pa_device_port *port, struct userdata *u) {
+    pa_assert(u);
+    pa_assert(port);
+
+    /* FIXME: update this once spdif and arc support is added */
+    if (pa_streq(port->name, "hdmi-in") && !u->use_dolby_hw_loopback)
+        return true;
+
+    return false;
 }
 
 static void pa_qahw_card_remove_dynamic_source(pa_device_port *port, struct userdata *u) {
@@ -449,14 +467,14 @@ static void pa_qahw_card_jack_callback(pa_qahw_jack_event_t event, pa_qahw_jack_
              } else if (event == PA_QAHW_JACK_UNAVAILABLE) {
                  pa_device_port_set_available(port, status);
 
-                 if (port->direction == PA_DIRECTION_INPUT) {
+                if ((port->direction == PA_DIRECTION_INPUT) && pa_qahw_card_is_dynamic_source_supported_for_port(port, u)) {
                      pa_qahw_card_remove_dynamic_source(port, u);
                  }
              } else if ((event == PA_QAHW_JACK_CONFIG_UPDATE) && (port->available == PA_AVAILABLE_YES)) {
-                 if (port->direction == PA_DIRECTION_INPUT) {
+                 if ((port->direction == PA_DIRECTION_INPUT) && (pa_qahw_card_is_dynamic_source_supported_for_port(port, u))) {
                      pa_qahw_card_add_dynamic_source(port, (pa_qahw_jack_config_t *)event_data->pa_qahw_jack_info, u);
                  }
-                 } else {
+             } else {
                 pa_log_error("unsupported event %d", event);
             }
         } else {
@@ -952,6 +970,12 @@ int pa__init(pa_module *m) {
     u->module = m;
     u->core = m->core;
     u->driver = __FILE__;
+
+    u->use_dolby_hw_loopback = false;
+    if (pa_modargs_get_value_boolean(u->modargs, "use_dolby_hw_loopback", &u->use_dolby_hw_loopback) < 0)
+        pa_log_info("Failed to parse use_dolby_hw_loopback argument, disabling hw loopback");
+    else
+        pa_log_info("use_dolby_hw_loopback %d", u->use_dolby_hw_loopback);
 
     u->module_name = pa_xstrdup(pa_modargs_get_value(ma, "module", QAHW_MODULE_ID_PRIMARY));
 

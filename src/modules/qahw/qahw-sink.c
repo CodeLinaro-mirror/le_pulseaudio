@@ -724,6 +724,8 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
         goto fail;
     }
 
+    pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_qahw_sink_get_name_from_flags(sdata->qahw_sdata->flags));
+
     pa_sdata->sink = pa_sink_new(m->core, &new_data, PA_SINK_HARDWARE | PA_SINK_LATENCY);
     pa_sink_new_data_done(&new_data);
 
