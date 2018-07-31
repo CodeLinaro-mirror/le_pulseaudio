@@ -293,7 +293,7 @@ static void pa_qahw_sink_set_volume_cb(pa_sink *s) {
 }
 
 static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
-    audio_devices_t *audio_device;
+    pa_qahw_card_port_device_data *port_device_data;
     char *kvpair;
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)s->userdata;
     int rc;
@@ -302,16 +302,15 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     pa_assert(sdata->qahw_sdata);
     pa_assert(sdata->qahw_sdata->out_handle);
 
-    audio_device = PA_DEVICE_PORT_DATA(p);
-    pa_assert(audio_device);
+    port_device_data = PA_DEVICE_PORT_DATA(p);
+    pa_assert(port_device_data);
 
-    kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_STREAM_ROUTING, *audio_device);
+    kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
+    pa_log_info("port name: %s kvpair %s device %x", p->name, kvpair, port_device_data->device);
 
     rc = qahw_out_set_parameters(sdata->qahw_sdata->out_handle, kvpair);
     if (rc)
         pa_log_error("qahw routing failed %d",rc);
-
-    pa_log_debug("port name: %s kvpair %s device %d",p->name, kvpair, *audio_device);
 
     pa_xfree(kvpair);
 
@@ -357,6 +356,8 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool pa
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *) s->userdata;
     pa_sink_data *pa_sdata = NULL;
     qahw_sink_data *qahw_sdata = NULL;
+    pa_qahw_card_port_device_data *port_device_data;
+
     bool supported = false;
     uint32_t i, rc;
     uint32_t old_rate;
@@ -389,7 +390,8 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool pa
         old_rate = pa_sdata->sink->sample_spec.rate; /* take backup */
         pa_sdata->sink->sample_spec.rate = spec->rate;
 
-        qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port));
+        port_device_data = PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port);
+        qahw_sdata->devices = port_device_data->device;
 
         pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, spec->rate);
 
@@ -667,12 +669,15 @@ static int pa_qahw_sink_alloc_common_resources(pa_qahw_sink_data *sdata) {
 }
 
 static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map, char *sink_name, pa_card *card,
-                          const char *profile_name, const char *driver, pa_qahw_sink_data *sdata) {
+                          const char *profile_name, const char *driver, pa_qahw_sink_data *sdata, pa_qahw_card_sink_usecase_id_t sink_id) {
     pa_sink_new_data new_data;
     pa_sink_data *pa_sdata;
     pa_device_port *port;
     pa_card_profile *profile;
     void *state, *state2;
+    bool port_sink_mapping = false;
+
+    pa_qahw_card_port_device_data *port_device_data;
 
     pa_assert(sdata->qahw_sdata);
 
@@ -681,6 +686,8 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
     new_data.driver = driver;
     new_data.module = m;
     new_data.card = card;
+
+    sdata->pa_sdata = pa_sdata;
 
     pa_sdata->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&pa_sdata->thread_mq, m->core->mainloop, pa_sdata->rtpoll);
@@ -694,7 +701,10 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
 
     /* associate port with sink, first get port in a card then for each profile in that port check if matches with output profile */
     PA_HASHMAP_FOREACH(port, card->ports, state) {
-        if (!(port->direction & PA_DIRECTION_OUTPUT))
+        port_device_data = PA_DEVICE_PORT_DATA(port);
+        pa_assert(port_device_data);
+
+        if (!((port->direction & PA_DIRECTION_OUTPUT) && (port_device_data->usecase_id.sink_id & sink_id)))
             continue;
 
         PA_HASHMAP_FOREACH(profile, port->profiles, state2) {
@@ -703,9 +713,15 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
             if (profile && pa_streq(profile->name, profile_name)) {
                 pa_log_debug("adding port %s to sink %s", port->name, sink_name);
                 pa_assert_se(pa_hashmap_put(new_data.ports, port->name, port) == 0);
+                port_sink_mapping = true;
                 pa_device_port_ref(port);
             }
         }
+    }
+
+    if (!port_sink_mapping) {
+        pa_log_error("%s: sink_id %d creation failed as no port mapped, ",__func__, sink_id);
+        goto fail;
     }
 
     pa_sdata->sink = pa_sink_new(m->core, &new_data, PA_SINK_HARDWARE | PA_SINK_LATENCY);
@@ -717,7 +733,6 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
     }
 
     pa_log_debug("pa sink opened %p", pa_sdata->sink);
-    sdata->pa_sdata = pa_sdata;
 
     pa_sdata->sink->userdata = (void *)sdata;
     pa_sdata->sink->parent.process_msg = pa_qahw_sink_process_msg;
@@ -831,7 +846,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     name = pa_sprintf_malloc("qahw_sink.%s_%s_%d", module_name, pa_qahw_sink_get_name_from_flags(flags), sink_id);
     pa_log_debug("Opening sink for profile %s with name %s", profile_name, name);
 
-    rc = create_pa_sink(m, ss, map, name, card, profile_name, driver, sdata);
+    rc = create_pa_sink(m, ss, map, name, card, profile_name, driver, sdata, sink_id);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", name, rc);
         free_qahw_sink(sdata);

@@ -38,4 +38,9 @@ typedef union {
     pa_qahw_card_sink_usecase_id_t sink_id;
 } pa_qahw_card_usecase_id_t;
 
+typedef struct {
+    audio_devices_t device;
+    pa_qahw_card_usecase_id_t usecase_id;
+} pa_qahw_card_port_device_data;
+
 #endif
