@@ -115,8 +115,8 @@ static int pa_qahw_source_standby(qahw_source_data *sdata) {
 
 static int pa_qahw_source_set_port_cb(pa_source *s, pa_device_port *p) {
 
-    audio_devices_t *audio_device;
-    char kvpair[KV_PAIR_MAX_LENGTH] = {0};
+    pa_qahw_card_port_device_data *port_device_data;
+    char *kvpair = NULL;
     pa_qahw_source_data *source_data = (pa_qahw_source_data *)s->userdata;
     int rc;
 
@@ -124,18 +124,18 @@ static int pa_qahw_source_set_port_cb(pa_source *s, pa_device_port *p) {
     pa_assert(source_data->qahw_sdata);
     pa_assert(source_data->qahw_sdata->in_handle);
 
-    audio_device = PA_DEVICE_PORT_DATA(p);
-    pa_assert(audio_device);
+    port_device_data = PA_DEVICE_PORT_DATA(p);
+    pa_assert(port_device_data);
 
-    /* FIXME: use pa_sprintf_malloc() instead */
-    snprintf(kvpair, KV_PAIR_MAX_LENGTH, "%s=%d", QAHW_PARAMETER_STREAM_ROUTING, *audio_device);
+    kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
+    pa_log_info("port name: %s kvpair %s device 0x%x", p->name, kvpair, port_device_data->device);
 
     rc = qahw_in_set_parameters(source_data->qahw_sdata->in_handle, kvpair);
-    if (rc) {
+    if (rc)
         pa_log_error("qahw in routing failed %d",rc);
-    }
 
-    pa_log_debug("port name: %s kvpair %s device %d",p->name, kvpair, *audio_device);
+    pa_xfree(kvpair);
+
     return rc;
 }
 
@@ -393,13 +393,17 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_sample_spe
 }
 
 static int create_pa_source(pa_module *m, pa_sample_spec *ss, pa_channel_map *map, char *source_name, pa_card *card,
-                          const char *profile_name, const char *driver, pa_qahw_source_data *source_data) {
+                           const char *profile_name, const char *driver, pa_qahw_source_data *source_data, pa_qahw_card_source_usecase_id_t source_id) {
     pa_source_new_data new_data;
     pa_source_data *pa_sdata;
     qahw_source_data *qahw_sdata = NULL;
     pa_device_port *port;
     pa_card_profile *profile;
     void *state, *state2;
+
+    bool port_source_mapping = false;
+
+    pa_qahw_card_port_device_data *port_device_data;
 
     pa_assert(source_data->qahw_sdata);
 
@@ -408,6 +412,8 @@ static int create_pa_source(pa_module *m, pa_sample_spec *ss, pa_channel_map *ma
     new_data.driver = driver;
     new_data.module = m;
     new_data.card = card;
+
+    source_data->pa_sdata = pa_sdata;
 
     pa_sdata->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&pa_sdata->thread_mq, m->core->mainloop, pa_sdata->rtpoll);
@@ -422,17 +428,26 @@ static int create_pa_source(pa_module *m, pa_sample_spec *ss, pa_channel_map *ma
     /* associate port with source, first get port in a card then for each profile in that port check if matches with input profile */
     PA_HASHMAP_FOREACH(port, card->ports, state) {
         PA_HASHMAP_FOREACH(profile, port->profiles, state2) {
-            if (!(port->direction & PA_DIRECTION_INPUT))
+            port_device_data = PA_DEVICE_PORT_DATA(port);
+            pa_assert(port_device_data);
+
+            if (!((port->direction & PA_DIRECTION_INPUT) && (port_device_data->usecase_id.source_id & source_id)))
                 continue;
 
             profile = pa_hashmap_get(port->profiles, profile_name);
 
             if ((profile) && pa_streq(profile->name, profile_name)) {
                 pa_log_error("adding port %s to source %s", port->name, source_name);
+                port_source_mapping = true;
                 pa_assert_se(pa_hashmap_put(new_data.ports, port->name, port) >= 0);
                 pa_device_port_ref(port);
             }
         }
+    }
+
+    if (!port_source_mapping) {
+        pa_log_error("%s: source_id %d creation failed as no port mapped, ",__func__, source_id);
+        goto fail;
     }
 
     pa_sdata->source = pa_source_new(m->core, &new_data, PA_SOURCE_HARDWARE);
@@ -456,7 +471,6 @@ static int create_pa_source(pa_module *m, pa_sample_spec *ss, pa_channel_map *ma
     pa_source_set_max_rewind(pa_sdata->source, 0);
     pa_source_set_fixed_latency(pa_sdata->source, pa_bytes_to_usec(qahw_sdata->source_buffer_size, ss));
 
-    source_data->pa_sdata = pa_sdata;
 
     pa_sdata->thread = pa_thread_new(source_name, pa_qahw_source_thread_func, source_data);
     if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
@@ -540,7 +554,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
 
     name = pa_sprintf_malloc("qahw_source.%s_%s_%d", module_name, pa_qahw_source_get_name_from_flags(flags), source_id);
     pa_log_debug("Opening source for profile %s with name %s", profile_name, name);
-    rc = create_pa_source(m, ss, map, name, card, profile_name, driver, sdata);
+    rc = create_pa_source(m, ss, map, name, card, profile_name, driver, sdata, source_id);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", name, rc);
         free_qahw_source(sdata->qahw_sdata);
