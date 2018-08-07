@@ -331,7 +331,7 @@ static int pa_qahw_sink_process_msg(pa_msgobject *o, int code, void *data, int64
              return 0;
 
         case PA_SINK_MESSAGE_SET_STATE: {
-            pa_sink_state_t new_state = PA_PTR_TO_UINT(data);
+            pa_sink_state_t new_state = (pa_sink_state_t) PA_PTR_TO_UINT(data);
             int r = 0;
 
             pa_log_debug("Sink new state is: %d", new_state);
