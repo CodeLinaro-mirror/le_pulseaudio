@@ -92,7 +92,9 @@ static const char *pa_qahw_source_get_name_from_flags(audio_input_flags_t flags)
     if (flags == AUDIO_INPUT_FLAG_NONE)
         name = "audio-record";
     else if (flags == AUDIO_INPUT_FLAG_FAST)
-        name ="record-low-latency";
+        name = "record-low-latency";
+    else if (flags & QAHW_INPUT_FLAG_COMPRESS)
+        name = "record-compress";
 
     return name;
 }
