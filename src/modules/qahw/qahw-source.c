@@ -129,7 +129,9 @@ static int pa_qahw_source_standby(qahw_source_data *sdata) {
     pa_assert(sdata);
     pa_assert(sdata->in_handle);
 
-   qahw_in_standby(sdata->in_handle);
+    pa_log_info("%s", __func__);
+
+    qahw_in_standby(sdata->in_handle);
 
     return 0;
 }
@@ -168,12 +170,13 @@ static int pa_qahw_source_process_msg(pa_msgobject *o, int code, void *data, int
     pa_assert(source_data->pa_sdata->source);
 
     switch (code) {
-        case PA_SOURCE_MESSAGE_SET_STATE:
-            pa_log_debug("New state is: %d", PA_PTR_TO_UINT(data));
+        case PA_SOURCE_MESSAGE_SET_STATE: {
+            pa_source_state_t new_state = (pa_source_state_t) PA_PTR_TO_UINT(data);
+            pa_log_debug("New state is: %d", new_state);
 
-            if (PA_SOURCE_IS_OPENED(PA_PTR_TO_UINT(data)) && !PA_SOURCE_IS_OPENED(source_data->pa_sdata->source->thread_info.state))
+            if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(source_data->pa_sdata->source->thread_info.state))
                 r = pa_qahw_source_start(source_data->qahw_sdata);
-            else if (PA_PTR_TO_UINT(data) == PA_SOURCE_SUSPENDED)
+            else if (new_state == PA_SOURCE_SUSPENDED)
                 r = pa_qahw_source_standby(source_data->qahw_sdata);
 
             /* Error */
@@ -181,7 +184,7 @@ static int pa_qahw_source_process_msg(pa_msgobject *o, int code, void *data, int
                 return r;
 
             break;
-
+        }
         case PA_SOURCE_MESSAGE_GET_LATENCY: {
             *((pa_usec_t*) data) = 0;
             return 0;
