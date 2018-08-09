@@ -317,6 +317,21 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     return rc;
 }
 
+static int pa_qahw_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state, pa_suspend_cause_t new_suspend_cause PA_GCC_UNUSED)
+{
+    pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)(s->userdata);
+    int r = 0;
+
+    pa_log_debug("Sink new state is: %d", new_state);
+
+    if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(s->thread_info.state))
+        r = pa_qahw_sink_start(sdata->qahw_sdata);
+    else if (new_state == PA_SINK_SUSPENDED)
+        r = pa_qahw_sink_standby(sdata->qahw_sdata);
+
+    return r;
+}
+
 static int pa_qahw_sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
 
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)(PA_SINK(o)->userdata);
@@ -330,23 +345,8 @@ static int pa_qahw_sink_process_msg(pa_msgobject *o, int code, void *data, int64
              *((int64_t*) data) = pa_qahw_sink_get_latency(sdata);
              return 0;
 
-        case PA_SINK_MESSAGE_SET_STATE: {
-            pa_sink_state_t new_state = (pa_sink_state_t) PA_PTR_TO_UINT(data);
-            int r = 0;
-
-            pa_log_debug("Sink new state is: %d", new_state);
-
-            if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(sdata->pa_sdata->sink->thread_info.state))
-                r = pa_qahw_sink_start(sdata->qahw_sdata);
-             else if (new_state == PA_SINK_SUSPENDED)
-                r = pa_qahw_sink_standby(sdata->qahw_sdata);
-
-            /* Error */
-            if (r < 0)
-                return r;
-
-            break;
-        }
+        default:
+             break;
     }
 
     return pa_sink_process_msg(o, code, data, offset, chunk);
@@ -738,6 +738,7 @@ static int create_pa_sink(pa_module *m, pa_sample_spec *ss, pa_channel_map *map,
 
     pa_sdata->sink->userdata = (void *)sdata;
     pa_sdata->sink->parent.process_msg = pa_qahw_sink_process_msg;
+    pa_sdata->sink->set_state_in_io_thread = pa_qahw_sink_set_state_in_io_thread_cb;
     pa_sdata->sink->set_port = pa_qahw_sink_set_port_cb;
     pa_sdata->sink->reconfigure = pa_qahw_sink_reconfigure_cb;
 

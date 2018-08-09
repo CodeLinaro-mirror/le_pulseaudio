@@ -164,33 +164,35 @@ static int pa_qahw_source_set_port_cb(pa_source *s, pa_device_port *p) {
     return rc;
 }
 
-static int pa_qahw_source_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
-	pa_qahw_source_data *source_data = (pa_qahw_source_data *)(PA_SOURCE(o)->userdata);
+static int pa_qahw_source_set_state_in_io_thread_cb(pa_source *s, pa_source_state_t new_state, pa_suspend_cause_t new_suspend_cause PA_GCC_UNUSED)
+{
+    pa_qahw_source_data *source_data = (pa_qahw_source_data *)(s->userdata);
     int r = 0;
+
+    pa_log_debug("New state is: %d", new_state);
+
+    if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(s->thread_info.state))
+        r = pa_qahw_source_start(source_data->qahw_sdata);
+    else if (new_state == PA_SOURCE_SUSPENDED)
+        r = pa_qahw_source_standby(source_data->qahw_sdata);
+
+    return r;
+}
+
+static int pa_qahw_source_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
+    pa_qahw_source_data *source_data = (pa_qahw_source_data *)(PA_SOURCE(o)->userdata);
 
     pa_assert(source_data);
     pa_assert(source_data->pa_sdata->source);
 
     switch (code) {
-        case PA_SOURCE_MESSAGE_SET_STATE: {
-            pa_source_state_t new_state = (pa_source_state_t) PA_PTR_TO_UINT(data);
-            pa_log_debug("New state is: %d", new_state);
-
-            if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(source_data->pa_sdata->source->thread_info.state))
-                r = pa_qahw_source_start(source_data->qahw_sdata);
-            else if (new_state == PA_SOURCE_SUSPENDED)
-                r = pa_qahw_source_standby(source_data->qahw_sdata);
-
-            /* Error */
-            if (r < 0)
-                return r;
-
-            break;
-        }
         case PA_SOURCE_MESSAGE_GET_LATENCY: {
             *((pa_usec_t*) data) = 0;
             return 0;
         }
+
+        default:
+             break;
     }
 
     return pa_source_process_msg(o, code, data, offset, chunk);
@@ -542,6 +544,7 @@ static int create_pa_source(pa_module *m, pa_encoding_t encoding, pa_sample_spec
 
     pa_sdata->source->userdata = (void *)source_data;
     pa_sdata->source->parent.process_msg = pa_qahw_source_process_msg;
+    pa_sdata->source->set_state_in_io_thread = pa_qahw_source_set_state_in_io_thread_cb;
     pa_sdata->source->set_port = pa_qahw_source_set_port_cb;
     pa_sdata->source->reconfigure = pa_qahw_source_reconfigure_cb;
     pa_sdata->source->get_formats = pa_qahw_source_get_formats;
