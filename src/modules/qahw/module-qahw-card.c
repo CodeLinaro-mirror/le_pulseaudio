@@ -179,7 +179,7 @@ static const pa_qahw_card_port_to_profile_mapping port_profile[] = {
 };
 
 static pa_qahw_card_usecase_info supported_sinks[] = {
-    { { PA_QAHW_CARD_SINK_OFFLOAD_0}, PA_QAHW_CARD_USECASE_TYPE_STATIC, AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_NON_BLOCKING, PA_ENCODING_PCM, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE },
+    { { PA_QAHW_CARD_SINK_OFFLOAD_0}, PA_QAHW_CARD_USECASE_TYPE_STATIC, AUDIO_OUTPUT_FLAG_DIRECT | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_NON_BLOCKING, PA_ENCODING_PCM, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE },
     { { PA_QAHW_CARD_SINK_ULL_0},  PA_QAHW_CARD_USECASE_TYPE_STATIC, AUDIO_OUTPUT_FLAG_FAST, PA_ENCODING_PCM, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE },
     { { PA_QAHW_CARD_SINK_LL_0}, PA_QAHW_CARD_USECASE_TYPE_STATIC, AUDIO_OUTPUT_FLAG_RAW, PA_ENCODING_PCM, {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS}, PA_DEFAULT_SINK_DEVICE },
 };
@@ -191,7 +191,7 @@ static pa_qahw_card_usecase_info supported_sources[] = {
 };
 
 pa_qahw_effect_data sink_effects_info[] = {
-    {AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_NON_BLOCKING, {true, true, true, true, false}},
+    {AUDIO_OUTPUT_FLAG_DIRECT | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_NON_BLOCKING, {true, true, true, true, false}},
     {AUDIO_OUTPUT_FLAG_FAST, {false, false, false, false, false}},
     {AUDIO_OUTPUT_FLAG_RAW, {false, false, false, false, false}},
 };
@@ -258,7 +258,7 @@ static bool pa_qahw_card_is_dynamic_source_supported_for_port(pa_device_port *po
     pa_assert(u);
     pa_assert(port);
 
-    /* FIXME: update this once spdif and arc support is added */
+    /* FIXME: update this once spdif and hdmi-arc support is added */
     if (pa_streq(port->name, "hdmi-in") && !u->use_dolby_hw_loopback)
         return true;
 
