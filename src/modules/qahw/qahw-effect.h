@@ -56,6 +56,15 @@ typedef struct {
 
 typedef void* pa_qahw_effect_handle_t;
 
+static inline bool pa_qahw_effect_is_supported_type(char *effect_type) {
+    pa_assert(effect_type);
+
+    if (pa_streq(effect_type, "port") || pa_streq(effect_type, "sink"))
+        return true;
+
+    return false;
+}
+
 void pa_qahw_free_sink_effects(pa_qahw_effect_handle_t handle, uint32_t sink_id);
 pa_qahw_effect_handle_t pa_qahw_init_effect(char *dbus_path, pa_dbus_protocol *dbus_protocol, pa_qahw_effect_data *sink_effects,
                                             pa_qahw_port_effect_data *port_effects, pa_qahw_effect_status *status, pa_card *card,
