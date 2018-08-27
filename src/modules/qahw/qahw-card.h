@@ -33,6 +33,32 @@ typedef enum {
     PA_QAHW_CARD_SOURCE_REGULAR_1 = 0x4,
 } pa_qahw_card_source_usecase_id_t;
 
+typedef struct {
+    char *name;
+    char *description;
+
+    uint32_t priority;
+    pa_available_t available;
+
+    pa_hashmap *ports;
+    char **port_conf_string;
+
+    uint32_t n_sinks;
+    uint32_t n_sources;
+
+    uint32_t max_sink_channels;
+    uint32_t max_source_channels;
+} pa_qahw_card_profile_config;
+
+typedef struct {
+    char *name;
+    char *description;
+    pa_available_t available;
+    pa_direction_t direction;
+    uint32_t priority;
+    audio_devices_t device;
+} pa_qahw_card_port_config;
+
 typedef union {
     pa_qahw_card_source_usecase_id_t source_id;
     pa_qahw_card_sink_usecase_id_t sink_id;

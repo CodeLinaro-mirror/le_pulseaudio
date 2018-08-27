@@ -30,11 +30,83 @@
 
 typedef size_t pa_qahw_source_handle_t;
 
+typedef struct {
+    char *name;
+    char *description;
+    char *type;
+    int id;
+    audio_input_flags_t flags;
+    uint32_t alternate_sample_rate;
+    pa_idxset *formats;
+    pa_hashmap *ports;
+    pa_hashmap *profiles;
+    char **port_conf_string;
+    pa_qahw_card_usecase_type_t usecase_type;
+} pa_qahw_source_config;
+
 /*create qahw session and pa source */
 int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name,
-                 const char *profile_name, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t source_devices, int32_t flags,
-                 pa_qahw_card_source_usecase_id_t source_id, pa_qahw_card_usecase_type_t usecase_type, pa_qahw_source_handle_t **handle);
-int pa_qahw_source_get_config(pa_qahw_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding);
+                          pa_qahw_source_config *source, pa_qahw_source_handle_t **handle);
+pa_idxset* pa_qahw_source_get_config(pa_qahw_source_handle_t *handle);
 void pa_qahw_source_close(pa_qahw_source_handle_t *handle);
+bool pa_qahw_source_is_supported_sample_rate(uint32_t sample_rate);
+
+static inline bool pa_qahw_source_is_supported_type(char *source_type) {
+    pa_assert(source_type);
+
+    if (pa_streq(source_type, "low-latency") || pa_streq(source_type, "regular") || pa_streq(source_type, "compress") || pa_streq(source_type, "passthrough"))
+        return true;
+
+    return false;
+}
+
+static inline bool pa_qahw_source_is_supported_sample_format(char *source_type) {
+    pa_assert(source_type);
+
+    if (pa_streq(source_type, "s16le") ||  pa_streq(source_type, "s24le"))
+        return true;
+
+    return false;
+}
+
+static inline bool pa_qahw_source_is_supported_encoding(pa_encoding_t encoding) {
+    bool supported = true;
+
+    switch (encoding) {
+        case PA_ENCODING_PCM:
+        case PA_ENCODING_UNKNOWN_IEC61937:
+        case PA_ENCODING_UNKNOWN_4X_IEC61937:
+        case PA_ENCODING_UNKNOWN_HBR_IEC61937:
+            break;
+
+        default :
+            supported = false;
+            pa_log_error("%s: unsupported encoding %s", __func__, pa_encoding_to_string(encoding));
+    }
+
+    return supported;
+}
+
+static inline audio_input_flags_t pa_qahw_source_get_flags_from_string(const char *flag_name) {
+    audio_input_flags_t flag;
+
+    if (pa_streq(flag_name, "AUDIO_INPUT_FLAG_NONE")) {
+        flag = AUDIO_INPUT_FLAG_NONE;
+    } else if (pa_streq(flag_name,"AUDIO_INPUT_FLAG_FAST")) {
+        flag = AUDIO_INPUT_FLAG_FAST;
+    } else if (pa_streq(flag_name, "QAHW_INPUT_FLAG_TIMESTAMP")) {
+        flag = QAHW_INPUT_FLAG_TIMESTAMP;
+    } else if (pa_streq(flag_name, "QAHW_INPUT_FLAG_COMPRESS")) {
+        flag = QAHW_INPUT_FLAG_COMPRESS;
+    } else if (pa_streq(flag_name, "QAHW_INPUT_FLAG_PASSTHROUGH")) {
+        flag = QAHW_INPUT_FLAG_PASSTHROUGH;
+    } else {
+        flag = AUDIO_INPUT_FLAG_NONE;
+        pa_log_error("%s: Unsupported flag name %s", __func__, flag_name);
+    }
+
+    return flag;
+}
+
 
 #endif

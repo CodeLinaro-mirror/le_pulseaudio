@@ -20,7 +20,10 @@
 #include <config.h>
 #endif
 
-#include "pulsecore/log.h"
+#include <pulsecore/log.h>
+#include <pulsecore/core-util.h>
+#include <pulsecore/core-format.h>
+
 #include "qahw-utils.h"
 
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {
@@ -214,6 +217,68 @@ const char* pa_qahw_util_audio_device_to_port_name(audio_devices_t audio_device,
     return (char *)key;
 }
 
+audio_devices_t pa_qahw_util_port_to_qahw_device(const char *port_name) {
+    audio_devices_t device;
+
+    if (pa_streq(port_name, "speaker")) {
+        device = AUDIO_DEVICE_OUT_SPEAKER;
+    } else if (pa_streq(port_name, "headset")) {
+        device = AUDIO_DEVICE_OUT_WIRED_HEADSET;
+    } else if (pa_streq(port_name, "headphone")) {
+        device = AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
+    } else if (pa_streq(port_name, "lineout")) {
+        device = AUDIO_DEVICE_OUT_LINE;
+    } else if (pa_streq(port_name,"headset-mic")) {
+        device = AUDIO_DEVICE_IN_WIRED_HEADSET;
+    } else if (pa_streq(port_name, "builtin-mic")) {
+        device = AUDIO_DEVICE_IN_BUILTIN_MIC;
+    } else if (pa_streq(port_name, "hdmi-in")) {
+        device = AUDIO_DEVICE_IN_HDMI;
+    } else if (pa_streq(port_name, "linein")) {
+        device = AUDIO_DEVICE_IN_LINE;
+    } else if (pa_streq(port_name, "spdif-in")) {
+        device = AUDIO_DEVICE_IN_SPDIF;
+    } else {
+        device = AUDIO_DEVICE_NONE;
+        pa_log_error("%s: No qahw device mapping for  port %s", __func__, port_name);
+    }
+
+    pa_log_debug("%s: port %s qahw device %u", __func__, port_name, device);
+
+    return device;
+}
+
+audio_devices_t pa_qahw_util_device_name_convert_string_to_enum(const char *device_name) {
+    audio_devices_t device;
+
+    if (pa_streq(device_name, "AUDIO_DEVICE_OUT_SPEAKER")) {
+        device = AUDIO_DEVICE_OUT_SPEAKER;
+    } else if (pa_streq(device_name, "AUDIO_DEVICE_OUT_WIRED_HEADSET")) {
+        device = AUDIO_DEVICE_OUT_WIRED_HEADSET;
+    } else if (pa_streq(device_name, "AUDIO_DEVICE_OUT_WIRED_HEADPHONE")) {
+        device = AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
+    } else if (pa_streq(device_name, "AUDIO_DEVICE_OUT_LINE")) {
+        device = AUDIO_DEVICE_OUT_LINE;
+    } else if (pa_streq(device_name,"AUDIO_DEVICE_IN_WIRED_HEADSET")) {
+        device = AUDIO_DEVICE_IN_WIRED_HEADSET;
+    } else if (pa_streq(device_name, "AUDIO_DEVICE_IN_BUILTIN_MIC")) {
+        device = AUDIO_DEVICE_IN_BUILTIN_MIC;
+    } else if (pa_streq(device_name, "AUDIO_DEVICE_IN_HDMI")) {
+        device = AUDIO_DEVICE_IN_HDMI;
+    } else if (pa_streq(device_name, "AUDIO_DEVICE_IN_LINE")) {
+        device = AUDIO_DEVICE_IN_LINE;
+    } else if (pa_streq(device_name, "AUDIO_DEVICE_IN_SPDIF")) {
+        device = AUDIO_DEVICE_IN_SPDIF;
+    } else {
+        device = AUDIO_DEVICE_NONE;
+        pa_log_error("%s: No qahw device mapping for port %s", __func__, device_name);
+    }
+
+    pa_log_debug("%s: port %s qahw device %u", __func__, device_name, device);
+
+    return device;
+}
+
 pa_sample_format_t pa_qahw_util_get_pa_sample_from_qahw_format(audio_format_t format) {
     pa_sample_format_t pa_sample_format;
 
@@ -229,8 +294,78 @@ pa_sample_format_t pa_qahw_util_get_pa_sample_from_qahw_format(audio_format_t fo
             break;
         default:
             pa_sample_format = PA_SAMPLE_INVALID;
-            pa_log_error("Unsupported format %d",format);
+            pa_log_error("%s: Unsupported format %d", __func__, format);
     }
 
     return pa_sample_format;
+}
+
+int pa_qahw_utils_convert_format_to_sample_spec(pa_format_info *format, pa_sample_spec *ss, pa_channel_map *map, pa_sample_spec *default_ss, pa_channel_map *default_map,
+                                                int rate_idx, int sample_format_idx) {
+    int32_t *sample_rates = NULL;
+    int32_t num_sample_rates;
+    int32_t *sample_formats = NULL;
+    int32_t num_sample_formats;
+    int32_t rc = -1;
+    pa_format_info *new_format;
+
+    pa_assert(format);
+    pa_assert(ss);
+    pa_assert(map);
+    pa_assert(default_ss);
+    pa_assert(default_map);
+
+    new_format = pa_format_info_copy(format);
+
+    /* if sample rate is an array then overwite default sample rate with first first sample rate in array */
+    if (pa_format_info_get_prop_type(format, PA_PROP_FORMAT_RATE) == PA_PROP_TYPE_INT_ARRAY) {
+        pa_log_info("%s: sample rate is in an array", __func__);
+        pa_format_info_get_prop_int_array(format, PA_PROP_FORMAT_RATE, &sample_rates, &num_sample_rates);
+        if (rate_idx >= num_sample_rates) {
+            pa_log_error("%s: invalid sample rate index %d", __func__, rate_idx);
+            goto exit;
+        }
+        pa_format_info_set_rate(new_format, sample_rates[rate_idx]);
+        pa_xfree(sample_rates);
+    }
+
+    /* if sample rate is an array then overwite default sample rate with first first sample rate in array */
+    if (pa_format_info_get_prop_type(format, PA_PROP_FORMAT_SAMPLE_FORMAT) == PA_PROP_TYPE_INT_ARRAY) {
+        pa_log_info("%s: sample format is in an array", __func__);
+        pa_format_info_get_prop_int_array(format, PA_PROP_FORMAT_SAMPLE_FORMAT, &sample_formats, &num_sample_formats);
+        if (sample_format_idx >= num_sample_formats) {
+            pa_log_error("%s: invalid sample format index %d", __func__, rate_idx);
+            goto exit;
+        }
+        pa_format_info_set_sample_format(new_format, sample_formats[sample_format_idx]);
+        pa_xfree(sample_formats);
+    }
+
+    rc = pa_format_info_to_sample_spec2(new_format, ss, map, default_ss, default_map);
+    if (rc) {
+        pa_log_error("%s: pa_format_info_to_sample_spec2 failed %d", __func__, rc);
+        goto exit;
+    }
+#if 0
+    if (is_prop_array) {
+        if (pa_format_info_get_channel_map(format, map)) {
+            pa_log_error("%s: channel map not present", __func__);
+            goto exit;
+        }
+        ss->rate = sample_rates[rate_idx];
+        ss->format = sample_formats[sample_format_idx];
+        ss->channels = map->channels;
+    } else {
+        rc = pa_format_info_to_sample_spec2(format, ss, map, default_ss, default_map);
+        if (rc) {
+            pa_log_error("%s: pa_format_info_to_sample_spec2 failed %d", __func__, rc);
+            goto exit;
+        }
+    }
+#endif
+    rc = 0;
+
+exit:
+    pa_format_info_free(new_format);
+    return rc;
 }

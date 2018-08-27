@@ -36,6 +36,9 @@ audio_channel_mask_t pa_qahw_util_get_channel_mask_from_num_channels(unsigned in
 unsigned int pa_qahw_util_get_num_channels_from_channel_mask(audio_channel_mask_t channel_mask);
 pa_encoding_t pa_qahw_util_get_pa_encoding_from_qahw_format(audio_format_t qahw_format);
 const char *pa_qahw_util_audio_device_to_port_name(audio_devices_t audio_device, pa_hashmap *ports);
+audio_devices_t pa_qahw_util_port_to_qahw_device(const char *port); /* FIXME remove if not needed */
+audio_devices_t pa_qahw_util_device_name_convert_string_to_enum(const char *device);
 pa_sample_format_t pa_qahw_util_get_pa_sample_from_qahw_format(audio_format_t format);
-
+int pa_qahw_utils_convert_format_to_sample_spec(pa_format_info *format, pa_sample_spec *ss, pa_channel_map *map, pa_sample_spec *default_ss, pa_channel_map *default_map,
+                                                int rate_idx, int sample_format_idx);
 #endif
