@@ -29,46 +29,33 @@
 #define QAHW_EFFECT_MODULE_IFACE "org.PulseAudio.Core1.Effect"
 #define QAHW_EFFECT_SESSION_IFACE "org.PulseAudio.Core1.Effect.Session"
 
-typedef enum {
-    PA_QAHW_EFFECT_BASSBOOST = 0,
-    PA_QAHW_EFFECT_VIRTUALIZER,
-    PA_QAHW_EFFECT_EQUALIZER,
-    PA_QAHW_EFFECT_PRESET_REVERB,
-    PA_QAHW_EFFECT_AUDIOSPHERE,
-    PA_QAHW_EFFECT_MAX
-} pa_qahw_effect_t;
-
 typedef struct {
-    int flags;
-    bool effect_supported[PA_QAHW_EFFECT_MAX];
-} pa_qahw_effect_data;
+    char *name;
+    char *description;
+    char *type;
+    pa_hashmap *sinks;
 
-typedef struct {
-    const char *port_name;
-    bool effect_supported[PA_QAHW_EFFECT_MAX];
-} pa_qahw_port_effect_data;
-
-typedef struct {
-    uint32_t sink_id;
-    pa_qahw_sink_handle_t *handle;
-    bool effect_loaded[PA_QAHW_EFFECT_MAX];
-} pa_qahw_effect_status;
+    char **endpoint_conf_string;
+} pa_qahw_effect_config;
 
 typedef void* pa_qahw_effect_handle_t;
 
 static inline bool pa_qahw_effect_is_supported_type(char *effect_type) {
     pa_assert(effect_type);
 
-    if (pa_streq(effect_type, "port") || pa_streq(effect_type, "sink"))
+    if (pa_streq(effect_type, "sink"))
         return true;
 
     return false;
 }
 
+pa_qahw_effect_handle_t pa_qahw_init_effect(char *dbus_path,
+                                            pa_dbus_protocol *dbus_protocol,
+                                            pa_hashmap *effects,
+                                            pa_card *card);
+
+void pa_qahw_deinit_effect(pa_qahw_effect_handle_t effect_handle);
+
 void pa_qahw_free_sink_effects(pa_qahw_effect_handle_t handle, uint32_t sink_id);
-pa_qahw_effect_handle_t pa_qahw_init_effect(char *dbus_path, pa_dbus_protocol *dbus_protocol, pa_qahw_effect_data *sink_effects,
-                                            pa_qahw_port_effect_data *port_effects, pa_qahw_effect_status *status, pa_card *card,
-                                            uint32_t max_sinks, uint32_t max_ports);
-void pa_qahw_deinit_effect(pa_qahw_effect_handle_t handle);
 
 #endif

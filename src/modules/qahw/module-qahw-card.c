@@ -96,7 +96,6 @@ struct userdata {
     pa_hashmap *source_handles;
 
     pa_qahw_effect_handle_t effect_handle;
-    pa_qahw_effect_status *effect_status;
 
     PA_LLIST_HEAD(struct jack_handle_list, jack_handle_list_head);
 
@@ -109,36 +108,6 @@ struct userdata {
 
 static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name,
                                    pa_qahw_source_config *source, pa_qahw_source_handle_t **source_handle);
-
-pa_qahw_effect_data sink_effects_info[] = {
-    {AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_NON_BLOCKING, {true, true, true, true, false}},
-    {AUDIO_OUTPUT_FLAG_FAST, {false, false, false, false, false}},
-    {AUDIO_OUTPUT_FLAG_RAW, {false, false, false, false, false}},
-};
-
-pa_qahw_port_effect_data port_effects_info[] = {
-    {"speaker", {false, false, false, false, true}},
-    {"headset", {false, false, false, false, false}},
-    {"headphone", {false, false, false, false, false}},
-    {"lineout", {false, false, false, false, false}},
-    {"headset-mic", {false, false, false, false, false}},
-    {"builtin-mic", {false, false, false, false, false}},
-    {"hdmi-in", {false, false, false, false, false}},
-};
-
-static void pa_qahw_card_fill_sink_effect_status(pa_qahw_effect_status *effect_status, pa_qahw_sink_handle_t *handle) {
-    int i = 0;
-
-    pa_assert(effect_status);
-    pa_assert(handle);
-
-    effect_status->handle = handle;
-    effect_status->sink_id = pa_qahw_sink_get_index(handle);
-    for (i = 0; i < PA_QAHW_EFFECT_MAX; i++)
-        effect_status->effect_loaded[i] = false;
-
- return;
-}
 
 static int pa_qahw_card_convert_config_ports_to_card_ports(pa_hashmap *src_ports, pa_hashmap *dest_ports, pa_card *card) {
     pa_qahw_card_port_config *config_port;
@@ -729,7 +698,6 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
 
         pa_hashmap_put(u->sink_handles, sink->name, handle);
 
-        pa_qahw_card_fill_sink_effect_status(&u->effect_status[sink->id-1], handle);
     }
 
     return rc;
@@ -747,12 +715,12 @@ static void pa_qahw_card_free_sinks(struct userdata *u, const char *profile_name
         sink_handle = pa_hashmap_get(u->sink_handles, sink->name);
 
         if (sink_handle) {
-            pa_qahw_free_sink_effects(u->effect_handle, pa_qahw_sink_get_index(sink_handle));
+            if (u->effect_handle != NULL)
+                pa_qahw_free_sink_effects(u->effect_handle, pa_qahw_sink_get_index(sink_handle));
             pa_qahw_sink_close(sink_handle);
             pa_hashmap_remove(u->sink_handles, sink->name);
         }
     }
-    pa_xfree(u->effect_status);
 }
 
 int pa__init(pa_module *m) {
@@ -803,15 +771,13 @@ int pa__init(pa_module *m) {
 
     pa_qahw_card_create(u);
 
-
     if (!u->config_data->default_profile) {
         pa_log_info("%s: default profile not present in card conf", __func__);
         u->config_data->default_profile = (char *)DEFAULT_PROFILE;
     }
 
+    pa_qahw_sink_module_init();
     if (pa_hashmap_size(u->config_data->sinks)) {
-        u->effect_status = (pa_qahw_effect_status *)pa_xnew0(pa_qahw_effect_status, (pa_hashmap_size(u->config_data->sinks)));
-
         u->sink_handles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
         if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
@@ -837,8 +803,7 @@ int pa__init(pa_module *m) {
 
     dbus_path = pa_sprintf_malloc("%s/%s", QAHW_EFFECT_OBJECT_PATH, QAHW_MODULE_PRIMARY);
     dbus_protocol = pa_dbus_protocol_get(u->core);
-    u->effect_handle = pa_qahw_init_effect(dbus_path, dbus_protocol, sink_effects_info, port_effects_info,
-                                           u->effect_status, u->card, pa_hashmap_size(u->config_data->sinks), pa_hashmap_size(u->config_data->sources));
+    u->effect_handle = pa_qahw_init_effect(dbus_path, dbus_protocol, u->config_data->effects, u->card);
 
     return ret;
 
@@ -859,6 +824,12 @@ void pa__done(pa_module *m) {
         return;
 
     pa_qahw_module_extn_deinit();
+
+    if (u->effect_handle) {
+        pa_qahw_deinit_effect(u->effect_handle);
+        u->effect_handle = NULL;
+    }
+
     pa_qahw_loopback_deinit();
 
     if (u->sink_handles) {
@@ -868,8 +839,7 @@ void pa__done(pa_module *m) {
         pa_hashmap_free(u->sink_handles);
     }
 
-    if (u->effect_handle)
-        pa_qahw_deinit_effect(u->effect_handle);
+    pa_qahw_sink_module_deinit();
 
     if (u->source_handles) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
