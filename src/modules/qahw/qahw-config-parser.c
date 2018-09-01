@@ -28,6 +28,7 @@
 #include "qahw-config-parser.h"
 #include "qahw-sink.h"
 #include "qahw-source.h"
+#include "qahw-effect.h"
 #include "qahw-utils.h"
 #include "qahw-loopback.h"
 
@@ -101,6 +102,102 @@ static void pa_qahw_config_free_loopback(pa_qahw_loopback_config *loopback) {
 
     pa_xfree(loopback);
 } /* end loopback parsing related functions */
+
+static pa_qahw_effect_config* pa_qahw_config_get_effect(pa_hashmap *effects, char *name) {
+    pa_qahw_effect_config *effect = NULL;
+
+    pa_assert(effects);
+    pa_assert(name);
+
+    if (!pa_startswith(name, QAHW_CARD_EFFECT_PREFIX)) {
+        goto exit;
+    }
+    /* point to Port name */
+    name += strlen(QAHW_CARD_EFFECT_PREFIX);
+
+    effect = pa_hashmap_get(effects, name);
+    if (effect) {
+        goto exit;
+    }
+
+    effect = pa_xnew0(pa_qahw_effect_config, 1);
+
+    effect->name = pa_xstrdup(name);
+
+    effect->sinks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+
+    pa_log_debug("%s::effect name is %s", __func__, effect->name);
+
+    pa_hashmap_put(effects, effect->name, effect);
+
+exit:
+    return effect;
+}
+
+static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_effect_config *effect = NULL;
+
+    int ret = -1;
+    int i = 0;
+    char **items;
+    char *endpoint_name;
+
+    pa_log_error("%s", __func__);
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if (!(effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    effect->endpoint_conf_string =  pa_split_spaces_strv(state->rvalue);
+    items = effect->endpoint_conf_string;
+
+    if (!(items = pa_split_spaces_strv(state->rvalue))) {
+        pa_log_error("%s: [%s:%u] port name missing", __func__, state->filename, state->lineno);
+        goto exit;
+    }
+
+    while ((endpoint_name = items[i++])) {
+        if (pa_streq(effect->type, "sink")) {
+            if ((sink = pa_hashmap_get(config_data->sinks, endpoint_name))) {
+                pa_hashmap_put(effect->sinks, endpoint_name, sink);
+                pa_log_error("%s: adding sink %s to effect %s ", __func__, sink->name, effect->name);
+            } else {
+                pa_log_error("%s: invalid sink %s", __func__, endpoint_name);
+                goto exit;
+            }
+        }
+
+    }
+    ret = 0;
+exit:
+    return ret;
+}
+
+
+static void pa_qahw_config_free_effect(pa_qahw_effect_config *effect) {
+    pa_assert(effect);
+
+    pa_log_info("%s: freeing effect %s", __func__, effect->name);
+
+    pa_xfree(effect->name);
+
+    pa_xfree(effect->description);
+
+    pa_xfree(effect->type);
+
+    pa_hashmap_free(effect->sinks);
+
+    if (effect->endpoint_conf_string)
+        pa_xstrfreev(effect->endpoint_conf_string);
+
+    pa_xfree(effect);
+} /* end effect parsing related functions */
 
 static pa_qahw_source_config* pa_qahw_config_get_source(pa_hashmap *sources, char *name) {
     pa_qahw_source_config *source = NULL;
@@ -181,6 +278,7 @@ static int pa_qahw_config_parse_type(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink;
     pa_qahw_source_config *source;
+    pa_qahw_effect_config *effect;
 
     int ret = -1;
 
@@ -202,7 +300,14 @@ static int pa_qahw_config_parse_type(pa_config_parser_state *state) {
         }
         source->type = pa_xstrdup(state->rvalue);
         pa_log_debug("%s: type %s for source %s", __func__, source->type, source->name);
-    } else {
+    } else if ((effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
+        if (!pa_qahw_effect_is_supported_type(state->rvalue)) {
+            pa_log_error("%s: invalid effect type %s", __func__, state->lvalue);
+            goto exit;
+        }
+        effect->type = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: type %s for effect %s", __func__, effect->type, effect->name);
+     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
     }
@@ -701,6 +806,7 @@ static int pa_qahw_config_parse_description(pa_config_parser_state *state) {
     pa_qahw_sink_config *sink;
     pa_qahw_source_config *source;
     pa_qahw_loopback_config *loopback;
+    pa_qahw_effect_config *effect;
 
     int ret = 0;
 
@@ -718,6 +824,8 @@ static int pa_qahw_config_parse_description(pa_config_parser_state *state) {
         source->description = pa_xstrdup(state->rvalue);
     } else if ((loopback = pa_qahw_config_get_loopback(config_data->loopbacks, state->section))) {
         loopback->description = pa_xstrdup(state->rvalue);
+    } else if ((effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
+        effect->description = pa_xstrdup(state->rvalue);
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         ret = -1;
@@ -1179,9 +1287,12 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "max-sink-channels",    pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },
         { "max-source-channels",  pa_qahw_config_parse_profile_max_source_channels ,        NULL, NULL },
 
+        /* [Effect... ] */
+        { "endpoint-names",       pa_qahw_config_parse_effect_endpoint_names,               NULL, NULL },
+
         { "use-hw-volume",        pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
 
-        /* common between sink and source */
+        /* common between sink and source and effect*/
         { "type",                 pa_qahw_config_parse_type,                                NULL, NULL },
 
         /* common between sink and source*/
@@ -1195,7 +1306,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         /* common between port and profile section */
         { "priority",             pa_qahw_config_parse_priority,                            NULL, NULL },
 
-        /* common between port and profile, sink source and port */
+        /* common between port and profile, sink source port and effect section */
         { "description",          pa_qahw_config_parse_description,                         NULL, NULL },
 
         /* common between port, sink and source */
@@ -1230,6 +1341,8 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
 
     config_data->loopbacks = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_loopback);
 
+    config_data->effects = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_effect);
+
     conf_full_path = pa_qahw_config_parser_get_conf_file_name(dir, conf_file_name);
     if (!conf_full_path) {
         pa_log_error("%s:: Could not find valid conf, exiting ", __func__);
@@ -1260,6 +1373,11 @@ void pa_qahw_config_parse_free(pa_qahw_config_data *config_data) {
     pa_log_info("%s", __func__);
 
     pa_assert(config_data);
+
+    if (config_data->effects) {
+        pa_xfree(config_data->effects);
+        config_data->effects = NULL;
+    }
 
     if (config_data->loopbacks) {
         pa_hashmap_free(config_data->loopbacks);

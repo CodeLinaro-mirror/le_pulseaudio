@@ -48,15 +48,16 @@ typedef struct {
 
 typedef size_t pa_qahw_sink_handle_t;
 
-audio_io_handle_t pa_qahw_sink_get_io_handle(pa_qahw_sink_handle_t *handle);
-int pa_qahw_sink_get_index(pa_qahw_sink_handle_t *handle);
-int pa_qahw_sink_get_flags(pa_qahw_sink_handle_t *handle);
+audio_io_handle_t pa_qahw_sink_get_io_handle(uint32_t sink_id);
 bool pa_qahw_sink_is_supported_sample_rate(uint32_t sample_rate);
-
+int pa_qahw_sink_get_index(pa_qahw_sink_handle_t *handle);
+char *pa_qahw_sink_get_name_from_pa_sink_id(uint32_t sink_id);
 /* create qahw session and pa sink */
 int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name, pa_qahw_sink_config *sink,
                         pa_qahw_sink_handle_t **handle);
 void pa_qahw_sink_close(pa_qahw_sink_handle_t *handle);
+void pa_qahw_sink_module_init(void);
+void pa_qahw_sink_module_deinit(void);
 
 static inline bool pa_qahw_sink_is_supported_type(char *sink_type) {
     pa_assert(sink_type);

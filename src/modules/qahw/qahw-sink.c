@@ -99,6 +99,12 @@ typedef struct {
     pa_fdsem *fdsem; /* common resource between pa and qahw sink */
 } pa_qahw_sink_data;
 
+typedef struct {
+    struct pa_idxset *sinks;
+} pa_qahw_sink_module_data;
+
+static pa_qahw_sink_module_data *mdata = NULL;
+
 static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                              audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
 static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
@@ -126,27 +132,6 @@ static const char *pa_qahw_sink_get_name_from_flags(audio_output_flags_t flags) 
         name = "ultra_low_latency";
 
     return name;
-}
-
-audio_io_handle_t pa_qahw_sink_get_io_handle(pa_qahw_sink_handle_t *handle) {
-    pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)handle;
-    pa_assert(sdata);
-    pa_assert(sdata->qahw_sdata);
-    return sdata->qahw_sdata->handle;
-}
-
-int pa_qahw_sink_get_index(pa_qahw_sink_handle_t *handle) {
-    pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)handle;
-    pa_assert(sdata);
-    pa_assert(sdata->pa_sdata);
-    return sdata->pa_sdata->sink->index;
-}
-
-int pa_qahw_sink_get_flags(pa_qahw_sink_handle_t *handle) {
-    pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)handle;
-    pa_assert(sdata);
-    pa_assert(sdata->qahw_sdata);
-    return sdata->qahw_sdata->flags;
 }
 
 static int pa_qahw_out_write_cb(qahw_stream_callback_event_t event, void *param, void *userdata) {
@@ -891,6 +876,44 @@ bool pa_qahw_sink_is_supported_sample_rate(uint32_t sample_rate) {
     return supported;
 }
 
+int pa_qahw_sink_get_index(pa_qahw_sink_handle_t *handle) {
+    pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)handle;
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    return sdata->pa_sdata->sink->index;
+}
+
+char *pa_qahw_sink_get_name_from_pa_sink_id(uint32_t sink_id) {
+    pa_qahw_sink_data *sdata;
+    uint32_t idx;
+
+    pa_assert(mdata);
+
+    PA_IDXSET_FOREACH(sdata, mdata->sinks, idx) {
+        if ((sdata->pa_sdata) && (sdata->pa_sdata->sink->index == sink_id))
+            return sdata->pa_sdata->sink->name;
+    }
+
+    pa_log_error("%s: No sink with pa sink id %d", __func__, sink_id);
+    return NULL;
+}
+
+audio_io_handle_t pa_qahw_sink_get_io_handle(uint32_t sink_id) {
+    pa_qahw_sink_data *sdata;
+    uint32_t idx;
+
+    pa_assert(mdata);
+
+    PA_IDXSET_FOREACH(sdata, mdata->sinks, idx) {
+        if ((sdata->pa_sdata) && (sdata->pa_sdata->sink->index == sink_id))
+            return sdata->qahw_sdata->handle;
+    }
+
+    pa_log_error("%s: No sink with pa sink id %d", __func__, sink_id);
+    return -1;
+}
+
+
 int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name, pa_qahw_sink_config *sink,
                         pa_qahw_sink_handle_t **handle) {
     int rc = -1;
@@ -1001,6 +1024,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     }
 
     *handle = (pa_qahw_sink_handle_t *)sdata;
+    pa_idxset_put(mdata->sinks, sdata, NULL);
 
 exit:
     return rc;
@@ -1016,5 +1040,24 @@ void pa_qahw_sink_close(pa_qahw_sink_handle_t *handle) {
     free_qahw_sink(sdata);
     pa_qahw_sink_free_common_resources(sdata);
 
+    pa_idxset_remove_by_data(mdata->sinks, sdata, NULL);
+
     pa_xfree(sdata);
+}
+
+void pa_qahw_sink_module_deinit() {
+
+    pa_assert(mdata);
+
+    pa_idxset_free(mdata->sinks, NULL);
+
+    pa_xfree(mdata);
+    mdata = NULL;
+}
+
+void pa_qahw_sink_module_init() {
+
+    mdata = pa_xnew0(pa_qahw_sink_module_data, sizeof(pa_qahw_sink_module_data));
+
+    mdata->sinks = pa_idxset_new(NULL, NULL);
 }
