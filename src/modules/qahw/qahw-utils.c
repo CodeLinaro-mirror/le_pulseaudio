@@ -23,8 +23,14 @@
 #include <pulsecore/log.h>
 #include <pulsecore/core-util.h>
 #include <pulsecore/core-format.h>
+#include <pulse/channelmap.h>
 
 #include "qahw-utils.h"
+
+typedef struct{
+    pa_channel_position_t pa_channel_map_position;
+    uint32_t qahw_channel_map_position;
+} pa_qahw_util_pa_qahw_channel_map;
 
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {
     audio_format_t qahw_format;
@@ -368,4 +374,97 @@ int pa_qahw_utils_convert_format_to_sample_spec(pa_format_info *format, pa_sampl
 exit:
     pa_format_info_free(new_format);
     return rc;
+}
+
+static pa_qahw_util_pa_qahw_channel_map pa_qahw_channel_map[] = {
+    { PA_CHANNEL_POSITION_MONO, QAHW_PCM_CHANNEL_MS },
+    { PA_CHANNEL_POSITION_FRONT_LEFT , QAHW_PCM_CHANNEL_FL },
+    { PA_CHANNEL_POSITION_FRONT_RIGHT , QAHW_PCM_CHANNEL_FR },
+    { PA_CHANNEL_POSITION_FRONT_CENTER, QAHW_PCM_CHANNEL_FC },
+    { PA_CHANNEL_POSITION_SIDE_LEFT, QAHW_PCM_CHANNEL_LS },
+    { PA_CHANNEL_POSITION_SIDE_RIGHT, QAHW_PCM_CHANNEL_RS },
+    { PA_CHANNEL_POSITION_LFE, QAHW_PCM_CHANNEL_LFE },
+    { PA_CHANNEL_POSITION_REAR_CENTER, QAHW_PCM_CHANNEL_CS },
+    { PA_CHANNEL_POSITION_REAR_LEFT, QAHW_PCM_CHANNEL_LB },
+    { PA_CHANNEL_POSITION_REAR_RIGHT, QAHW_PCM_CHANNEL_RB },
+    { PA_CHANNEL_POSITION_TOP_CENTER, QAHW_PCM_CHANNEL_TS },
+    { PA_CHANNEL_POSITION_TOP_FRONT_CENTER, QAHW_PCM_CHANNEL_CVH },
+    { PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER, QAHW_PCM_CHANNEL_FLC },
+    { PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER, QAHW_PCM_CHANNEL_FRC },
+    { PA_CHANNEL_POSITION_SIDE_LEFT, QAHW_PCM_CHANNEL_SL },
+    { PA_CHANNEL_POSITION_SIDE_RIGHT, QAHW_PCM_CHANNEL_SR },
+    { PA_CHANNEL_POSITION_TOP_FRONT_LEFT, QAHW_PCM_CHANNEL_TFL },
+    { PA_CHANNEL_POSITION_TOP_FRONT_RIGHT, QAHW_PCM_CHANNEL_TFR },
+    { PA_CHANNEL_POSITION_TOP_CENTER, QAHW_PCM_CHANNEL_TC },
+    { PA_CHANNEL_POSITION_TOP_REAR_LEFT, QAHW_PCM_CHANNEL_TBL },
+    { PA_CHANNEL_POSITION_TOP_REAR_RIGHT, QAHW_PCM_CHANNEL_TBR },
+    { PA_CHANNEL_POSITION_TOP_REAR_CENTER, QAHW_PCM_CHANNEL_TBC },
+
+    /* FIXME: mapping for is missing in PA
+       #define QAHW_PCM_CHANNEL_MS   12
+       #define QAHW_PCM_CHANNEL_RLC  15
+       #define QAHW_PCM_CHANNEL_RRC  16
+       #define QAHW_PCM_CHANNEL_LFE2 17
+       #define QAHW_PCM_CHANNEL_TSL 25
+       #define QAHW_PCM_CHANNEL_TSR  26
+       #define QAHW_PCM_CHANNEL_BFC  28
+       #define QAHW_PCM_CHANNEL_BFL  29
+       #define QAHW_PCM_CHANNEL_BFR  30
+    */
+};
+
+bool pa_qahw_channel_map_to_qahw(pa_channel_map *pa_map, struct qahw_out_channel_map_param *qahw_map) {
+    uint32_t channels;
+    uint32_t count;
+    bool present = false;
+
+    pa_assert(pa_map);
+    pa_assert(qahw_map);
+
+    qahw_map->channels = pa_map->channels;
+    for (channels = 0; channels < pa_map->channels; channels++) {
+        present = false;
+        for (count = 0; count < ARRAY_SIZE(pa_qahw_channel_map); count++) {
+            if (pa_map->map[channels] == pa_qahw_channel_map[count].pa_channel_map_position) {
+                qahw_map->channel_map[channels] = pa_qahw_channel_map[count].qahw_channel_map_position;
+                present = true;
+                break;
+            }
+        }
+
+        if (!present) {
+            pa_log_error("%s: unsupported pa channel position %x", __func__, pa_map->map[channels]);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool pa_qahw_channel_map_from_qahw(struct qahw_out_channel_map_param *qahw_map, pa_channel_map *pa_map) {
+    uint32_t channels;
+    uint32_t count;
+    bool present = false;
+
+    pa_assert(pa_map);
+    pa_assert(qahw_map);
+
+    pa_map->channels = qahw_map->channels;
+    for (channels = 0; channels < pa_map->channels; channels++) {
+        present = false;
+        for (count = 0; count < ARRAY_SIZE(pa_qahw_channel_map); count++) {
+            if (qahw_map->channel_map[channels] == pa_qahw_channel_map[count].qahw_channel_map_position) {
+                pa_map->map[channels] = pa_qahw_channel_map[count].pa_channel_map_position;
+                present = true;
+                break;
+            }
+        }
+
+        if (!present) {
+            pa_log_error("%s: unsupported qahw channel position %x", __func__, qahw_map->channel_map[channels]);
+            return false;
+        }
+    }
+
+    return true;
 }
