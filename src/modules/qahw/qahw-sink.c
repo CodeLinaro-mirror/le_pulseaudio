@@ -68,7 +68,7 @@ typedef struct {
     audio_output_flags_t flags;
     uint32_t devices;
     audio_config_t config;
-
+    struct qahw_out_channel_map_param qahw_map;
     const char *device_url;
 
     size_t sink_buffer_size;
@@ -178,7 +178,7 @@ static int pa_qahw_out_write_cb(qahw_stream_callback_event_t event, void *param,
     return 0;
 }
 
-static void pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+static int pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                                 audio_output_flags_t flags, int sink_id) {
     if (encoding == PA_ENCODING_PCM)
         qahw_sdata->config.format = pa_qahw_util_get_qahw_format_from_pa_sample(ss->format);
@@ -186,7 +186,12 @@ static void pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t enc
         qahw_sdata->config.format = pa_qahw_util_get_qahw_format_from_pa_encoding(encoding);
 
     qahw_sdata->config.sample_rate = ss->rate;
-    qahw_sdata->config.channel_mask = audio_channel_out_mask_from_count(ss->channels); /* TODO: le get channel mask for pa map */
+    qahw_sdata->config.channel_mask = audio_channel_out_mask_from_count(map->channels);
+
+    if (!pa_qahw_channel_map_to_qahw(map, &qahw_sdata->qahw_map)) {
+        pa_log_error("%s: unsupported channel map", __func__);
+        return -1;
+    }
 
     /* DIRECT PCM uses offload structure */
     if (flags & AUDIO_OUTPUT_FLAG_DIRECT_PCM || flags & AUDIO_OUTPUT_FLAG_DIRECT)  {
@@ -201,6 +206,8 @@ static void pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t enc
     qahw_sdata->handle = sink_id; /* check if its correct */
     qahw_sdata->device_url = NULL; /* TODO: useful for BT devices */
     qahw_sdata->bytes_written = 0;
+
+    return 0;
 }
 
 static uint64_t pa_qahw_sink_get_latency(pa_qahw_sink_data *sdata) {
@@ -541,8 +548,9 @@ done:
 
 static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                           audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata) {
-    int rc;
+    int rc = 0;
     qahw_sink_data *qahw_sdata;
+    qahw_param_payload payload;
 #ifdef SINK_DUMP_ENABLED
     char *file_name;
 #endif
@@ -560,7 +568,9 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
         goto exit;
     }
 
-    pa_qahw_sink_fill_info(qahw_sdata, encoding, ss, map, devices, flags, sink_id);
+    if (pa_qahw_sink_fill_info(qahw_sdata, encoding, ss, map, devices, flags, sink_id)) {
+        goto exit;
+    }
 
     pa_log_debug("opening sink with configuration flag = 0x%x, encoding %d, format %d, sample_rate %d, channel_mask 0x%x device %d",
                  qahw_sdata->flags, encoding, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask, qahw_sdata->devices);
@@ -593,6 +603,17 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
     pa_log_debug("sink latency %dus", qahw_sdata->sink_latency_us);
 
     pa_atomic_store(&qahw_sdata->wait_for_write_ready, 0);
+
+    payload.channel_map_params = qahw_sdata->qahw_map;
+    rc = qahw_out_set_param_data(qahw_sdata->out_handle,
+                                QAHW_PARAM_OUT_CHANNEL_MAP,
+                                &payload);
+    if (rc) {
+        qahw_close_output_stream(qahw_sdata->out_handle);
+        pa_log_error("Invalid buffer size %zu", qahw_sdata->sink_buffer_size);
+        rc = -1;
+        goto exit;
+    }
 
 #ifdef SINK_DUMP_ENABLED
     file_name = pa_sprintf_malloc("/data/pcmdump_sink_%d", qahw_sdata->handle);
