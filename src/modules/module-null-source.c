@@ -63,6 +63,8 @@ struct userdata {
     pa_module *module;
     pa_source *source;
 
+    pa_idxset *formats;
+
     pa_thread *thread;
     pa_thread_mq thread_mq;
     pa_rtpoll *rtpoll;
@@ -161,7 +163,7 @@ static void thread_func(void *userdata) {
             pa_rtpoll_set_timer_disabled(u->rtpoll);
 
         /* Hmm, nothing to do. Let's sleep */
-        if ((ret = pa_rtpoll_run(u->rtpoll)) < 0)
+        if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0)
             goto fail;
 
         if (ret == 0)
@@ -178,12 +180,21 @@ finish:
     pa_log_debug("Thread shutting down");
 }
 
+static pa_idxset* source_get_formats(pa_source *s) {
+    struct userdata *u = s->userdata;
+
+    pa_assert(u);
+
+    return pa_idxset_copy(u->formats, (pa_copy_func_t) pa_format_info_copy);
+}
+
 int pa__init(pa_module*m) {
     struct userdata *u = NULL;
     pa_sample_spec ss;
     pa_channel_map map;
     pa_modargs *ma = NULL;
     pa_source_new_data data;
+    pa_format_info *format;
     uint32_t latency_time = DEFAULT_LATENCY_TIME;
 
     pa_assert(m);
@@ -239,6 +250,14 @@ int pa__init(pa_module*m) {
     u->source->update_requested_latency = source_update_requested_latency_cb;
     u->source->userdata = u;
 
+    /* To start with, we only support PCM formats. */
+    format = pa_format_info_new();
+    format->encoding = PA_ENCODING_PCM;
+    u->formats = pa_idxset_new(NULL, NULL);
+    pa_idxset_put(u->formats, format, NULL);
+
+    u->source->get_formats = source_get_formats;
+
     pa_source_set_asyncmsgq(u->source, u->thread_mq.inq);
     pa_source_set_rtpoll(u->source, u->rtpoll);
 
@@ -288,6 +307,8 @@ void pa__done(pa_module*m) {
 
     if (u->source)
         pa_source_unref(u->source);
+
+    pa_idxset_free(u->formats, (pa_free_cb_t) pa_format_info_free);
 
     if (u->rtpoll)
         pa_rtpoll_free(u->rtpoll);

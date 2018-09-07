@@ -56,6 +56,23 @@ typedef enum pa_encoding {
     PA_ENCODING_MPEG2_AAC_IEC61937,
     /**< MPEG-2 AAC data encapsulated in IEC 61937 header/padding. \since 4.0 */
 
+    PA_ENCODING_TRUEHD_IEC61937,
+    /**< Dolby TrueHD data encapsulated in IEC 61937 header/padding. \since 13.0 */
+
+    PA_ENCODING_DTSHD_IEC61937,
+    /**< DTS-HD Master Audio encapsulated in IEC 61937 header/padding. \since 13.0 */
+
+    PA_ENCODING_UNKNOWN_IEC61937,
+    /**< Data with an unknown encoding in IEC 61937 header/padding. Required device rate is assumed to be same as the media
+     * sample rate. \since 13.0 */
+
+    PA_ENCODING_UNKNOWN_4X_IEC61937,
+    /**< Data with an unknown encoding in IEC 61937 header/padding. Required device rate is assumed to be four times the media
+     * sample rate. \since 13.0 */
+
+    PA_ENCODING_UNKNOWN_HBR_IEC61937,
+    /**< High bitrate data with an unknown encoding in IEC 61937 header/padding. \since 13.0 */
+
     PA_ENCODING_MAX,
     /**< Valid encoding types must be less than this value */
 
@@ -71,6 +88,10 @@ typedef enum pa_encoding {
 #define PA_ENCODING_MPEG_IEC61937 PA_ENCODING_MPEG_IEC61937
 #define PA_ENCODING_DTS_IEC61937 PA_ENCODING_DTS_IEC61937
 #define PA_ENCODING_MPEG2_AAC_IEC61937 PA_ENCODING_MPEG2_AAC_IEC61937
+#define PA_ENCODING_TRUEHD_IEC61937 PA_ENCODING_TRUEHD_IEC61937
+#define PA_ENCODING_DTSHD_IEC61937 PA_ENCODING_DTSHD_IEC61937
+#define PA_ENCODING_UNKNOWN_IEC61937 PA_ENCODING_UNKNOWN_IEC61937
+#define PA_ENCODING_UNKNOWN_4X_IEC61937 PA_ENCODING_UNKNOWN_4X_IEC61937
 #define PA_ENCODING_MAX PA_ENCODING_MAX
 #define PA_ENCODING_INVALID PA_ENCODING_INVALID
 /** \endcond */

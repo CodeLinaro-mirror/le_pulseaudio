@@ -1231,6 +1231,8 @@ modlibexec_LTLIBRARIES += \
 		module-filter-apply.la \
 		module-filter-heuristics.la \
 		module-role-ducking.la \
+		module-role-exclusive.la \
+		module-role-ignore.la \
 		module-allow-passthrough.la
 
 if HAVE_ESOUND
@@ -1368,6 +1370,14 @@ dist_alsapaths_DATA = \
 		modules/alsa/mixer/paths/steelseries-arctis-output-mono.conf \
 		modules/alsa/mixer/paths/steelseries-arctis-output-stereo.conf
 
+endif
+
+if HAVE_QAHW
+modlibexec_LTLIBRARIES += module-qahw-card.la
+endif
+
+if HAVE_QSTHW
+modlibexec_LTLIBRARIES += module-qsthw.la
 endif
 
 if HAVE_SOLARIS
@@ -1598,6 +1608,33 @@ module_esound_sink_la_SOURCES = modules/module-esound-sink.c
 module_esound_sink_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_esound_sink
 module_esound_sink_la_LDFLAGS = $(MODULE_LDFLAGS) $(WINSOCK_LIBS)
 module_esound_sink_la_LIBADD = $(MODULE_LIBADD)
+endif
+
+if HAVE_QAHW
+module_qahw_card_la_SOURCES = \
+        modules/qahw/module-qahw-card.c \
+        modules/qahw/module-qahw-card-extn.c modules/qahw/qahw-card-extn.h \
+        modules/qahw/qahw-sink.c modules/qahw/qahw-sink.h \
+        modules/qahw/qahw-sink-extn.c modules/qahw/qahw-sink-extn.h \
+        modules/qahw/qahw-source.c modules/qahw/qahw-source.h \
+        modules/qahw/qahw-source-extn.c modules/qahw/qahw-source-extn.h \
+        modules/qahw/qahw-utils.c modules/qahw/qahw-utils.h \
+        modules/qahw/qahw-jack.c modules/qahw/qahw-jack.h \
+        modules/qahw/qahw-jack-evdev.c modules/qahw/qahw-jack-common.h \
+        modules/qahw/qahw-loopback.c modules/qahw/qahw-loopback.h \
+        modules/qahw/qahw-jack-hdmi.c \
+        modules/qahw/qahw-effect.c modules/qahw/qahw-effect.h \
+        modules/qahw/qahw-format-detection.c modules/qahw/qahw-jack-format.h
+module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(QAHW_API_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
+module_qahw_card_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_qahw_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqahw
+endif
+
+if HAVE_QSTHW
+module_qsthw_la_SOURCES = modules/module-qsthw.c
+module_qsthw_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) $(QSTHW_CFLAGS) -Werror -DPA_MODULE_NAME=module_qsthw
+module_qsthw_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_qsthw_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqtisoundtriggerhw
 endif
 
 # Pipes
@@ -1911,6 +1948,18 @@ module_role_cork_la_SOURCES = modules/module-role-cork.c \
 module_role_cork_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_role_cork_la_LIBADD = $(MODULE_LIBADD)
 module_role_cork_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_cork
+
+# Stream get exclusive hold on the sink while any active stream of same role will be corked/muted
+module_role_exclusive_la_SOURCES = modules/module-role-exclusive.c
+module_role_exclusive_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_role_exclusive_la_LIBADD = $(MODULE_LIBADD)
+module_role_exclusive_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_exclusive
+
+# Ignore certain streams while others are active (e.g. mute tones when there is active voice-prompt)
+module_role_ignore_la_SOURCES = modules/module-role-ignore.c
+module_role_ignore_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_role_ignore_la_LIBADD = $(MODULE_LIBADD)
+module_role_ignore_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_ignore
 
 # Device description restore module
 module_device_manager_la_SOURCES = modules/module-device-manager.c
