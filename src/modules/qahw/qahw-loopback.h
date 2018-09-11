@@ -25,7 +25,18 @@
 #include <qahw_api.h>
 #include <qahw_defs.h>
 
-void pa_qahw_loopback_init(qahw_module_handle_t *module_handle, pa_core *core, pa_card *card);
+typedef struct {
+    char *name;
+    char *description;
+
+    pa_hashmap *in_ports;
+    char **in_port_conf_string;
+
+    pa_hashmap *out_ports;
+    char **out_port_conf_string;
+} pa_qahw_loopback_config;
+
+void pa_qahw_loopback_init(qahw_module_handle_t *module_handle, pa_core *core, pa_card *card, pa_hashmap *card_port);
 void pa_qahw_loopback_deinit(void);
 
 #endif

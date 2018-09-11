@@ -813,8 +813,8 @@ int pa__init(pa_module *m) {
             goto fail;
     }
 
-    pa_qahw_module_extn_init(u->core, u ->card, u->module_handle);
-    pa_qahw_loopback_init(u->module_handle, u->core, u->card);
+    pa_qahw_module_extn_init(u->core, u->card, u->module_handle);
+    pa_qahw_loopback_init(u->module_handle, u->core, u->card, u->config_data->loopbacks);
 
     pa_log_debug("module %s loaded handle %p", u->module_name, u->module_handle);
 

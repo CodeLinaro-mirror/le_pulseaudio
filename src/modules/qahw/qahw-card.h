@@ -57,6 +57,9 @@ typedef struct {
     pa_direction_t direction;
     uint32_t priority;
     audio_devices_t device;
+
+    pa_idxset *formats;
+    bool format_detection;
 } pa_qahw_card_port_config;
 
 typedef union {
