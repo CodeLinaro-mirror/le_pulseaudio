@@ -32,6 +32,7 @@ typedef struct {
     pa_hashmap *sinks;
     pa_hashmap *sources;
     pa_hashmap *effects;
+    pa_hashmap *loopbacks;
     char *default_profile;
     bool use_dolby_hw_loopback;
 } pa_qahw_config_data;

@@ -352,23 +352,7 @@ int pa_qahw_utils_convert_format_to_sample_spec(pa_format_info *format, pa_sampl
         pa_log_error("%s: pa_format_info_to_sample_spec2 failed %d", __func__, rc);
         goto exit;
     }
-#if 0
-    if (is_prop_array) {
-        if (pa_format_info_get_channel_map(format, map)) {
-            pa_log_error("%s: channel map not present", __func__);
-            goto exit;
-        }
-        ss->rate = sample_rates[rate_idx];
-        ss->format = sample_formats[sample_format_idx];
-        ss->channels = map->channels;
-    } else {
-        rc = pa_format_info_to_sample_spec2(format, ss, map, default_ss, default_map);
-        if (rc) {
-            pa_log_error("%s: pa_format_info_to_sample_spec2 failed %d", __func__, rc);
-            goto exit;
-        }
-    }
-#endif
+
     rc = 0;
 
 exit:
