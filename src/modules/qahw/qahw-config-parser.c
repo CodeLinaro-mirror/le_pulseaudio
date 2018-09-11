@@ -125,6 +125,7 @@ static pa_qahw_effect_config* pa_qahw_config_get_effect(pa_hashmap *effects, cha
     effect->name = pa_xstrdup(name);
 
     effect->sinks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+    effect->ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
     pa_log_debug("%s::effect name is %s", __func__, effect->name);
 
@@ -137,6 +138,7 @@ exit:
 static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink = NULL;
+    pa_qahw_card_port_config *port = NULL;
     pa_qahw_effect_config *effect = NULL;
 
     int ret = -1;
@@ -173,6 +175,17 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
             }
         }
 
+        if (pa_streq(effect->type, "port")) {
+            if ((port = pa_hashmap_get(config_data->ports, endpoint_name))) {
+                pa_hashmap_put(effect->ports, endpoint_name, port);
+                pa_log_error("%s: adding port %s to effect %s ", __func__, port->name, effect->name);
+            } else {
+                pa_log_error("%s: invalid port %s", __func__, endpoint_name);
+                goto exit;
+            }
+        }
+
+
     }
     ret = 0;
 exit:
@@ -192,6 +205,8 @@ static void pa_qahw_config_free_effect(pa_qahw_effect_config *effect) {
     pa_xfree(effect->type);
 
     pa_hashmap_free(effect->sinks);
+
+    pa_hashmap_free(effect->ports);
 
     if (effect->endpoint_conf_string)
         pa_xstrfreev(effect->endpoint_conf_string);

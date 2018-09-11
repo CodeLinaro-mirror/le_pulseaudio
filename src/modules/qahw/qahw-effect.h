@@ -34,6 +34,7 @@ typedef struct {
     char *description;
     char *type;
     pa_hashmap *sinks;
+    pa_hashmap *ports;
 
     char **endpoint_conf_string;
 } pa_qahw_effect_config;
@@ -43,7 +44,7 @@ typedef void* pa_qahw_effect_handle_t;
 static inline bool pa_qahw_effect_is_supported_type(char *effect_type) {
     pa_assert(effect_type);
 
-    if (pa_streq(effect_type, "sink"))
+    if (pa_streq(effect_type, "port") || pa_streq(effect_type, "sink"))
         return true;
 
     return false;

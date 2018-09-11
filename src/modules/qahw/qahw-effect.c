@@ -66,6 +66,7 @@ typedef struct {
     qahw_effect_uuid_t *uuid;
     char* lib_name;
     pa_hashmap *sinks;
+    pa_hashmap *ports;
 } pa_qahw_effect_info;
 
 typedef struct {
@@ -75,8 +76,11 @@ typedef struct {
 
 static void pa_qahw_module_get_supported_effects(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_sink_get_supported_effects(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void pa_qahw_port_get_supported_effects(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_sink_effect_create(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void pa_qahw_port_effect_create(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_sink_effect_release(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void pa_qahw_port_effect_release(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_effect_get_descriptor(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_effect_get_version(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_effect_command(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -84,13 +88,16 @@ static void pa_qahw_effect_command(DBusConnection *conn, DBusMessage *msg, void 
 enum module_handler_index {
     MODULE_HANDLER_GET_MODULE_SUPPORTED_EFFECTS,
     MODULE_HANDLER_SINK_SUPPORTED_EFFECTS,
+    MODULE_HANDLER_PORT_SUPPORTED_EFFECTS,
     MODULE_HANDLER_SINK_EFFECT_CREATE,
+    MODULE_HANDLER_PORT_EFFECT_CREATE,
     MODULE_HANDLER_EFFECT_GET_VERSION,
     MODULE_HANDLER_MAX
 };
 
 enum session_handler_index {
     SESSION_HANDLER_SINK_EFFECT_RELEASE,
+    SESSION_HANDLER_PORT_EFFECT_RELEASE,
     SESSION_HANDLER_EFFECT_GET_DESCRIPTOR,
     SESSION_HANDLER_EFFECT_COMMAND,
     SESSION_HANDLER_MAX
@@ -107,13 +114,29 @@ pa_dbus_arg_info sink_supported_effects_args[] = {
     {"uuids", "a((uqqqay))", "out"},
 };
 
+pa_dbus_arg_info port_supported_effects_args[] = {
+    {"port_name", "s", "in"},
+    {"supported_effects", "u", "out"},
+    {"device id", "u", "out"},
+    {"uuids", "a((uqqqay))", "out"},
+};
+
 pa_dbus_arg_info sink_effect_create_args[] = {
     {"uuid", "(uqqqay)", "in"},
     {"sink_index", "u", "in"},
     {"obj_path", "o", "out"},
 };
 
+pa_dbus_arg_info port_effect_create_args[] = {
+    {"uuid", "(uqqqay)", "in"},
+    {"port_name", "s", "in"},
+    {"obj_path", "o", "out"},
+};
+
 pa_dbus_arg_info sink_effect_release_args[] = {
+};
+
+pa_dbus_arg_info port_effect_release_args[] = {
 };
 
 pa_dbus_arg_info effect_get_descriptor_args[] = {
@@ -143,11 +166,21 @@ static pa_dbus_method_handler effect_module_handlers[MODULE_HANDLER_MAX] = {
         .arguments = sink_supported_effects_args,
         .n_arguments = sizeof(sink_supported_effects_args) / sizeof(pa_dbus_arg_info),
         .receive_cb = pa_qahw_sink_get_supported_effects},
+    [MODULE_HANDLER_PORT_SUPPORTED_EFFECTS] = {
+        .method_name = "GetPortSupportedEffects",
+        .arguments = port_supported_effects_args,
+        .n_arguments = sizeof(port_supported_effects_args) / sizeof(pa_dbus_arg_info),
+        .receive_cb = pa_qahw_port_get_supported_effects},
     [MODULE_HANDLER_SINK_EFFECT_CREATE] = {
         .method_name = "SinkEffectCreate",
         .arguments = sink_effect_create_args,
         .n_arguments = sizeof(sink_effect_create_args) / sizeof(pa_dbus_arg_info),
         .receive_cb = pa_qahw_sink_effect_create},
+    [MODULE_HANDLER_PORT_EFFECT_CREATE] = {
+        .method_name = "PortEffectCreate",
+        .arguments = port_effect_create_args,
+        .n_arguments = sizeof(port_effect_create_args) / sizeof(pa_dbus_arg_info),
+        .receive_cb = pa_qahw_port_effect_create},
     [MODULE_HANDLER_EFFECT_GET_VERSION] = {
         .method_name = "GetVersion",
         .arguments = effect_get_version_args,
@@ -161,6 +194,11 @@ static pa_dbus_method_handler effect_session_handlers[SESSION_HANDLER_MAX] = {
         .arguments = sink_effect_release_args,
         .n_arguments = sizeof(sink_effect_release_args) / sizeof(pa_dbus_arg_info),
         .receive_cb = pa_qahw_sink_effect_release},
+    [SESSION_HANDLER_PORT_EFFECT_RELEASE] = {
+        .method_name = "PortEffectRelease",
+        .arguments = port_effect_release_args,
+        .n_arguments = sizeof(port_effect_release_args) / sizeof(pa_dbus_arg_info),
+        .receive_cb = pa_qahw_port_effect_release},
     [SESSION_HANDLER_EFFECT_GET_DESCRIPTOR] = {
         .method_name = "GetDescriptor",
         .arguments = effect_get_descriptor_args,
@@ -433,8 +471,8 @@ static void pa_qahw_effect_command(DBusConnection *conn,
 }
 
 static void pa_qahw_effect_get_descriptor(DBusConnection *conn,
-                                   DBusMessage *msg,
-                                   void *userdata) {
+                                          DBusMessage *msg,
+                                          void *userdata) {
     pa_qahw_effect_session_data *ses_data = (pa_qahw_effect_session_data *)userdata;
     pa_qahw_effect_endpoint_info *endpoint = NULL;
     DBusError error;
@@ -543,6 +581,64 @@ static void pa_qahw_effect_get_descriptor(DBusConnection *conn,
     dbus_message_unref(reply);
 }
 
+static void pa_qahw_port_effect_release(DBusConnection *conn,
+                                        DBusMessage *msg,
+                                        void *userdata) {
+    int rc = -1;
+    pa_qahw_effect_endpoint_info *port = NULL;
+    pa_qahw_effect_session_data *ses_data = (pa_qahw_effect_session_data *)userdata;
+
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    pa_log_debug("%s\n", __func__);
+
+    port = pa_hashmap_get(ses_data->endpoints, ses_data->endpoint_name);
+
+    if (port) {
+        port->client_count--;
+    } else {
+        pa_log_error("%s: Error in getting endpoint\n", __func__);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Error in getting endpoint.");
+        return;
+    }
+
+    if (port->client_count == 0) {
+        rc = qahw_effect_release(port->lib_handle, port->effect_handle);
+
+        if (rc != 0) {
+            pa_log_error("qahw_effect_release returns :%d\n", rc);
+            pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "qahw_effect_release failed.");
+            return;
+        }
+
+        rc = qahw_effect_unload_library(port->lib_handle);
+
+        if (rc != 0) {
+            pa_log_error("qahw_effect_unload_library returns :%d\n", rc);
+            pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "qahw_unload_library failed.");
+            return;
+        }
+
+        pa_assert_se(pa_dbus_protocol_remove_interface(port->dbus_protocol,
+                     port->dbus_obj_path, session_interface_info.name) >= 0);
+        pa_dbus_send_empty_reply(conn, msg);
+        port->effect_handle = NULL;
+        port->lib_handle = NULL;
+        pa_xfree(ses_data->endpoint_name);
+        ses_data->endpoint_name = NULL;
+        pa_xfree(ses_data);
+        ses_data = NULL;
+        pa_hashmap_remove(port->sessions, port->dbus_obj_path);
+        pa_xfree(port->dbus_obj_path);
+        port->dbus_obj_path = NULL;
+    }
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
 static void pa_qahw_sink_effect_release(DBusConnection *conn,
                                         DBusMessage *msg,
                                         void *userdata) {
@@ -598,6 +694,122 @@ static void pa_qahw_sink_effect_release(DBusConnection *conn,
         sink->dbus_obj_path = NULL;
     }
     pa_dbus_send_empty_reply(conn, msg);
+}
+
+static void pa_qahw_port_effect_create(DBusConnection *conn,
+                                       DBusMessage *msg,
+                                       void *userdata) {
+    pa_qahw_effect_module_data *m_data = (pa_qahw_effect_module_data *)userdata;
+    pa_qahw_effect_session_data *ses_data = NULL;
+    DBusError error;
+    qahw_effect_uuid_t uuid;
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg_i, array_i, struct_i;
+    int rc = -1;
+    char *value = NULL;
+    char **addr_value = &value;
+    int n_elements = 0;
+    char *port_name = NULL;
+    char *obj_path;
+    void *state;
+    pa_qahw_effect_info *effect = NULL;
+    pa_qahw_effect_endpoint_info *port = NULL;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    pa_log_debug("%s\n", __func__);
+
+    dbus_error_init(&error);
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        pa_log_error("port_effect_create has no arguments.\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "port_effect_create has no arguments.");
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (!pa_streq(dbus_message_get_signature(msg), "(uqqqay)s")) {
+        pa_log_error("Invalid signature for port_effect_create.\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED,
+                           "Invalid signature for port_effect_create.");
+        dbus_error_free(&error);
+        return;
+    }
+
+    dbus_message_iter_recurse(&arg_i, &struct_i);
+    dbus_message_iter_get_basic(&struct_i, &uuid.timeLow);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &uuid.timeMid);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &uuid.timeHiAndVersion);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &uuid.clockSeq);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_recurse(&struct_i, &array_i);
+    dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
+    memcpy(&uuid.node[0], value, n_elements);
+    dbus_message_iter_next(&arg_i);
+    dbus_message_iter_get_basic(&arg_i, &port_name);
+
+    PA_HASHMAP_FOREACH(effect, m_data->effects, state)
+        if (memcmp(&uuid, effect->uuid, sizeof(qahw_effect_uuid_t)) == 0)
+            break;
+
+    if (!effect) {
+        pa_log_error("Unsupported UUID.\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Unsupported UUID.");
+        dbus_error_free(&error);
+        return;
+    }
+
+    port = pa_hashmap_get(effect->ports, port_name);
+
+    if (!port) {
+        pa_log_error("Invalid port name.\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Invalid port name.");
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (port->client_count == 0) {
+        port->lib_handle = qahw_effect_load_library(effect->lib_name);
+        rc = qahw_effect_create(port->lib_handle, &uuid, -1, &port->effect_handle);
+
+        if (rc != 0) {
+            pa_log_error("PortEffectCreate failed\n");
+            pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "qahw_effect_create failed.");
+            dbus_error_free(&error);
+            return;
+        }
+
+        port->client_count++;
+        port->dbus_obj_path = pa_qahw_get_obj_path(m_data->dbus_obj_path, port_name, effect->index);
+        port->dbus_protocol = m_data->dbus_protocol;
+        ses_data = pa_xnew0(pa_qahw_effect_session_data, 1);
+        ses_data->endpoint_name = pa_xstrdup(port_name);
+        ses_data->endpoints = effect->ports;
+        pa_hashmap_put(m_data->sessions, port->dbus_obj_path, ses_data);
+        pa_assert_se(pa_dbus_protocol_add_interface(port->dbus_protocol,
+                     port->dbus_obj_path, &session_interface_info, ses_data) >= 0);
+        pa_assert_se((reply = dbus_message_new_method_return(msg)));
+        dbus_message_iter_init_append(reply, &arg_i);
+        dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_OBJECT_PATH, &port->dbus_obj_path);
+        pa_assert_se(dbus_connection_send(conn, reply, NULL));
+        dbus_message_unref(reply);
+    } else {
+        port->client_count++;
+        obj_path = pa_qahw_get_obj_path(m_data->dbus_obj_path, port_name, effect->index);
+        pa_assert_se((reply = dbus_message_new_method_return(msg)));
+        dbus_message_iter_init_append(reply, &arg_i);
+        dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_OBJECT_PATH, &obj_path);
+        pa_assert_se(dbus_connection_send(conn, reply, NULL));
+        pa_xfree(obj_path);
+        dbus_error_free(&error);
+        dbus_message_unref(reply);
+        return;
+    }
 }
 
 static void pa_qahw_sink_effect_create(DBusConnection *conn,
@@ -732,6 +944,80 @@ static void pa_qahw_sink_effect_create(DBusConnection *conn,
         dbus_message_unref(reply);
         return;
     }
+}
+
+static void pa_qahw_port_get_supported_effects(DBusConnection *conn,
+                                               DBusMessage *msg,
+                                               void *userdata) {
+    pa_qahw_effect_module_data *m_data = (pa_qahw_effect_module_data *)userdata;
+    DBusError error;
+    DBusMessageIter arg_i;
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg, array_i, struct_i;
+    pa_qahw_effect_info *effect;
+    void *state;
+    char *port_name = NULL;
+    uint32_t port_effects = 0;
+    pa_device_port *p;
+    audio_devices_t *audio_device;
+
+    dbus_error_init(&error);
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        pa_log_error("port_get_supported_effects has no arguments.\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED,
+                           "port_get_supported_effects has no arguments.");
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (!pa_streq(dbus_message_get_signature(msg), "s")) {
+        pa_log_error("Invalid signature for port_get_supported_effects.\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED,
+                           "Invalid signature for port_get_supported_effects.");
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_log_debug("%s\n", __func__);
+
+    dbus_message_iter_get_basic(&arg_i, &port_name);
+
+    PA_HASHMAP_FOREACH(effect, m_data->effects, state)
+        if (pa_hashmap_get(effect->ports, port_name)
+            && pa_hashmap_get(m_data->card->ports, port_name))
+            port_effects++;
+
+    if (port_effects <= 0) {
+        pa_log_error("Invalid port name %s", port_name);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Invalid port name.");
+        dbus_error_free(&error);
+        return;
+    } else {
+        p = pa_hashmap_get(m_data->card->ports, port_name);
+        audio_device = PA_DEVICE_PORT_DATA(p);
+        pa_assert(audio_device);
+
+        pa_assert_se((reply = dbus_message_new_method_return(msg)));
+        dbus_message_iter_init_append(reply, &arg);
+        dbus_message_iter_append_basic(&arg, DBUS_TYPE_UINT32, &port_effects);
+        dbus_message_iter_append_basic(&arg, DBUS_TYPE_UINT32, audio_device);
+        dbus_message_iter_open_container(&arg, DBUS_TYPE_ARRAY, "(uqqqay)", &array_i);
+
+        PA_HASHMAP_FOREACH(effect, m_data->effects, state) {
+            if (pa_hashmap_get(effect->ports, port_name)) {
+                dbus_message_iter_open_container(&array_i, DBUS_TYPE_STRUCT, NULL, &struct_i);
+                pa_qahw_fill_effect_uuid(&struct_i, *(effect->uuid));
+                dbus_message_iter_close_container(&array_i, &struct_i);
+            }
+        }
+
+        dbus_message_iter_close_container(&arg, &array_i);
+    }
+
+    pa_assert_se(dbus_connection_send(conn, reply, NULL));
+    dbus_error_free(&error);
+    dbus_message_unref(reply);
 }
 
 static void pa_qahw_sink_get_supported_effects(DBusConnection *conn,
@@ -897,11 +1183,10 @@ static void pa_qahw_free_session(pa_qahw_effect_session_data *session) {
     }
 }
 
-
 static void pa_qahw_effect_free_endpoint(pa_qahw_effect_endpoint_info *endpoint) {
     pa_assert(endpoint);
 
-    pa_log_info("%s: freeing endpoint %s", __func__, endpoint->type);
+    pa_log_info("%s: freeing %s", __func__, endpoint->type);
 
     if (endpoint != NULL) {
         if ((endpoint->lib_handle != NULL) && (endpoint->effect_handle != NULL)) {
@@ -935,6 +1220,8 @@ static void pa_qahw_effect_free(pa_qahw_effect_info *effect) {
 
     if (pa_streq(effect->type, "sink")) {
         pa_hashmap_free(effect->sinks);
+    } else if (pa_streq(effect->type, "port")) {
+        pa_hashmap_free(effect->ports);
     }
 
     if (effect->name != NULL) {
@@ -973,9 +1260,11 @@ pa_qahw_effect_handle_t pa_qahw_init_effect(char *dbus_obj_path,
 
     pa_qahw_effect_config *effect_config;
     pa_qahw_sink_config *sink_config;
+    pa_qahw_card_port_config *port_config;
 
     pa_qahw_effect_info *effect_info;
     pa_qahw_effect_endpoint_info *sink = NULL;
+    pa_qahw_effect_endpoint_info *port = NULL;
     char *name;
 
     void *state;
@@ -1026,6 +1315,22 @@ pa_qahw_effect_handle_t pa_qahw_init_effect(char *dbus_obj_path,
                sink->type = pa_xstrdup(effect_info->type);
                pa_hashmap_put(effect_info->sinks, name, sink);
                pa_log_info("%s: Adding effect %s of type %s to sink %s", __func__,
+                           effect_info->name, effect_info->type, name);
+           }
+       } else if  (pa_streq(effect_info->type, "port")) {
+           effect_info->ports = pa_hashmap_new_full(pa_idxset_string_hash_func,
+                                                    pa_idxset_string_compare_func, NULL,
+                                                    (pa_free_cb_t) pa_qahw_effect_free_endpoint);
+           PA_HASHMAP_FOREACH(port_config, effect_config->ports, state1) {
+               port = pa_xnew(pa_qahw_effect_endpoint_info, 1);
+               port->client_count = 0;
+               port->effect_handle = NULL;
+               port->lib_handle = NULL;
+               port->dbus_obj_path = NULL;
+               name =  pa_xstrdup(port_config->name);
+               port->type = pa_xstrdup(effect_info->type);
+               pa_hashmap_put(effect_info->ports, name, port);
+               pa_log_info("%s: Adding effect %s of type %s to port %s", __func__,
                            effect_info->name, effect_info->type, name);
            }
        }
