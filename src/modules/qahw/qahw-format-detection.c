@@ -59,7 +59,7 @@ static void pa_qahw_format_detection_read_from_fd(const char* path, uint32_t *va
 
 static int pa_qahw_format_detection_get_num_channels(int infoframe_channels) {
     if (infoframe_channels > 0 && infoframe_channels < 8) {
-      /* refer CEA-861-D Table 17 Audio InfoFrame Data Byte 1 */
+        /* refer CEA-861-D Table 17 Audio InfoFrame Data Byte 1 */
         return (infoframe_channels + 1);
     }
 

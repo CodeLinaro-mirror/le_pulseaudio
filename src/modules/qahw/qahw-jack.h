@@ -41,13 +41,20 @@ typedef enum {
 
 typedef struct pa_qahw_jack_event_data {
     pa_qahw_jack_type_t jack_type;
+    pa_qahw_jack_event_t event;
     void *pa_qahw_jack_info; /* can be used to send any info related to a jack */
 } pa_qahw_jack_event_data_t;
 
 typedef size_t pa_qahw_jack_handle_t;
 
-typedef void (*pa_qahw_jack_callback_t)(pa_qahw_jack_event_t event, pa_qahw_jack_event_data_t *event_data, void *priv_data);
-int pa_qahw_jack_enable(pa_module *m, pa_qahw_jack_type_t jtype, pa_qahw_jack_callback_t callback, pa_qahw_jack_handle_t **handle, void *prv_data);
-void pa_qahw_jack_disable(pa_qahw_jack_handle_t *handle);
+struct jack_userdata {
+    pa_qahw_jack_type_t jack_type;
+    pa_hook_slot *hook_slot;
+};
+
+typedef pa_hook_result_t (* pa_qahw_jack_callback_t) (void *dummy __attribute__((unused)), pa_qahw_jack_event_data_t *event_data, void *prv_data);
+
+pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t jack_type, pa_qahw_jack_callback_t callback, pa_module *m, void *prv_data);
+bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *handle, pa_module *m);
 
 #endif

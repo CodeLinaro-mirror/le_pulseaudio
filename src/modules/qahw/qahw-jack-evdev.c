@@ -51,6 +51,8 @@
 
 static struct pa_qahw_jack_info supported_jacks[] = {
     {PA_QAHW_JACK_TYPE_WIRED_HEADSET, (char *)"snd-card Headset Jack"},
+    {PA_QAHW_JACK_TYPE_WIRED_HEADPHONE, (char *)"snd-card Headset Jack"},
+    {PA_QAHW_JACK_TYPE_LINEOUT, (char *)"snd-card Headset Jack"},
     {PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS, (char *)"snd-card Button Jack"}
 };
 
@@ -96,10 +98,12 @@ static void report_jack_state(struct pa_qahw_jack_data *jdata) {
     event_data.jack_type = jack_type;
     if (jdata->jack_status == PA_AVAILABLE_YES) {
         pa_log_info("qahw jack type %d available", jack_type);
-        jdata->callback(PA_QAHW_JACK_AVAILABLE, &event_data, jdata->prv_data);
+        event_data.event = PA_QAHW_JACK_AVAILABLE;
+        pa_hook_fire(&(jdata->event_hook), &event_data);
     } else {
         pa_log_info("qahw jack type %d unavailable", jack_type);
-        jdata->callback(PA_QAHW_JACK_UNAVAILABLE, &event_data, jdata->prv_data);
+        event_data.event = PA_QAHW_JACK_UNAVAILABLE;
+        pa_hook_fire(&(jdata->event_hook), &event_data);
     }
 }
 
@@ -170,7 +174,8 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
     return;
 }
 
-static struct pa_qahw_jack_data* open_device(pa_qahw_jack_type_t jack_type, pa_module *m, const char *dev_name, pa_qahw_jack_callback_t callback, void *prv_data) {
+static struct pa_qahw_jack_data* open_device(pa_qahw_jack_type_t jack_type, pa_module *m, const char *dev_name,
+                                    pa_hook_slot **hook_slot, pa_qahw_jack_callback_t callback, void *prv_data) {
     int version;
     char name[256];
     uint8_t evtype_bitmask[EV_MAX/8 + 1];
@@ -231,9 +236,10 @@ static struct pa_qahw_jack_data* open_device(pa_qahw_jack_type_t jack_type, pa_m
 
     jdata->jack_type = jack_type;
     jdata->fd = fd;
-    jdata->callback = callback;
-    jdata->prv_data = prv_data;
-    jdata->module = m;
+    pa_hook_init(&(jdata->event_hook), NULL);
+
+    *hook_slot = pa_hook_connect(&(jdata->event_hook), PA_HOOK_NORMAL, (pa_hook_cb_t)callback, prv_data);
+
     jdata->io = m->core->mainloop->io_new(m->core->mainloop, fd, PA_IO_EVENT_INPUT | PA_IO_EVENT_HANGUP, jack_io_callback, jdata);
 
     if ((jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADSET) || (jack_type == PA_QAHW_JACK_TYPE_LINEOUT)) {
@@ -278,17 +284,19 @@ fail:
    return NULL;
 }
 
-int pa_qahw_evdev_jack_device_close(struct pa_qahw_jack_data *jdata) {
+int pa_qahw_evdev_jack_device_close(struct pa_qahw_jack_data *jdata, pa_module *m) {
     int rc;
 
     pa_assert(jdata);
 
     if(jdata->io)
-        jdata->module->core->mainloop->io_free(jdata->io);
+        m->core->mainloop->io_free(jdata->io);
 
     rc= pa_close(jdata->fd);
     if (rc < 0)
         pa_log("pa_close (fd %d) failed: %s",jdata->fd, pa_cstrerror(errno));
+
+    pa_hook_done(&(jdata->event_hook));
 
     pa_xfree(jdata);
     jdata = NULL;
@@ -296,7 +304,8 @@ int pa_qahw_evdev_jack_device_close(struct pa_qahw_jack_data *jdata) {
     return 0;
 }
 
-struct pa_qahw_jack_data* pa_qahw_evdev_jack_device_open(pa_qahw_jack_type_t jack_type, pa_module *m, pa_qahw_jack_callback_t callback, void *prv_data) {
+struct pa_qahw_jack_data* pa_qahw_evdev_jack_device_open(pa_qahw_jack_type_t jack_type, pa_module *m, pa_hook_slot **hook_slot,
+                                                                              pa_qahw_jack_callback_t callback, void *prv_data) {
     char dev_name[PATH_MAX];
     char *filename;
     DIR *dir;
@@ -318,7 +327,7 @@ struct pa_qahw_jack_data* pa_qahw_evdev_jack_device_open(pa_qahw_jack_type_t jac
         strlcpy(filename, de->d_name, sizeof(filename));
 
         /* continue till both headset and button device are opened */
-        jdata = open_device(jack_type, m, dev_name, callback, prv_data);
+        jdata = open_device(jack_type, m, dev_name, hook_slot, callback, prv_data);
         if (jdata) {
             pa_log_debug("jack type %d is supported", jack_type);
             break;

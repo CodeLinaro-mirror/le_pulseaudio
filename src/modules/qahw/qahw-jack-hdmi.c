@@ -65,12 +65,14 @@ static int poll_data_event_init(void) {
     return soc;
 }
 
-static void check_hdmi_connection(struct pa_qahw_jack_data *jdata, pa_qahw_jack_event_data_t event_data) {
+static void check_hdmi_connection(struct pa_qahw_jack_data *jdata) {
     const char *path = HDMI_JACK_SYS_PATH;
+    pa_qahw_jack_event_data_t event_data;
     int fd = -1;
     char buf[16];
     int value;
     int ret;
+    event_data.jack_type = jdata->jack_type;
 
     fd = open(path, O_RDONLY, 0);
     if (fd < 0) {
@@ -91,8 +93,9 @@ static void check_hdmi_connection(struct pa_qahw_jack_data *jdata, pa_qahw_jack_
 
     if (value == 1) {
         pa_log_info("qahw jack type %d available", jdata->jack_type);
+        event_data.event = PA_QAHW_JACK_AVAILABLE;
         jack_status = PA_QAHW_JACK_AVAILABLE;
-        jdata->callback(PA_QAHW_JACK_AVAILABLE, &event_data, jdata->prv_data);
+        pa_hook_fire(&(jdata->event_hook), &event_data);
     }
 }
 
@@ -134,18 +137,21 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
         if ((dev_path != NULL) && (switch_name != NULL) && (switch_state != NULL)) {
             if (pa_streq(switch_name, "hpd_state") && (atoi(switch_state) == 1)) {
                 pa_log_info("qahw jack type %d available", jdata->jack_type);
+                event_data.event = PA_QAHW_JACK_AVAILABLE;
                 jack_status = PA_QAHW_JACK_AVAILABLE;
-                jdata->callback(PA_QAHW_JACK_AVAILABLE, &event_data, jdata->prv_data);
+                pa_hook_fire(&(jdata->event_hook), &event_data);
             } else if (pa_streq(switch_name, "hpd_state") && (atoi(switch_state) == 0)) {
                 pa_log_info("qahw jack type %d not available", jdata->jack_type);
+                event_data.event = PA_QAHW_JACK_UNAVAILABLE;
                 jack_status = PA_QAHW_JACK_UNAVAILABLE;
-                jdata->callback(PA_QAHW_JACK_UNAVAILABLE, &event_data, jdata->prv_data);
+                pa_hook_fire(&(jdata->event_hook), &event_data);
             } else if ((pa_streq(switch_name, "audio_format") || pa_streq(switch_name, "channels") ||
-                                                               pa_streq(switch_name, "sample_rate"))) {
+                        pa_streq(switch_name, "sample_rate"))) {
                 if (pa_qahw_hdmi_jack_get_config(&curr_port_config) && (jack_status == PA_QAHW_JACK_AVAILABLE)) {
-                    pa_log_info("qahw jack type %d config update", jdata->jack_type);
                     event_data.pa_qahw_jack_info = &curr_port_config;
-                    jdata->callback(PA_QAHW_JACK_CONFIG_UPDATE, &event_data, jdata->prv_data);
+                    pa_log_info("qahw jack type %d config update", jdata->jack_type);
+                    event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
+                    pa_hook_fire(&(jdata->event_hook), &event_data);
                 }
             }
         }
@@ -153,9 +159,8 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
 }
 
 struct pa_qahw_jack_data* pa_qahw_hdmi_jack_detection_enable(pa_qahw_jack_type_t jack_type, pa_module *m,
-                                                        pa_qahw_jack_callback_t callback, void *prv_data) {
+                             pa_hook_slot **hook_slot, pa_qahw_jack_callback_t callback, void *prv_data) {
     struct pa_qahw_jack_data *jdata = NULL;
-    pa_qahw_jack_event_data_t event_data;
     int sock_event_fd = -1;
 
     sock_event_fd = poll_data_event_init();
@@ -167,28 +172,29 @@ struct pa_qahw_jack_data* pa_qahw_hdmi_jack_detection_enable(pa_qahw_jack_type_t
     jdata = pa_xnew0(struct pa_qahw_jack_data, 1);
     jdata->fd = sock_event_fd;
     jdata->jack_type = jack_type;
-    jdata->callback = callback;
-    jdata->prv_data = prv_data;
-    jdata->module = m;
 
-    event_data.jack_type = jdata->jack_type;
+    pa_hook_init(&(jdata->event_hook), NULL);
+
+    *hook_slot = pa_hook_connect(&(jdata->event_hook), PA_HOOK_NORMAL, (pa_hook_cb_t)callback, prv_data);
 
     /* Check if HDMI is already connected */
-    check_hdmi_connection(jdata, event_data);
+    check_hdmi_connection(jdata);
 
     jdata->io = m->core->mainloop->io_new(m->core->mainloop, sock_event_fd, PA_IO_EVENT_INPUT | PA_IO_EVENT_HANGUP, jack_io_callback, jdata);
 
     return jdata;
 }
 
-void pa_qahw_hdmi_jack_detection_disable(struct pa_qahw_jack_data *jdata) {
+void pa_qahw_hdmi_jack_detection_disable(struct pa_qahw_jack_data *jdata, pa_module *m) {
     pa_assert(jdata);
 
     if(jdata->io)
-        jdata->module->core->mainloop->io_free(jdata->io);
+        m->core->mainloop->io_free(jdata->io);
 
     if (close(jdata->fd))
         pa_log_error("Close socket failed with error %s\n", strerror(errno));
+
+    pa_hook_done(&(jdata->event_hook));
 
     pa_xfree(jdata);
     jdata = NULL;

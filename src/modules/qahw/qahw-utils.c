@@ -32,6 +32,20 @@ typedef struct{
     uint32_t qahw_channel_map_position;
 } pa_qahw_util_pa_qahw_channel_map;
 
+typedef struct {
+    pa_qahw_jack_type_t jack_type;
+    char *port_name;
+} pa_qahw_util_jack_type_to_port_name;
+
+
+pa_qahw_util_jack_type_to_port_name jack_type_to_port_name[] = {
+    { PA_QAHW_JACK_TYPE_WIRED_HEADSET, (char*)"headset" },
+    { PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS, (char*)"headset-mic" },
+    { PA_QAHW_JACK_TYPE_WIRED_HEADPHONE, (char*)"headphone" },
+    { PA_QAHW_JACK_TYPE_LINEOUT, (char*)"lineout"},
+    { PA_QAHW_JACK_TYPE_HDMI, (char*)"hdmi-in" },
+};
+
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {
     audio_format_t qahw_format;
 
@@ -53,20 +67,26 @@ audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t fo
     return qahw_format;
 }
 
-const char* pa_qahw_util_jack_type_to_port_name(pa_qahw_jack_type_t jack_type) {
+const char* pa_qahw_util_get_port_name_from_jack_type(pa_qahw_jack_type_t jack_type) {
+    uint32_t count;
 
-    switch (jack_type) {
-        case PA_QAHW_JACK_TYPE_WIRED_HEADSET:
-            return "headset";
-        case PA_QAHW_JACK_TYPE_WIRED_HEADPHONE:
-            return "headphone";
-        case PA_QAHW_JACK_TYPE_LINEOUT:
-            return "lineout";
-        case PA_QAHW_JACK_TYPE_HDMI:
-            return "hdmi-in";
-        default:
-            return NULL;
+    for (count = 0; count < ARRAY_SIZE(jack_type_to_port_name); count++) {
+        if (jack_type_to_port_name[count].jack_type == jack_type)
+            return jack_type_to_port_name[count].port_name;
     }
+
+    return NULL;
+}
+
+pa_qahw_jack_type_t pa_qahw_util_get_jack_type_from_port_name(const char *port_name) {
+    uint32_t count;
+
+    for (count = 0; count < ARRAY_SIZE(jack_type_to_port_name); count++) {
+        if (pa_streq(jack_type_to_port_name[count].port_name, port_name))
+            return jack_type_to_port_name[count].jack_type;
+    }
+
+    return PA_QAHW_JACK_TYPE_INVALID;
 }
 
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_encoding(pa_encoding_t pa_format) {
