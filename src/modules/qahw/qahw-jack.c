@@ -42,95 +42,124 @@ struct userdata {
     int jack_count;
 };
 
-static unsigned int num_of_set_bits(int value) {
-    unsigned int count = 0;
-    while (value) {
-        value &= (value-1) ;
-        count++;
-    }
-    return count;
+static struct userdata g_jack_userdata = {0};
+static unsigned int enabled_jacks = 0x0;
+
+static void toggle_jack_status_bits(pa_qahw_jack_type_t jack_type) {
+    enabled_jacks ^= jack_type;
 }
 
-int pa_qahw_jack_enable(pa_module *m, pa_qahw_jack_type_t jack_types, pa_qahw_jack_callback_t callback, pa_qahw_jack_handle_t **jack_handle, void *prv_data) {
-    struct userdata *u;
-    int count;
+static bool is_jack_enabled(pa_qahw_jack_type_t jack_type) {
+    return (enabled_jacks & jack_type);
+}
+
+static struct pa_qahw_jack_data *pa_qahw_jack_get_jack_data(pa_qahw_jack_type_t jack_type) {
+    int i;
+    struct pa_qahw_jack_data *jdata = NULL;
+
+    for (i = 0; i < g_jack_userdata.jack_count; i++) {
+        jdata = g_jack_userdata.jdata[i];
+
+        if ((jdata) && (jdata->jack_type == jack_type))
+            break;
+    }
+
+    return jdata;
+}
+
+static bool pa_qahw_jack_check_enable_status(struct pa_qahw_jack_data *jdata, pa_qahw_jack_type_t jack_type) {
+    bool status = true;
+
+    if (!jdata) {
+        pa_log_error("Jack %d detection failed", jack_type);
+        status = false;
+    } else {
+        jdata->ref_count++;
+        g_jack_userdata.jack_count++;
+        toggle_jack_status_bits(jack_type);
+    }
+
+    return status;
+}
+
+pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t jack_type, pa_qahw_jack_callback_t callback, pa_module *m, void *prv_data) {
+    struct jack_userdata *u;
+    struct pa_qahw_jack_data *jdata = NULL;
 
     pa_assert(m);
 
-    u = pa_xnew(struct userdata, 1);
-    memset(u, 0, sizeof(struct userdata));
+    if (!(g_jack_userdata.jdata)&& (g_jack_userdata.jack_count == 0))
+        g_jack_userdata.jdata = pa_xnew(struct pa_qahw_jack_data *, 1);
 
-    *jack_handle = (pa_qahw_jack_handle_t *)u;
+    u = pa_xnew0(struct jack_userdata, 1);
 
-    count = num_of_set_bits(jack_types);
+    if ((jack_type & PA_QAHW_JACK_TYPE_LINEOUT) || (jack_type & PA_QAHW_JACK_TYPE_WIRED_HEADPHONE))
+        jack_type = PA_QAHW_JACK_TYPE_WIRED_HEADSET;
 
-    u->jdata = pa_xnew(struct pa_qahw_jack_data *, count);
-    pa_log_info("jack_type %x", jack_types);
+    if (!is_jack_enabled(jack_type)) {
+        pa_log_info("jack_type %x", jack_type);
+        u->jack_type = jack_type;
 
-    /* fall through as multiple bits might be set */
-    if ((jack_types & PA_QAHW_JACK_TYPE_WIRED_HEADSET) || (jack_types & PA_QAHW_JACK_TYPE_LINEOUT) || (jack_types & PA_QAHW_JACK_TYPE_WIRED_HEADPHONE)) {
-        /* call pa_qahw_evdev_jack_device_open only once for headset, headphone and lineout as same dev/input/device is used for both */
-        u->jdata[u->jack_count] = pa_qahw_evdev_jack_device_open(PA_QAHW_JACK_TYPE_WIRED_HEADSET, m, callback, prv_data);
-        if (!u->jdata[u->jack_count])
-            pa_log_error("PA_QAHW_JACK_TYPE_WIRED_HEADSET/PA_QAHW_JACK_TYPE_LINEOUT detection failed");
-        else
-            u->jack_count++;
+        if ((jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADSET) || (jack_type ==  PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS)) {
+            g_jack_userdata.jdata[g_jack_userdata.jack_count] = pa_qahw_evdev_jack_device_open(jack_type, m, &(u->hook_slot), callback, prv_data);
+        } else if  (jack_type ==  PA_QAHW_JACK_TYPE_HDMI) {
+            u->jack_type = PA_QAHW_JACK_TYPE_HDMI;
+            g_jack_userdata.jdata[g_jack_userdata.jack_count] = pa_qahw_hdmi_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, prv_data);
+        }
+
+        if (!(pa_qahw_jack_check_enable_status(g_jack_userdata.jdata[g_jack_userdata.jack_count], jack_type)))
+            goto fail;
+    } else {
+        u->jack_type = jack_type;
+        jdata = pa_qahw_jack_get_jack_data(jack_type);
+        u->hook_slot = pa_hook_connect(&(jdata->event_hook), PA_HOOK_NORMAL, (pa_hook_cb_t)callback, prv_data);
+        jdata->ref_count++;
     }
 
-    if (jack_types & PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS) {
-        pa_log_info("Enabling PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS detection");
+    return (pa_qahw_jack_handle_t *)u;
 
-        u->jdata[u->jack_count] = pa_qahw_evdev_jack_device_open(PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS, m, callback, prv_data);
-        if (!u->jdata[u->jack_count])
-            pa_log_error("Enabling PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS detection failed");
-        else
-            u->jack_count++;
-    }
-
-    if (jack_types & PA_QAHW_JACK_TYPE_HDMI) {
-        pa_log_info("Enabling QAHW_JACK_TYPE_HDMI detection");
-
-        u->jdata[u->jack_count] = pa_qahw_hdmi_jack_detection_enable(PA_QAHW_JACK_TYPE_HDMI, m, callback, prv_data);
-        if (!u->jdata[u->jack_count])
-            pa_log_error("Enabling QAHW_JACK_TYPE_HDMI detection failed");
-        else
-            u->jack_count++;
-    }
-
-    if (u->jack_count <= 0)
-        goto fail;
-
-    return 0;
 fail:
     pa_log_info("Unsupported jack type");
-    pa_qahw_jack_disable(*jack_handle);
-    *jack_handle = NULL;
-    return -1;
+    pa_xfree(u);
+    return NULL;
 }
 
-void pa_qahw_jack_disable(pa_qahw_jack_handle_t *jack_handle) {
-    struct userdata *u = (struct userdata *)jack_handle;
-    struct pa_qahw_jack_data *jdata;
-    int i;
+bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *jack_handle, pa_module *m) {
+    struct pa_qahw_jack_data *jdata = NULL;
+    struct jack_userdata *u = NULL;
 
-    pa_assert(u);
+    pa_assert(jack_handle);
+    pa_assert(m);
 
-    for (i = 0; i < u->jack_count; i++) {
-        jdata = u->jdata[i];
+    u = (struct jack_userdata *)jack_handle;
 
-        if (!jdata)
-            continue;
+    jdata = pa_qahw_jack_get_jack_data(u->jack_type);
+    if (!jdata)
+        return false;
 
-        if (jdata->jack_type & PA_QAHW_JACK_TYPE_WIRED_HEADSET) {
-            pa_log_debug("Disabling PA_QAHW_JACK_TYPE_WIRED_HEADSET detection");
-            pa_qahw_evdev_jack_device_close(jdata);
-        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS) {
-            pa_log_debug("Disabling PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS detection");
-            pa_qahw_evdev_jack_device_close(jdata);
+    pa_hook_slot_free(u->hook_slot);
+
+    jdata->ref_count--;
+
+    if (jdata->ref_count == 0) {
+        pa_log_info("%s: dergister jack type %d",__func__, jdata->jack_type);
+        if ((jdata->jack_type ==  PA_QAHW_JACK_TYPE_WIRED_HEADSET) || (jdata->jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS)) {
+            pa_qahw_evdev_jack_device_close(jdata, m);
+            toggle_jack_status_bits(jdata->jack_type);
+            g_jack_userdata.jack_count--;
         } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI) {
-            pa_log_debug("Disabling QAHW_JACK_TYPE_HDMI detection");
-            pa_qahw_hdmi_jack_detection_disable(jdata);
+            pa_qahw_hdmi_jack_detection_disable(jdata, m);
+            toggle_jack_status_bits(PA_QAHW_JACK_TYPE_HDMI);
+            g_jack_userdata.jack_count--;
         }
     }
+
     pa_xfree(u);
+
+    if (g_jack_userdata.jack_count == 0) {
+        pa_xfree(g_jack_userdata.jdata);
+        g_jack_userdata.jdata = NULL;
+    }
+
+    return true;
 }
