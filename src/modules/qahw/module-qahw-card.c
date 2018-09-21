@@ -786,29 +786,36 @@ int pa__init(pa_module *m) {
 
     pa_qahw_card_create(u);
 
-    u->max_supported_sinks = pa_hashmap_size(u->config_data->sinks);
-    u->sink_handle = pa_xnew0(pa_qahw_sink_handle_t *, u->max_supported_sinks);
-
-    pa_qahw_card_enable_jack_detection(u);
-
-    u->effect_status = (pa_qahw_effect_status *)pa_xnew0(pa_qahw_effect_status, u->max_supported_sinks);
 
     if (!u->config_data->default_profile) {
         pa_log_info("%s: default profile not present in card conf", __func__);
         u->config_data->default_profile = (char *)DEFAULT_PROFILE;
     }
 
+    u->max_supported_sinks = pa_hashmap_size(u->config_data->sinks);
+
+    if (u->max_supported_sinks > 0) {
+        u->sink_handle = pa_xnew0(pa_qahw_sink_handle_t *, u->max_supported_sinks);
+
+        u->effect_status = (pa_qahw_effect_status *)pa_xnew0(pa_qahw_effect_status, u->max_supported_sinks);
+
+        if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
+            goto fail;
+    }
+
+    pa_qahw_card_enable_jack_detection(u);
+
     pa_log_info("%s: using default profile %s", __func__, u->config_data->default_profile);
     pa_log_info("%s: use_dolby_hw_loopback %d", __func__, u->config_data->use_dolby_hw_loopback);
 
-    if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
-        goto fail;
-
     u->max_supported_sources = pa_hashmap_size(u->config_data->sources);
-    u->source_handle = pa_xnew0(pa_qahw_source_handle_t *, u->max_supported_sources);
 
-    if (PA_UNLIKELY(pa_qahw_card_create_sources(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
-        goto fail;
+    if (u->max_supported_sources > 0) {
+        u->source_handle = pa_xnew0(pa_qahw_source_handle_t *, u->max_supported_sources);
+
+        if (PA_UNLIKELY(pa_qahw_card_create_sources(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
+            goto fail;
+    }
 
     pa_qahw_module_extn_init(u->core, u ->card, u->module_handle);
     pa_qahw_loopback_init(u->module_handle, u->core, u->card);
@@ -848,7 +855,8 @@ void pa__done(pa_module *m) {
         pa_xfree(u->sink_handle);
     }
 
-    pa_qahw_deinit_effect(u->effect_handle);
+    if (u->effect_handle)
+        pa_qahw_deinit_effect(u->effect_handle);
 
     if (u->source_handle) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
