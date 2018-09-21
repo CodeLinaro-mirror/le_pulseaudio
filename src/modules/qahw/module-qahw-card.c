@@ -86,11 +86,9 @@ struct userdata {
 
     qahw_module_handle_t *module_handle;
 
-    uint32_t max_supported_sinks;
-    uint32_t max_supported_sources;
+    pa_hashmap *sink_handles;
+    pa_hashmap *source_handles;
 
-    pa_qahw_sink_handle_t **sink_handle;
-    pa_qahw_source_handle_t **source_handle;
     pa_qahw_effect_handle_t effect_handle;
     pa_qahw_effect_status *effect_status;
 
@@ -215,6 +213,7 @@ static bool pa_qahw_card_is_dynamic_source_supported_for_port(pa_device_port *po
 
 static void pa_qahw_card_remove_dynamic_source(pa_device_port *port, struct userdata *u) {
     pa_qahw_source_config *source = NULL;
+    pa_qahw_source_handle_t *handle;
     void *state;
 
     pa_assert(port);
@@ -226,17 +225,20 @@ static void pa_qahw_card_remove_dynamic_source(pa_device_port *port, struct user
         if ((source->usecase_type == PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(source->ports, port->name))) {
             /* check if this source supports required encoding */
             pa_log_info("%s: Found a dynamic source %s for port %s", __func__, source->name, port->name);
+            handle = pa_hashmap_get(u->source_handles, source->name);
             break;
         }
     }
 
-    if (source && !u->source_handle[source->id-1]) {
+
+    if (source && !handle) {
         pa_log_error("%s: no dynamic usecase present, skip removal of source ", __func__);
         goto exit;
     }
 
-    pa_qahw_source_close(u->source_handle[source->id-1]);
-    u->source_handle[source->id-1] = NULL;
+    pa_qahw_source_close(handle);
+
+    pa_hashmap_remove(u->source_handles, source->name);
 
 exit:
     return;
@@ -246,7 +248,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
     int rc;
     bool reconfigure = false;
 
-    pa_qahw_source_handle_t *handle;
+    pa_qahw_source_handle_t *handle = NULL;
 
     pa_qahw_source_config *source;
     pa_qahw_source_config new_source;
@@ -293,6 +295,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
 
             if (source_found) {
                 pa_log_info("%s: Found a dynamic source %s for port %s", __func__, source->name, port->name);
+                handle = pa_hashmap_get(u->source_handles, source->name);
                 break;
             }
         }
@@ -304,8 +307,8 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
     }
 
     /* check if reconfigure is needed if yes then recreate the source */
-    if (u->source_handle[source->id-1]) {
-        current_formats = pa_qahw_source_get_config(u->source_handle[source->id-1]);
+    if (handle) {
+        current_formats = pa_qahw_source_get_config(handle);
         if (!current_formats) {
             pa_log_error("%s: pa_qahw_source_get_config failed", __func__);
             goto exit;
@@ -359,7 +362,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
         handle = NULL;
     }
 
-    u->source_handle[source->id-1] = handle;
+    pa_hashmap_put(u->source_handles, new_source.name, handle);
 
     pa_hashmap_free(ports);
 
@@ -643,28 +646,27 @@ static int pa_qahw_card_create_sources(struct userdata *u, const char *profile_n
             continue;
         }
 
-        u->source_handle[source->id-1] = handle;
+        pa_hashmap_put(u->source_handles, source->name, handle);
+
     }
 
     return rc;
-}
-static void pa_qahw_card_remove_source(pa_qahw_source_handle_t *source_handle) {
-    pa_assert(source_handle);
-
-    pa_qahw_source_close(source_handle);
 }
 
 static void pa_qahw_card_free_sources(struct userdata *u, const char *profile_name) {
     pa_qahw_source_config *source;
     void *state;
+    pa_qahw_source_handle_t *source_handle;
 
     PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
         if (!(pa_hashmap_get(source->profiles, profile_name)))
             continue;
 
-        if (u->source_handle[source->id-1]) {
-            pa_qahw_card_remove_source(u->source_handle[source->id-1]);
-            u->source_handle[source->id-1] = NULL;
+        source_handle = pa_hashmap_get(u->source_handles, source->name);
+
+        if (source_handle) {
+            pa_qahw_source_close(source_handle);
+            pa_hashmap_remove(u->source_handles, source->name);
         }
     }
 }
@@ -683,7 +685,7 @@ static int pa_qahw_card_add_sink(pa_module *module, pa_card *card, const char *d
 
     rc = pa_qahw_sink_create(module, card, driver, module_handle, module_name, sink, sink_handle);
     if (rc) {
-        pa_log_error("%s: sink %d create failed %d ", __func__, sink->id, rc);
+        pa_log_error("%s: sink %s create failed %d ", __func__, sink->name, rc);
     }
 
     return rc;
@@ -708,31 +710,29 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
             continue;
         }
 
-        u->sink_handle[sink->id-1] = handle;
+        pa_hashmap_put(u->sink_handles, sink->name, handle);
+
         pa_qahw_card_fill_sink_effect_status(&u->effect_status[sink->id-1], handle);
     }
 
     return rc;
 }
 
-static void pa_qahw_card_remove_sink(pa_qahw_sink_handle_t *sink_handle) {
-    pa_assert(sink_handle);
-
-    pa_qahw_sink_close(sink_handle);
-}
-
 static void pa_qahw_card_free_sinks(struct userdata *u, const char *profile_name) {
     pa_qahw_sink_config *sink;
     void *state;
+    pa_qahw_sink_handle_t *sink_handle;
 
     PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
         if (!(pa_hashmap_get(sink->profiles, profile_name)))
             continue;
 
-        if (u->sink_handle[sink->id-1]) {
-            pa_qahw_free_sink_effects(u->effect_handle, pa_qahw_sink_get_index(u->sink_handle[sink->id-1]));
-            pa_qahw_card_remove_sink(u->sink_handle[sink->id-1]);
-            u->sink_handle[sink->id-1] = NULL;
+        sink_handle = pa_hashmap_get(u->sink_handles, sink->name);
+
+        if (sink_handle) {
+            pa_qahw_free_sink_effects(u->effect_handle, pa_qahw_sink_get_index(sink_handle));
+            pa_qahw_sink_close(sink_handle);
+            pa_hashmap_remove(u->sink_handles, sink->name);
         }
     }
     pa_xfree(u->effect_status);
@@ -792,15 +792,14 @@ int pa__init(pa_module *m) {
         u->config_data->default_profile = (char *)DEFAULT_PROFILE;
     }
 
-    u->max_supported_sinks = pa_hashmap_size(u->config_data->sinks);
+    if (pa_hashmap_size(u->config_data->sinks)) {
+        u->effect_status = (pa_qahw_effect_status *)pa_xnew0(pa_qahw_effect_status, (pa_hashmap_size(u->config_data->sinks)));
 
-    if (u->max_supported_sinks > 0) {
-        u->sink_handle = pa_xnew0(pa_qahw_sink_handle_t *, u->max_supported_sinks);
-
-        u->effect_status = (pa_qahw_effect_status *)pa_xnew0(pa_qahw_effect_status, u->max_supported_sinks);
+        u->sink_handles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
         if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
             goto fail;
+
     }
 
     pa_qahw_card_enable_jack_detection(u);
@@ -808,11 +807,8 @@ int pa__init(pa_module *m) {
     pa_log_info("%s: using default profile %s", __func__, u->config_data->default_profile);
     pa_log_info("%s: use_dolby_hw_loopback %d", __func__, u->config_data->use_dolby_hw_loopback);
 
-    u->max_supported_sources = pa_hashmap_size(u->config_data->sources);
-
-    if (u->max_supported_sources > 0) {
-        u->source_handle = pa_xnew0(pa_qahw_source_handle_t *, u->max_supported_sources);
-
+    if (pa_hashmap_size(u->config_data->sources)) {
+        u->source_handles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
         if (PA_UNLIKELY(pa_qahw_card_create_sources(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
             goto fail;
     }
@@ -825,7 +821,7 @@ int pa__init(pa_module *m) {
     dbus_path = pa_sprintf_malloc("%s/%s", QAHW_EFFECT_OBJECT_PATH, QAHW_MODULE_PRIMARY);
     dbus_protocol = pa_dbus_protocol_get(u->core);
     u->effect_handle = pa_qahw_init_effect(dbus_path, dbus_protocol, sink_effects_info, port_effects_info,
-                                           u->effect_status, u->card, u->max_supported_sinks, u->max_supported_sources);
+                                           u->effect_status, u->card, pa_hashmap_size(u->config_data->sinks), pa_hashmap_size(u->config_data->sources));
 
     return ret;
 
@@ -848,21 +844,21 @@ void pa__done(pa_module *m) {
     pa_qahw_module_extn_deinit();
     pa_qahw_loopback_deinit();
 
-    if (u->sink_handle) {
+    if (u->sink_handles) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
             pa_qahw_card_free_sinks(u, profile->name);
 
-        pa_xfree(u->sink_handle);
+        pa_hashmap_free(u->sink_handles);
     }
 
     if (u->effect_handle)
         pa_qahw_deinit_effect(u->effect_handle);
 
-    if (u->source_handle) {
+    if (u->source_handles) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
             pa_qahw_card_free_sources(u, profile->name);
 
-        pa_xfree(u->source_handle);
+        pa_hashmap_free(u->source_handles);
     }
 
     if (u->module_handle)
