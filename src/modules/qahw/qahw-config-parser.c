@@ -239,12 +239,10 @@ static int pa_qahw_config_parse_flags(pa_config_parser_state *state) {
 
     if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
         name = sink->name;
-        sink->port_conf_string = pa_split_spaces_strv(state->rvalue);
-        items = sink->port_conf_string;
+        items = pa_split_spaces_strv(state->rvalue);
     } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
         name = source->name;
-        source->port_conf_string = pa_split_spaces_strv(state->rvalue);
-        items = source->port_conf_string;
+        items = pa_split_spaces_strv(state->rvalue);
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
@@ -269,6 +267,8 @@ static int pa_qahw_config_parse_flags(pa_config_parser_state *state) {
     ret = 0;
 
 exit:
+    if (items)
+        pa_xstrfreev(items);
     return ret;
 }
 
@@ -856,10 +856,11 @@ static void pa_qahw_config_free_profile(pa_qahw_card_profile_config *profile) {
 
     pa_xfree(profile->description);
 
+    pa_hashmap_free(profile->ports);
+
     if (profile->port_conf_string)
         pa_xstrfreev(profile->port_conf_string);
 
-    pa_hashmap_free(profile->ports);
 
     pa_xfree(profile);
 } /* end profile parsing related functions */
@@ -1112,7 +1113,6 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         goto exit;
     }
 
-
 fail:
     pa_qahw_config_parse_free(config_data);
     config_data = NULL;
@@ -1129,19 +1129,14 @@ void pa_qahw_config_parse_free(pa_qahw_config_data *config_data) {
 
     pa_assert(config_data);
 
-    if (config_data->ports) {
-        pa_hashmap_free(config_data->ports);
-        config_data->ports = NULL;
-    }
-
-    if (config_data->profiles) {
-        pa_hashmap_free(config_data->profiles);
-        config_data->profiles = NULL;
-    }
-
-    if (config_data->sinks) {
+   if (config_data->sinks) {
         pa_hashmap_free(config_data->sinks);
         config_data->sinks = NULL;
+    }
+
+    if (config_data->sources) {
+        pa_hashmap_free(config_data->sources);
+        config_data->sources = NULL;
     }
 
     if (config_data->default_profile) {
@@ -1149,6 +1144,15 @@ void pa_qahw_config_parse_free(pa_qahw_config_data *config_data) {
         config_data->default_profile = NULL;
     }
 
+    if (config_data->profiles) {
+        pa_hashmap_free(config_data->profiles);
+        config_data->profiles = NULL;
+    }
+
+    if (config_data->ports) {
+        pa_hashmap_free(config_data->ports);
+        config_data->ports = NULL;
+    }
     pa_xfree(config_data);
     config_data = NULL;
 }
