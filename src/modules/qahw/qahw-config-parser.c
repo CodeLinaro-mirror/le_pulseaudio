@@ -40,9 +40,6 @@
 #define QAHW_CARD_EFFECT_PREFIX "Effect "
 #define QAHW_CARD_SND_SUFFIX "snd-card"
 
-static int sink_id;
-static int source_id;
-
 static pa_qahw_sink_config* pa_qahw_config_get_sink(pa_hashmap *sinks, char *name);
 static pa_qahw_source_config *pa_qahw_config_get_source(pa_hashmap *sources, char *name);
 static pa_qahw_card_profile_config* pa_qahw_config_get_profile(pa_hashmap *profiles, char *name);
@@ -67,8 +64,6 @@ static pa_qahw_source_config* pa_qahw_config_get_source(pa_hashmap *sources, cha
 
     source = pa_xnew0(pa_qahw_source_config, 1);
 
-    source->id = ++source_id;
-
     source->ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
     source->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
@@ -80,6 +75,8 @@ static pa_qahw_source_config* pa_qahw_config_get_source(pa_hashmap *sources, cha
     pa_log_debug("%s::source name is %s", __func__, source->name);
 
     pa_hashmap_put(sources, source->name, source);
+
+    source->id = pa_hashmap_size(sources);
 
 exit:
     return source;
@@ -104,7 +101,6 @@ static pa_qahw_sink_config* pa_qahw_config_get_sink(pa_hashmap *sinks, char *nam
 
     sink = pa_xnew0(pa_qahw_sink_config, 1);
 
-    sink->id = ++sink_id;
 
     sink->ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
@@ -117,6 +113,8 @@ static pa_qahw_sink_config* pa_qahw_config_get_sink(pa_hashmap *sinks, char *nam
     pa_log_debug("%s::sink name is %s", __func__, sink->name);
 
     pa_hashmap_put(sinks, sink->name, sink);
+
+    sink->id = pa_hashmap_size(sinks);
 
 exit:
     return sink;
@@ -1153,6 +1151,7 @@ void pa_qahw_config_parse_free(pa_qahw_config_data *config_data) {
         pa_hashmap_free(config_data->ports);
         config_data->ports = NULL;
     }
+
     pa_xfree(config_data);
     config_data = NULL;
 }
