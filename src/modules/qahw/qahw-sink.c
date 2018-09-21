@@ -718,8 +718,6 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
 
     bool port_sink_mapping = false;
 
-    pa_qahw_card_port_device_data *port_device_data;
-
     pa_assert(sdata->qahw_sdata);
 
     pa_sdata = pa_xnew0(pa_sink_data, 1);
@@ -746,9 +744,6 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
 
     /* associate port with sink */
     PA_HASHMAP_FOREACH(port, ports, state) {
-        port_device_data = PA_DEVICE_PORT_DATA(port);
-        pa_assert(port_device_data);
-
         pa_log_debug("adding port %s to sink %s", port->name, sink_name);
         pa_assert_se(pa_hashmap_put(new_data.ports, port->name, port) == 0);
         port_sink_mapping = true;
@@ -799,17 +794,17 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
         pa_sink_set_set_volume_callback(pa_sdata->sink, pa_qahw_sink_set_volume_cb);
     }
 
-    pa_sdata->thread = pa_thread_new(sink_name, pa_qahw_sink_thread_func, sdata);
-    if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
-        pa_log_error("Could not spawn I/O thread");
-        goto fail;
-    }
-
    pa_sdata->rtpoll_item = pa_rtpoll_item_new_fdsem(pa_sdata->rtpoll, PA_RTPOLL_NORMAL, sdata->fdsem);
    if (!pa_sdata->rtpoll_item) {
        pa_log_error("Could not create rpoll item");
        goto fail;
    }
+
+    pa_sdata->thread = pa_thread_new(sink_name, pa_qahw_sink_thread_func, sdata);
+    if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
+        pa_log_error("Could not spawn I/O thread");
+        goto fail;
+    }
 
    /* keep pa sink and qahw port in sync, qahw is opened with some default port, update qahw with active port decided by pa sink */
    pa_qahw_sink_set_port_cb(pa_sdata->sink, pa_sdata->sink->active_port);
@@ -842,10 +837,10 @@ static int free_pa_sink(pa_qahw_sink_data *sdata) {
         pa_thread_free(pa_sdata->thread);
     }
 
+    pa_thread_mq_done(&pa_sdata->thread_mq);
+
     if (pa_sdata->sink)
         pa_sink_unref(pa_sdata->sink);
-
-    pa_thread_mq_done(&pa_sdata->thread_mq);
 
     if (pa_sdata->rtpoll_item)
         pa_rtpoll_item_free(pa_sdata->rtpoll_item);
@@ -943,7 +938,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
 
     pa_log_info("%s: creating sink with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
 
-    sdata = pa_xnew0(pa_qahw_sink_data, sizeof(pa_qahw_sink_data));
+    sdata = pa_xnew0(pa_qahw_sink_data, 1);
 
     rc = pa_qahw_sink_alloc_common_resources(sdata);
     if (PA_UNLIKELY(rc)) {
