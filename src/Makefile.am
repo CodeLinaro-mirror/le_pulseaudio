@@ -302,6 +302,7 @@ TESTS_daemon = \
 		connect-stress \
 		extended-test \
 		passthrough-test \
+		reconfigure-test \
 		interpol-test \
 		sync-playback
 
@@ -490,6 +491,11 @@ passthrough_test_SOURCES = tests/passthrough-test.c
 passthrough_test_LDADD = $(AM_LDADD) libpulse.la libpulsecommon-@PA_MAJORMINOR@.la libtest-util.la
 passthrough_test_CFLAGS = $(AM_CFLAGS) $(LIBCHECK_CFLAGS)
 passthrough_test_LDFLAGS = $(AM_LDFLAGS) $(BINLDFLAGS) $(LIBCHECK_LIBS)
+
+reconfigure_test_SOURCES = tests/reconfigure-test.c
+reconfigure_test_LDADD = $(AM_LDADD) libpulse.la libpulsecommon-@PA_MAJORMINOR@.la libtest-util.la
+reconfigure_test_CFLAGS = $(AM_CFLAGS) $(LIBCHECK_CFLAGS)
+reconfigure_test_LDFLAGS = $(AM_LDFLAGS) $(BINLDFLAGS) $(LIBCHECK_LIBS)
 
 strlist_test_SOURCES = tests/strlist-test.c
 strlist_test_CFLAGS = $(AM_CFLAGS) $(LIBCHECK_CFLAGS)
