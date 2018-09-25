@@ -82,7 +82,7 @@ static bool pa_qahw_jack_check_enable_status(struct pa_qahw_jack_data *jdata, pa
     return status;
 }
 
-pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t jack_type, pa_qahw_jack_callback_t callback, pa_module *m, void *prv_data) {
+pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t jack_type, pa_qahw_jack_callback_t callback, pa_module *m, void *client_data) {
     struct jack_userdata *u;
     struct pa_qahw_jack_data *jdata = NULL;
 
@@ -101,10 +101,10 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
         u->jack_type = jack_type;
 
         if ((jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADSET) || (jack_type ==  PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS)) {
-            g_jack_userdata.jdata[g_jack_userdata.jack_count] = pa_qahw_evdev_jack_device_open(jack_type, m, &(u->hook_slot), callback, prv_data);
+            g_jack_userdata.jdata[g_jack_userdata.jack_count] = pa_qahw_evdev_jack_device_open(jack_type, m, &(u->hook_slot), callback, client_data);
         } else if  (jack_type ==  PA_QAHW_JACK_TYPE_HDMI) {
             u->jack_type = PA_QAHW_JACK_TYPE_HDMI;
-            g_jack_userdata.jdata[g_jack_userdata.jack_count] = pa_qahw_hdmi_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, prv_data);
+            g_jack_userdata.jdata[g_jack_userdata.jack_count] = pa_qahw_hdmi_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
         }
 
         if (!(pa_qahw_jack_check_enable_status(g_jack_userdata.jdata[g_jack_userdata.jack_count], jack_type)))
@@ -112,7 +112,7 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
     } else {
         u->jack_type = jack_type;
         jdata = pa_qahw_jack_get_jack_data(jack_type);
-        u->hook_slot = pa_hook_connect(&(jdata->event_hook), PA_HOOK_NORMAL, (pa_hook_cb_t)callback, prv_data);
+        u->hook_slot = pa_hook_connect(jdata->event_hook, PA_HOOK_NORMAL, (pa_hook_cb_t)callback, client_data);
         jdata->ref_count++;
     }
 
