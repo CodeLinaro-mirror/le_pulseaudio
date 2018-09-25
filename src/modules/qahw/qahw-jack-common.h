@@ -37,22 +37,20 @@ struct pa_qahw_jack_info {
 struct pa_qahw_jack_data {
     pa_module *module;
     pa_qahw_jack_type_t jack_type;
-    int fd;
-    pa_io_event *io;
+    pa_hook *event_hook;
+
+    void *client_data;
     void *prv_data;
 
     int ref_count;
-    pa_hook event_hook;
-    int switch_values;
-    pa_available_t jack_status;
 };
 
 struct pa_qahw_jack_data* pa_qahw_evdev_jack_device_open(pa_qahw_jack_type_t jack_type, pa_module *m, pa_hook_slot **hook_slot,
-                                                                              pa_qahw_jack_callback_t callback, void *prv_data);
+                                                                              pa_qahw_jack_callback_t callback, void *client_data);
 int pa_qahw_evdev_jack_device_close(struct pa_qahw_jack_data *jdata, pa_module *m);
 
 struct pa_qahw_jack_data* pa_qahw_hdmi_jack_detection_enable(pa_qahw_jack_type_t jack_type, pa_module *m, pa_hook_slot **hook_slot,
-                                                                                  pa_qahw_jack_callback_t callback, void *prv_data);
+                                                                                  pa_qahw_jack_callback_t callback, void *client_data);
 void pa_qahw_hdmi_jack_detection_disable(struct pa_qahw_jack_data *jdata, pa_module *m);
 
 #endif
