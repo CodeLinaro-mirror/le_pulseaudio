@@ -19,21 +19,13 @@
 #ifndef fooqahwjackformathfoo
 #define fooqahwjackformathfoo
 
-typedef enum {
-    PA_QAHW_JACK_INPUT_MODE_PCM = 0,
-    PA_QAHW_JACK_INPUT_MODE_COMPRESS = 1,
-} pa_qahw_jack_input_mode_t;
-
 typedef struct pa_qahw_jack_config {
-    uint32_t sample_rate;
-    uint32_t bitwidth;
-    uint32_t channels;
-    uint32_t layout;
-    uint32_t channel_allocation;
-    pa_qahw_jack_input_mode_t mode;
+    pa_encoding_t encoding;
+    pa_sample_spec ss;
+    pa_channel_map map;
 } pa_qahw_jack_config_t;
 
-bool pa_qahw_hdmi_jack_get_config(pa_qahw_jack_config_t *curr_config);
+int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_config_t *curr_config);
 
 #endif
 

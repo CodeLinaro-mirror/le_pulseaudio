@@ -33,8 +33,6 @@
 
 #define HDMI_JACK_SYS_PATH  "/sys/devices/virtual/switch/hpd_state/state"
 
-static pa_qahw_jack_config_t curr_port_config = {0, 16, 0, 0, 0, -1};
-
 typedef struct {
     int fd;
     pa_io_event *io;
@@ -42,6 +40,8 @@ typedef struct {
     pa_qahw_jack_event_t jack_status;
     pa_qahw_jack_type_t jack_type;
 } pa_qahw_hdmi_jack_data_t;
+
+pa_qahw_jack_config_t curr_hdmi_jack_config;
 
 static int poll_data_event_init(void) {
     struct sockaddr_nl sock_addr;
@@ -117,6 +117,7 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
     char *switch_state = NULL;
     char *switch_name = NULL;
     pa_qahw_jack_event_data_t event_data;
+    static pa_qahw_jack_config_t new_port_config;
 
     pa_assert(hdmi_jdata);
     event_data.jack_type = hdmi_jdata->jack_type;
@@ -157,11 +158,15 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
                 pa_hook_fire(&(hdmi_jdata->event_hook), &event_data);
             } else if ((pa_streq(switch_name, "audio_format") || pa_streq(switch_name, "channels") ||
                         pa_streq(switch_name, "sample_rate"))) {
-                if (pa_qahw_hdmi_jack_get_config(&curr_port_config) && (hdmi_jdata->jack_status == PA_QAHW_JACK_AVAILABLE)) {
-                    event_data.pa_qahw_jack_info = &curr_port_config;
-                    pa_log_info("qahw jack type %d config update", hdmi_jdata->jack_type);
-                    event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
-                    pa_hook_fire(&(hdmi_jdata->event_hook), &event_data);
+                if ((hdmi_jdata->jack_status == PA_QAHW_JACK_AVAILABLE) &&
+                          (!pa_qahw_hdmi_jack_get_config(&new_port_config))) {
+                    if (memcmp(&new_port_config, &curr_hdmi_jack_config, sizeof(pa_qahw_jack_config_t))) {
+                        memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_config_t));
+                        event_data.pa_qahw_jack_info = &new_port_config;
+                        pa_log_info("qahw jack type %d config update", hdmi_jdata->jack_type);
+                        event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
+                        pa_hook_fire(&(hdmi_jdata->event_hook), &event_data);
+                    }
                 }
             }
         }
