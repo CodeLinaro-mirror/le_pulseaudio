@@ -854,13 +854,14 @@ int pa__init(pa_module *m) {
     }
 
     pa_qahw_module_extn_init(u->core, u->card, u->module_handle);
-    pa_qahw_loopback_init(u->module_handle, u->core, u->card, u->config_data->loopbacks, pa_qahw_loopback_callback, (void *)u);
 
     pa_log_debug("module %s loaded handle %p", u->module_name, u->module_handle);
 
     dbus_path = pa_sprintf_malloc("%s/%s", QAHW_EFFECT_OBJECT_PATH, QAHW_MODULE_PRIMARY);
     dbus_protocol = pa_dbus_protocol_get(u->core);
     u->effect_handle = pa_qahw_init_effect(dbus_path, dbus_protocol, u->config_data->effects, u->card);
+
+    pa_qahw_loopback_init(u->module_handle, u->core, u->card, u->config_data->loopbacks, pa_qahw_loopback_callback, (void *)u, u->effect_handle);
 
     return ret;
 

@@ -126,6 +126,7 @@ static pa_qahw_effect_config* pa_qahw_config_get_effect(pa_hashmap *effects, cha
 
     effect->sinks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
     effect->ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+    effect->loopbacks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
     pa_log_debug("%s::effect name is %s", __func__, effect->name);
 
@@ -139,6 +140,7 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink = NULL;
     pa_qahw_card_port_config *port = NULL;
+    pa_qahw_loopback_config *loopback = NULL;
     pa_qahw_effect_config *effect = NULL;
 
     int ret = -1;
@@ -165,27 +167,26 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
     }
 
     while ((endpoint_name = items[i++])) {
-        if (pa_streq(effect->type, "sink")) {
-            if ((sink = pa_hashmap_get(config_data->sinks, endpoint_name))) {
-                pa_hashmap_put(effect->sinks, endpoint_name, sink);
-                pa_log_error("%s: adding sink %s to effect %s ", __func__, sink->name, effect->name);
-            } else {
-                pa_log_error("%s: invalid sink %s", __func__, endpoint_name);
-                goto exit;
-            }
+        if ((sink = pa_hashmap_get(config_data->sinks, endpoint_name))) {
+            pa_hashmap_put(effect->sinks, endpoint_name, sink);
+            pa_log_debug("%s: adding sink %s to effect %s ", __func__, sink->name, effect->name);
+            continue;
         }
 
-        if (pa_streq(effect->type, "port")) {
-            if ((port = pa_hashmap_get(config_data->ports, endpoint_name))) {
-                pa_hashmap_put(effect->ports, endpoint_name, port);
-                pa_log_error("%s: adding port %s to effect %s ", __func__, port->name, effect->name);
-            } else {
-                pa_log_error("%s: invalid port %s", __func__, endpoint_name);
-                goto exit;
-            }
+        if ((port = pa_hashmap_get(config_data->ports, endpoint_name))) {
+            pa_hashmap_put(effect->ports, endpoint_name, port);
+            pa_log_debug("%s: adding port %s to effect %s ", __func__, port->name, effect->name);
+            continue;
         }
 
+        if ((loopback = pa_hashmap_get(config_data->loopbacks, endpoint_name))) {
+            pa_hashmap_put(effect->loopbacks, endpoint_name, loopback);
+            pa_log_debug("%s: adding loopback %s to effect %s ", __func__, loopback->name, effect->name);
+            continue;
+        }
 
+        pa_log_error("%s: invalid endpoint %s", __func__, endpoint_name);
+        goto exit;
     }
     ret = 0;
 exit:
@@ -202,11 +203,11 @@ static void pa_qahw_config_free_effect(pa_qahw_effect_config *effect) {
 
     pa_xfree(effect->description);
 
-    pa_xfree(effect->type);
-
     pa_hashmap_free(effect->sinks);
 
     pa_hashmap_free(effect->ports);
+
+    pa_hashmap_free(effect->loopbacks);
 
     if (effect->endpoint_conf_string)
         pa_xstrfreev(effect->endpoint_conf_string);
@@ -293,7 +294,6 @@ static int pa_qahw_config_parse_type(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink;
     pa_qahw_source_config *source;
-    pa_qahw_effect_config *effect;
 
     int ret = -1;
 
@@ -315,14 +315,7 @@ static int pa_qahw_config_parse_type(pa_config_parser_state *state) {
         }
         source->type = pa_xstrdup(state->rvalue);
         pa_log_debug("%s: type %s for source %s", __func__, source->type, source->name);
-    } else if ((effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
-        if (!pa_qahw_effect_is_supported_type(state->rvalue)) {
-            pa_log_error("%s: invalid effect type %s", __func__, state->lvalue);
-            goto exit;
-        }
-        effect->type = pa_xstrdup(state->rvalue);
-        pa_log_debug("%s: type %s for effect %s", __func__, effect->type, effect->name);
-     } else {
+    } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
     }
@@ -1532,7 +1525,7 @@ void pa_qahw_config_parse_free(pa_qahw_config_data *config_data) {
     pa_assert(config_data);
 
     if (config_data->effects) {
-        pa_xfree(config_data->effects);
+        pa_hashmap_free(config_data->effects);
         config_data->effects = NULL;
     }
 
