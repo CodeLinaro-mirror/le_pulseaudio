@@ -121,60 +121,6 @@ static int pa_qahw_card_convert_config_ports_to_card_ports(pa_hashmap *src_ports
     return 0;
 }
 
-static int pa_qahw_card_get_format_from_jack_config(pa_qahw_jack_config_t *config, pa_format_info *format) {
-    int rc  = 0;
-    int sample_rate;
-    pa_channel_map map;
-
-    pa_assert(config);
-    pa_assert(format);
-
-    pa_format_info_set_sample_format(format, PA_SAMPLE_S16LE); /* FIXME:assume format is 16bit for now */
-    sample_rate = config->sample_rate;
-    pa_format_info_set_rate(format, sample_rate);
-    pa_channel_map_init(&map);
-    pa_channel_map_init_auto(&map, 2, PA_CHANNEL_MAP_DEFAULT);
-    pa_format_info_set_channel_map(format, &map);
-
-    if (config->layout != 0 && config->layout !=1) {
-        rc = -1;
-        goto exit;
-    }
-
-    if ((config->mode == PA_QAHW_JACK_INPUT_MODE_COMPRESS) && (config->layout == 0)) {
-        if (config->sample_rate == 192000) {
-            format->encoding = PA_ENCODING_UNKNOWN_4X_IEC61937; /* EAC3 */
-
-            /* convert to transmission to media rate, as pa expects same
-               for PA_ENCODING_UNKNOWN_4X_IEC61937 media_rate = transmission_rate/4 */
-            pa_format_info_set_rate(format, config->sample_rate / 4);
-        } else {
-            format->encoding = PA_ENCODING_UNKNOWN_IEC61937; /* Non HBR */
-        }
-    } else if (config->mode == PA_QAHW_JACK_INPUT_MODE_COMPRESS && config->layout == 1) {
-        format->encoding = PA_ENCODING_UNKNOWN_HBR_IEC61937; /* HBR */
-        pa_format_info_set_channels(format, 8);
-        pa_channel_map_init_auto(&map, 8, PA_CHANNEL_MAP_DEFAULT);
-        pa_format_info_set_channel_map(format, &map);
-    } else if (config->mode == PA_QAHW_JACK_INPUT_MODE_PCM) {
-        format->encoding = PA_ENCODING_PCM; /* PCM */
-        if (config->layout == 1) {
-            pa_format_info_set_channels(format, 8);
-            pa_channel_map_init_auto(&map, 8, PA_CHANNEL_MAP_DEFAULT);
-            pa_format_info_set_channel_map(format, &map);
-            /* FIXME: get channel map from channel allocation and update map with correct channel count. For multichannel pcm transmission rate will be 8
-               and 2 for other uscasese,
-             */
-        }
-    } else {
-        pa_log_error("%s: not a valid jack configure mode %d", __func__, config->mode);
-        rc = -1;
-    }
-
-exit:
-    return rc;
-}
-
 static bool pa_qahw_card_is_dynamic_source_supported_for_port(pa_device_port *port, struct userdata *u) {
     pa_assert(u);
     pa_assert(port);
@@ -251,11 +197,15 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
 
     pa_log_debug("%s:", __func__);
 
-    requested_format = pa_format_info_new();
-    if (pa_qahw_card_get_format_from_jack_config(config, requested_format)) {
+    requested_format = pa_format_info_from_sample_spec(&config->ss, &config->map);
+    if (!requested_format) {
         pa_log_error("%s: Invalid jack format", __func__);
         goto exit;
     }
+
+    requested_format->encoding = config->encoding;
+
+    pa_log_info("%s: format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), requested_format));
 
     /*find a dynamic source which supports give a port, currently assumption is that one dynamic source is supported for a port */
     PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
