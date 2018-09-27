@@ -1410,7 +1410,9 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/msm8998-tasha-snd-card.conf \
       modules/qahw/configs/qcs405-snd-card.conf \
       modules/qahw/configs/qcs405-wsa-snd-card.conf \
-      modules/qahw/configs/qcs405-csra-snd-card.conf
+      modules/qahw/configs/qcs405-csra1-snd-card.conf \
+      modules/qahw/configs/qcs405-csra6-snd-card.conf \
+      modules/qahw/configs/qcs405-amic-snd-card.conf
 endif
 
 if HAVE_SOLARIS
