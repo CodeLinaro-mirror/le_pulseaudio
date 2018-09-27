@@ -73,7 +73,6 @@ typedef struct {
 
     size_t sink_buffer_size;
     uint32_t sink_latency_us;
-    pa_usec_t buffer_duration_us;
     uint64_t bytes_written;
 
     pa_atomic_t wait_for_write_ready;
@@ -779,13 +778,16 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_sdata->sink->set_state_in_io_thread = pa_qahw_sink_set_state_in_io_thread_cb;
     pa_sdata->sink->set_port = pa_qahw_sink_set_port_cb;
     pa_sdata->sink->reconfigure = pa_qahw_sink_reconfigure_cb;
-    pa_sdata->sink->get_formats = pa_qahw_sink_get_formats;
 
-    pa_sdata->formats = pa_idxset_new(NULL, NULL);
+    if (pa_idxset_size(formats) > 0 ) {
+        pa_sdata->sink->get_formats = pa_qahw_sink_get_formats;
 
-    PA_IDXSET_FOREACH(in_format, formats, i) {
-        format = pa_format_info_copy(in_format);
-        pa_idxset_put(pa_sdata->formats, format, NULL);
+        pa_sdata->formats = pa_idxset_new(NULL, NULL);
+
+        PA_IDXSET_FOREACH(in_format, formats, i) {
+            format = pa_format_info_copy(in_format);
+            pa_idxset_put(pa_sdata->formats, format, NULL);
+        }
     }
 
     pa_sink_set_asyncmsgq(pa_sdata->sink, pa_sdata->thread_mq.inq);
@@ -922,14 +924,8 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     pa_qahw_card_port_config *sink_port;
     pa_hashmap *ports;
     pa_qahw_card_port_device_data *port_device_data;
-    pa_format_info *format;
-    pa_sample_spec ss;
-    pa_channel_map map;
-    static pa_sample_spec default_ss = {PA_DEFAULT_SINK_FORMAT, PA_DEFAULT_SINK_RATE, PA_DEFAULT_SINK_CHANNELS};
-    pa_channel_map default_map;
 
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
-    char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
 
     void *state;
 
@@ -963,24 +959,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     port_device_data = PA_DEVICE_PORT_DATA(card_port);
     pa_assert(port_device_data);
 
-    /* first format is default format */
-    format = pa_idxset_first(sink->formats, NULL);
-    if (!format) {
-        pa_log_error("%s: empty format list", __func__);
-        goto exit;
-    }
-
-    pa_log_info("%s: format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), format));
-
-    /* intialize default map */
-    pa_channel_map_init_auto(&default_map, PA_DEFAULT_SINK_CHANNELS, PA_CHANNEL_MAP_DEFAULT);
-
-    if (pa_qahw_utils_convert_format_to_sample_spec(format, &ss, &map, &default_ss, &default_map, PA_FORMAT_DEFAULT_SAMPLE_RATE_INDEX, PA_FORMAT_DEFAULT_SAMPLE_FORMAT_INDEX)) {
-        pa_log_error("%s: pa_qahw_utils_convert_format_to_sample_spec failed", __func__);
-        goto exit;
-    }
-
-    pa_log_info("%s: creating sink with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
+    pa_log_info("%s: creating sink with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &sink->default_spec));
 
     sdata = pa_xnew0(pa_qahw_sink_data, 1);
 
@@ -992,9 +971,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
         goto exit;
     }
 
-    pa_log_info("%s: creating sink with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
-
-    rc = create_qahw_sink(module_handle, format->encoding, &ss, &map, port_device_data->device, sink->flags, sink->id, sdata);
+    rc = create_qahw_sink(module_handle, sink->default_encoding, &sink->default_spec, &sink->default_map, port_device_data->device, sink->flags, sink->id, sdata);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could create open qahw sink, error %d", rc);
         pa_qahw_sink_free_common_resources(sdata);
@@ -1003,7 +980,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
         goto exit;
     }
 
-    rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &ss, &map, sink->use_hw_volume, sink->alternate_sample_rate, card, ports, driver, sdata);
+    rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &sink->default_spec, &sink->default_map, sink->use_hw_volume, sink->alternate_sample_rate, card, ports, driver, sdata);
     pa_hashmap_free(ports);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", sink->name, rc);

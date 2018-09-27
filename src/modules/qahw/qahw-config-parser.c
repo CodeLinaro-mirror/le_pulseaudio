@@ -451,6 +451,144 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_default_encoding(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+    pa_encoding_t encoding;
+
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if (!(encoding = pa_encoding_from_string(state->rvalue))) {
+        pa_log_error("%s: [%s:%u] invalid encoding %s", __func__, state->filename, state->lineno, state->rvalue);
+        goto exit;
+    }
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        if (!pa_qahw_sink_is_supported_encoding(encoding)) {
+            pa_log_error("%s: unsupported sink encoding %s sink %s", __func__, state->rvalue, sink->name);
+            goto exit;
+        }
+        sink->default_encoding = encoding;
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        if (!pa_qahw_source_is_supported_encoding(encoding)) {
+            pa_log_error("%s: unsupported source encoding %s source %s", __func__, state->rvalue, source->name);
+            goto exit;
+        }
+        source->default_encoding = encoding;
+    } else {
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_default_sample_rate(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+
+    int ret = -1;
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        pa_atou(state->rvalue, &sink->default_spec.rate);
+        if (!pa_qahw_sink_is_supported_sample_rate(sink->default_spec.rate)) {
+            pa_log_error("%s: unsupported  sample rate %d by sink %s", __func__, sink->default_spec.rate, sink->name);
+            goto exit;
+        }
+        pa_log_debug("%s: default sample rate %d for sink %s", __func__, sink->default_spec.rate, sink->name);
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        pa_atou(state->rvalue, &source->default_spec.rate);
+        if (!pa_qahw_source_is_supported_sample_rate(source->default_spec.rate)) {
+            pa_log_error("%s: unsupported  sample rate %d by source %s", __func__, source->default_spec.rate, source->name);
+            goto exit;
+        }
+        pa_log_debug("%s: default sample rate %d for souce %s", __func__, source->default_spec.rate, source->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+   ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_default_sample_format(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+
+    int ret = -1;
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        sink->default_spec.format = pa_parse_sample_format(state->rvalue);
+        pa_log_debug("%s: default sample format %s to usecase %s", __func__, state->rvalue, sink->name);
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        source->default_spec.format = pa_parse_sample_format(state->rvalue);
+        pa_log_debug("%s: default sample format %s to usecase %s", __func__, state->rvalue, source->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+   ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_default_channel_map(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+
+    pa_channel_map map;
+    char cm[PA_CHANNEL_MAP_SNPRINT_MAX];
+
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if (!pa_channel_map_parse(&map, state->rvalue)) {
+        pa_log_error("%s: [%s:%u] invalid channel map", __func__, state->filename, state->lineno);
+        goto exit;
+    }
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        sink->default_map = map;
+        sink->default_spec.channels = map.channels;
+        pa_log_debug("%s adding default channel map %s to sink %s", __func__, pa_channel_map_snprint(cm, sizeof(cm), &map), sink->name);
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        source->default_map = map;
+        source->default_spec.channels = map.channels;
+        pa_log_debug("%s adding default channel map %s to source %s", __func__, pa_channel_map_snprint(cm, sizeof(cm), &map), source->name);
+    } else {
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
 static int pa_qahw_config_parse_sample_rates(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink = NULL;
@@ -604,7 +742,7 @@ static int pa_qahw_config_parse_sample_formats(pa_config_parser_state *state) {
     }
 
     PA_IDXSET_FOREACH(format, formats, j)
-        pa_format_info_set_prop_int_array(format, PA_PROP_FORMAT_SAMPLE_FORMAT, sample_formats, i);
+        pa_format_info_set_prop_string_array(format, PA_PROP_FORMAT_SAMPLE_FORMAT, (const char **)items, i);
 
     ret = 0;
 
@@ -618,7 +756,7 @@ exit:
     return ret;
 }
 
-static int pa_qahw_config_parse_default_channel_map(pa_config_parser_state *state) {
+static int pa_qahw_config_parse_channel_maps(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink = NULL;
     pa_qahw_source_config *source = NULL;
@@ -1326,10 +1464,14 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
 
         /* common between port, sink and source */
         { "presence",             pa_qahw_config_parse_presence,                            NULL, NULL },
-        { "encoding",             pa_qahw_config_parse_encodings,                           NULL, NULL },
+        { "default-encoding",     pa_qahw_config_parse_default_encoding,                    NULL, NULL },
+        { "default-sample-rate",  pa_qahw_config_parse_default_sample_rate,                 NULL, NULL },
+        { "default-sample-format", pa_qahw_config_parse_default_sample_format,              NULL, NULL },
+        { "default-channel-map",  pa_qahw_config_parse_default_channel_map,                 NULL, NULL },
+        { "encodings",            pa_qahw_config_parse_encodings,                           NULL, NULL },
         { "sample-rates",         pa_qahw_config_parse_sample_rates,                        NULL, NULL },
         { "sample-formats",       pa_qahw_config_parse_sample_formats,                      NULL, NULL },
-        { "default-channel-map",  pa_qahw_config_parse_default_channel_map,                 NULL, NULL },
+        { "channel-maps",         pa_qahw_config_parse_channel_maps,                        NULL, NULL },
 
          /* [Loopback...] */
         { "in-port-names",        pa_qahw_config_parse_port_names,                          NULL, NULL },
