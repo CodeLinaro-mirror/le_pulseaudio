@@ -548,21 +548,25 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_sdata->source->parent.process_msg = pa_qahw_source_process_msg;
     pa_sdata->source->set_state_in_io_thread = pa_qahw_source_set_state_in_io_thread_cb;
     pa_sdata->source->set_port = pa_qahw_source_set_port_cb;
+
+    /* FIXME: check reconfigure needed for non pcm */
     pa_sdata->source->reconfigure = pa_qahw_source_reconfigure_cb;
-    pa_sdata->source->get_formats = pa_qahw_source_get_formats;
 
-    pa_source_set_asyncmsgq(pa_sdata->source, pa_sdata->thread_mq.inq);
-    pa_source_set_rtpoll(pa_sdata->source, pa_sdata->rtpoll);
+    if (pa_idxset_size(formats) > 0 ) {
+        pa_sdata->source->get_formats = pa_qahw_source_get_formats;
 
-    pa_sdata->formats = pa_idxset_new(NULL, NULL);
+        pa_sdata->formats = pa_idxset_new(NULL, NULL);
 
-    PA_IDXSET_FOREACH(in_format, formats, i) {
-        format = pa_format_info_copy(in_format);
-        pa_idxset_put(pa_sdata->formats, format, NULL);
+        PA_IDXSET_FOREACH(in_format, formats, i) {
+            format = pa_format_info_copy(in_format);
+            pa_idxset_put(pa_sdata->formats, format, NULL);
+        }
     }
 
     qahw_sdata = source_data->qahw_sdata;
 
+    pa_source_set_asyncmsgq(pa_sdata->source, pa_sdata->thread_mq.inq);
+    pa_source_set_rtpoll(pa_sdata->source, pa_sdata->rtpoll);
     pa_source_set_max_rewind(pa_sdata->source, 0);
     pa_source_set_fixed_latency(pa_sdata->source, pa_bytes_to_usec(qahw_sdata->source_buffer_size, ss));
 
@@ -654,14 +658,8 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     pa_qahw_card_port_config *source_port;
     pa_hashmap *ports;
     pa_qahw_card_port_device_data *port_device_data;
-    pa_format_info *format;
-    pa_sample_spec ss;
-    pa_channel_map map;
-    static pa_sample_spec default_ss = {PA_DEFAULT_SOURCE_FORMAT, PA_DEFAULT_SOURCE_RATE, PA_DEFAULT_SOURCE_CHANNELS};
-    pa_channel_map default_map;
 
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
-    char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
 
     void *state;
 
@@ -695,28 +693,11 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     port_device_data = PA_DEVICE_PORT_DATA(card_port);
     pa_assert(port_device_data);
 
-    /* first format is default format */
-    format = pa_idxset_first(source->formats, NULL);
-    if (!format) {
-        pa_log_error("%s: empty format list", __func__);
-        goto exit;
-    }
-
-    pa_log_info("%s: format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), format));
-
-   /* intialize default map */
-    pa_channel_map_init_auto(&default_map, PA_DEFAULT_SOURCE_CHANNELS, PA_CHANNEL_MAP_DEFAULT);
-
-    if (pa_qahw_utils_convert_format_to_sample_spec(format, &ss, &map, &default_ss, &default_map, PA_FORMAT_DEFAULT_SAMPLE_RATE_INDEX, PA_FORMAT_DEFAULT_SAMPLE_FORMAT_INDEX)) {
-        pa_log_error("%s: pa_qahw_utils_convert_format_to_sample_spec failed", __func__);
-        goto exit;
-    }
-
     sdata = pa_xnew0(pa_qahw_source_data, 1);
 
-    pa_log_info("%s: creating source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
+    pa_log_info("%s: creating source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &source->default_spec));
 
-    rc = create_qahw_source(module_handle, format->encoding, &ss, &map,  port_device_data->device, source->flags, source->id, sdata);
+    rc = create_qahw_source(module_handle, source->default_encoding, &source->default_spec, &source->default_map,  port_device_data->device, source->flags, source->id, sdata);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could not open qahw source, error %d", rc);
         pa_xfree(sdata);
@@ -724,7 +705,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
         goto exit;
     }
 
-    rc = create_pa_source(m, source->name, source->description, source->formats, &ss, &map, source->alternate_sample_rate, card, ports, driver, sdata);
+    rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate, card, ports, driver, sdata);
     pa_hashmap_free(ports);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", source->name, rc);
