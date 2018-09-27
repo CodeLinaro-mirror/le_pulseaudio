@@ -1264,7 +1264,7 @@ static int pa_qahw_config_parse_port_device(pa_config_parser_state *state) {
         goto exit;
     }
 
-    port->device = pa_qahw_util_device_name_convert_string_to_enum((const char *)state->rvalue);
+    port->device = pa_qahw_util_device_name_to_enum((const char *)state->rvalue);
     if (port->device != AUDIO_DEVICE_NONE) {
         goto exit;
     } else {
