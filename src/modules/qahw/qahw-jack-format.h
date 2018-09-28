@@ -19,6 +19,10 @@
 #ifndef fooqahwjackformathfoo
 #define fooqahwjackformathfoo
 
+#include <pulsecore/core-util.h>
+
+#include "qahw-jack.h"
+
 typedef struct pa_qahw_jack_config {
     pa_encoding_t encoding;
     pa_sample_spec ss;
@@ -28,6 +32,9 @@ typedef struct pa_qahw_jack_config {
 
 int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys_path sys_path,
                                                           pa_qahw_jack_out_config *jack_config);
+
+int pa_qahw_spdif_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys_path sys_path,
+                                                           pa_qahw_jack_out_config *jack_config);
 
 #endif
 

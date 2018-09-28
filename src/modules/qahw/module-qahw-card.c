@@ -253,7 +253,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
 
     /* check if reconfigure is needed if yes then close free existing source and recreate new source */
     if (source_info) {
-       if (source_info->force_suspended) {
+        if (source_info->force_suspended) {
             pa_log_debug("%s: source force suspended, skipping", __func__);
             goto exit;
         }
