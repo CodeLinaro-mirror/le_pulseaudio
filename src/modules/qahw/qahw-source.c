@@ -35,6 +35,7 @@
 #include <pulsecore/source.h>
 #include <pulsecore/memchunk.h>
 #include <pulsecore/core-format.h>
+#include <pulse/util.h>
 
 #include "qahw-source.h"
 #include "qahw-utils.h"
@@ -101,7 +102,7 @@ static const char *pa_qahw_source_get_name_from_flags(audio_input_flags_t flags)
         name = "low-latency";
     else if (flags == (QAHW_INPUT_FLAG_TIMESTAMP | QAHW_INPUT_FLAG_COMPRESS))
         name = "compress";
-    else if (flags == QAHW_INPUT_FLAG_PASSTHROUGH)
+   else if (flags == (QAHW_INPUT_FLAG_PASSTHROUGH | QAHW_INPUT_FLAG_COMPRESS))
         name = "passthrough";
 
     return name;
@@ -318,10 +319,13 @@ static void pa_qahw_source_thread_func(void *userdata) {
             in_buf.buffer = data;
             in_buf.bytes = chunk.length;
 
-            if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) < 0)
-                pa_log_error("Could not read data: %d qahw handle %p", ret, qahw_sdata->in_handle);
-            else
-                chunk.length = ret;
+            if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) <= 0) {
+                pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %lldms", ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
+                pa_msleep(pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
+                ret = in_buf.bytes;
+            }
+
+            chunk.length = ret;
 #ifdef SOURCE_DUMP_ENABLED
             pa_log_error(" chunk length %d chunk index %d in_buf.bytes %d ",chunk.length, chunk.index, ret);
             if ((ret = write(qahw_sdata->write_fd, in_buf.buffer, ret)) < 0)
