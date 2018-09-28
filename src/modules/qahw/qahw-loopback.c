@@ -313,7 +313,7 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
 
     pa_log_info("Creating audio loopback patch\n");
     status = qahw_create_audio_patch(module_handle, num_srcs, &src_cfg, num_sinks, sink_cfg, &handle);
-    pa_log_debug("Create audio loopback patch returned status: %d, handle %d\n", status, handle);
+    pa_log_debug("Create audio loopback patch returned status: %d, handle %u\n", status, handle);
 
     if (!status) {
         for (i = 0; i < num_sinks; i++) {
@@ -342,7 +342,7 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
     ses_data = pa_xnew0(struct pa_qahw_loopback_session_data, 1);
     ses_data->common = u;
     ses_data->ses_handle = handle;
-    ses_data->obj_path = pa_sprintf_malloc("%s/ses_%d", u->dbus_path, handle);
+    ses_data->obj_path = pa_sprintf_malloc("%s/ses_%u", u->dbus_path, handle);
 
     pa_log_info("session obj path %s \n", ses_data->obj_path);
 

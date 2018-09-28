@@ -492,8 +492,6 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
 
     bool port_source_mapping = false;
 
-    pa_qahw_card_port_device_data *port_device_data;
-
     pa_assert(source_data->qahw_sdata);
 
     pa_sdata = pa_xnew0(pa_source_data, 1);
@@ -519,9 +517,6 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
 
     /* associate port with source */
     PA_HASHMAP_FOREACH(port, ports, state) {
-        port_device_data = PA_DEVICE_PORT_DATA(port);
-        pa_assert(port_device_data);
-
         pa_log_debug("adding port %s to source %s", port->name, source_name);
         pa_assert_se(pa_hashmap_put(new_data.ports, port->name, port) == 0);
         port_source_mapping = true;
@@ -578,8 +573,6 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
 
     pa_source_put(pa_sdata->source);
 
-    pa_xfree(source_name);
-
     return 0;
 
 fail :
@@ -620,6 +613,8 @@ static int free_pa_source(pa_source_data *pa_sdata) {
     pa_thread_mq_done(&pa_sdata->thread_mq);
 
     pa_rtpoll_free(pa_sdata->rtpoll);
+
+    pa_xfree(pa_sdata);
 
     return 0;
 }
@@ -713,7 +708,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
         goto exit;
     }
 
-    sdata = pa_xnew0(pa_qahw_source_data, sizeof(pa_qahw_source_data));
+    sdata = pa_xnew0(pa_qahw_source_data, 1);
 
     pa_log_info("%s: creating source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
 

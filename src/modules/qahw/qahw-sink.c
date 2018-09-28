@@ -68,7 +68,7 @@ typedef struct {
     audio_output_flags_t flags;
     uint32_t devices;
     audio_config_t config;
-
+    struct qahw_out_channel_map_param qahw_map;
     const char *device_url;
 
     size_t sink_buffer_size;
@@ -178,7 +178,7 @@ static int pa_qahw_out_write_cb(qahw_stream_callback_event_t event, void *param,
     return 0;
 }
 
-static void pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+static int pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                                 audio_output_flags_t flags, int sink_id) {
     if (encoding == PA_ENCODING_PCM)
         qahw_sdata->config.format = pa_qahw_util_get_qahw_format_from_pa_sample(ss->format);
@@ -186,7 +186,12 @@ static void pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t enc
         qahw_sdata->config.format = pa_qahw_util_get_qahw_format_from_pa_encoding(encoding);
 
     qahw_sdata->config.sample_rate = ss->rate;
-    qahw_sdata->config.channel_mask = audio_channel_out_mask_from_count(ss->channels); /* TODO: le get channel mask for pa map */
+    qahw_sdata->config.channel_mask = audio_channel_out_mask_from_count(map->channels);
+
+    if (!pa_qahw_channel_map_to_qahw(map, &qahw_sdata->qahw_map)) {
+        pa_log_error("%s: unsupported channel map", __func__);
+        return -1;
+    }
 
     /* DIRECT PCM uses offload structure */
     if (flags & AUDIO_OUTPUT_FLAG_DIRECT_PCM || flags & AUDIO_OUTPUT_FLAG_DIRECT)  {
@@ -201,6 +206,8 @@ static void pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t enc
     qahw_sdata->handle = sink_id; /* check if its correct */
     qahw_sdata->device_url = NULL; /* TODO: useful for BT devices */
     qahw_sdata->bytes_written = 0;
+
+    return 0;
 }
 
 static uint64_t pa_qahw_sink_get_latency(pa_qahw_sink_data *sdata) {
@@ -541,8 +548,9 @@ done:
 
 static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                           audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata) {
-    int rc;
+    int rc = 0;
     qahw_sink_data *qahw_sdata;
+    qahw_param_payload payload;
 #ifdef SINK_DUMP_ENABLED
     char *file_name;
 #endif
@@ -560,7 +568,9 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
         goto exit;
     }
 
-    pa_qahw_sink_fill_info(qahw_sdata, encoding, ss, map, devices, flags, sink_id);
+    if (pa_qahw_sink_fill_info(qahw_sdata, encoding, ss, map, devices, flags, sink_id)) {
+        goto exit;
+    }
 
     pa_log_debug("opening sink with configuration flag = 0x%x, encoding %d, format %d, sample_rate %d, channel_mask 0x%x device %d",
                  qahw_sdata->flags, encoding, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask, qahw_sdata->devices);
@@ -593,6 +603,17 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
     pa_log_debug("sink latency %dus", qahw_sdata->sink_latency_us);
 
     pa_atomic_store(&qahw_sdata->wait_for_write_ready, 0);
+
+    payload.channel_map_params = qahw_sdata->qahw_map;
+    rc = qahw_out_set_param_data(qahw_sdata->out_handle,
+                                QAHW_PARAM_OUT_CHANNEL_MAP,
+                                &payload);
+    if (rc) {
+        qahw_close_output_stream(qahw_sdata->out_handle);
+        pa_log_error("Invalid buffer size %zu", qahw_sdata->sink_buffer_size);
+        rc = -1;
+        goto exit;
+    }
 
 #ifdef SINK_DUMP_ENABLED
     file_name = pa_sprintf_malloc("/data/pcmdump_sink_%d", qahw_sdata->handle);
@@ -718,8 +739,6 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
 
     bool port_sink_mapping = false;
 
-    pa_qahw_card_port_device_data *port_device_data;
-
     pa_assert(sdata->qahw_sdata);
 
     pa_sdata = pa_xnew0(pa_sink_data, 1);
@@ -746,9 +765,6 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
 
     /* associate port with sink */
     PA_HASHMAP_FOREACH(port, ports, state) {
-        port_device_data = PA_DEVICE_PORT_DATA(port);
-        pa_assert(port_device_data);
-
         pa_log_debug("adding port %s to sink %s", port->name, sink_name);
         pa_assert_se(pa_hashmap_put(new_data.ports, port->name, port) == 0);
         port_sink_mapping = true;
@@ -799,17 +815,17 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
         pa_sink_set_set_volume_callback(pa_sdata->sink, pa_qahw_sink_set_volume_cb);
     }
 
-    pa_sdata->thread = pa_thread_new(sink_name, pa_qahw_sink_thread_func, sdata);
-    if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
-        pa_log_error("Could not spawn I/O thread");
-        goto fail;
-    }
-
    pa_sdata->rtpoll_item = pa_rtpoll_item_new_fdsem(pa_sdata->rtpoll, PA_RTPOLL_NORMAL, sdata->fdsem);
    if (!pa_sdata->rtpoll_item) {
        pa_log_error("Could not create rpoll item");
        goto fail;
    }
+
+    pa_sdata->thread = pa_thread_new(sink_name, pa_qahw_sink_thread_func, sdata);
+    if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
+        pa_log_error("Could not spawn I/O thread");
+        goto fail;
+    }
 
    /* keep pa sink and qahw port in sync, qahw is opened with some default port, update qahw with active port decided by pa sink */
    pa_qahw_sink_set_port_cb(pa_sdata->sink, pa_sdata->sink->active_port);
@@ -842,10 +858,10 @@ static int free_pa_sink(pa_qahw_sink_data *sdata) {
         pa_thread_free(pa_sdata->thread);
     }
 
+    pa_thread_mq_done(&pa_sdata->thread_mq);
+
     if (pa_sdata->sink)
         pa_sink_unref(pa_sdata->sink);
-
-    pa_thread_mq_done(&pa_sdata->thread_mq);
 
     if (pa_sdata->rtpoll_item)
         pa_rtpoll_item_free(pa_sdata->rtpoll_item);
@@ -943,7 +959,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
 
     pa_log_info("%s: creating sink with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
 
-    sdata = pa_xnew0(pa_qahw_sink_data, sizeof(pa_qahw_sink_data));
+    sdata = pa_xnew0(pa_qahw_sink_data, 1);
 
     rc = pa_qahw_sink_alloc_common_resources(sdata);
     if (PA_UNLIKELY(rc)) {
