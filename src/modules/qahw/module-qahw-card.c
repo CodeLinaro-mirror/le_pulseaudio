@@ -52,7 +52,6 @@
 #define QAHW_CARD_NAME_PREFIX "qahw."
 #define DEFAULT_PROFILE "default"
 
-
 PA_MODULE_AUTHOR("QTI");
 PA_MODULE_DESCRIPTION("qahw card module");
 PA_MODULE_VERSION(PACKAGE_VERSION);
@@ -109,18 +108,6 @@ struct userdata {
 static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name,
                                    pa_qahw_source_config *source, pa_qahw_source_handle_t **source_handle);
 
-static int pa_qahw_card_convert_config_ports_to_card_ports(pa_hashmap *src_ports, pa_hashmap *dest_ports, pa_card *card) {
-    pa_qahw_card_port_config *config_port;
-    pa_device_port *card_port;
-    void *state;
-
-    PA_HASHMAP_FOREACH(config_port, src_ports, state) {
-        if ((card_port = pa_hashmap_get(card->ports, config_port->name)))
-            pa_hashmap_put(dest_ports, config_port->name, card_port);
-    }
-    return 0;
-}
-
 static bool pa_qahw_card_is_dynamic_source_supported_for_port(pa_device_port *port, struct userdata *u) {
     pa_assert(u);
     pa_assert(port);
@@ -134,7 +121,7 @@ static bool pa_qahw_card_is_dynamic_source_supported_for_port(pa_device_port *po
 
 static void pa_qahw_card_remove_dynamic_source(pa_device_port *port, struct userdata *u) {
     pa_qahw_source_config *source = NULL;
-    pa_qahw_source_handle_t *handle;
+    pa_qahw_source_handle_t *handle = NULL;
     void *state;
 
     pa_assert(port);
@@ -147,10 +134,12 @@ static void pa_qahw_card_remove_dynamic_source(pa_device_port *port, struct user
             /* check if this source supports required encoding */
             pa_log_info("%s: Found a dynamic source %s for port %s", __func__, source->name, port->name);
             handle = pa_hashmap_get(u->source_handles, source->name);
+            if (!handle)
+                continue;
+
             break;
         }
     }
-
 
     if (source && !handle) {
         pa_log_error("%s: no dynamic usecase present, skip removal of source ", __func__);
@@ -173,23 +162,22 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
 
     pa_qahw_source_config *source;
     pa_qahw_source_config new_source;
-    pa_hashmap *ports;
 
+    pa_idxset *requested_formats;
     pa_format_info *requested_format;
+
     pa_format_info *current_format;
     pa_format_info *config_format;
+
     pa_idxset *current_formats;
-    pa_idxset *requested_formats;
+
     pa_sample_spec ss;
     pa_channel_map map;
 
-    uint32_t requested_sample_rate;
-    uint32_t requested_channels;
     char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
 
     void *state;
-    uint32_t i = 0;
-    bool source_found = false;
+    uint32_t i;
 
     pa_assert(port);
     pa_assert(config);
@@ -205,61 +193,39 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
 
     requested_format->encoding = config->encoding;
 
-    pa_log_info("%s: format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), requested_format));
+    pa_log_info("%s: requested format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), requested_format));
 
-    /*find a dynamic source which supports give a port, currently assumption is that one dynamic source is supported for a port */
+    /* check if any dynamic source is already created on same port */
     PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
         if ((source->usecase_type == PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(source->ports, port->name))) {
-            /* check if this source supports required encoding */
-            PA_IDXSET_FOREACH(config_format, source->formats, i) {
-                if (config_format->encoding == requested_format->encoding) {
-                    source_found = true;
-                    break;
-                }
-            }
-
-            if (source_found) {
-                pa_log_info("%s: Found a dynamic source %s for port %s", __func__, source->name, port->name);
-                handle = pa_hashmap_get(u->source_handles, source->name);
+            handle = pa_hashmap_get(u->source_handles, source->name);
+            if (handle) {
                 break;
             }
         }
     }
 
-    if (!source_found) {
-        pa_log_error("%s: dynamic source not supported for port %s", __func__, port->name);
-        goto exit;
-    }
-
-    /* check if reconfigure is needed if yes then recreate the source */
+   /* check if reconfigure is needed if yes then close free existing source and recreate new source */
     if (handle) {
+        pa_log_info("%s: Found a existing dynamic source %s for port %s", __func__, source->name, port->name);
+
         current_formats = pa_qahw_source_get_config(handle);
-        if (!current_formats) {
+        if (!current_formats || (pa_idxset_size(current_formats) != 1)) {  /* dynamic source should have single format */
             pa_log_error("%s: pa_qahw_source_get_config failed", __func__);
             goto exit;
         }
 
-        current_format = pa_idxset_first(source->formats, NULL);
-        pa_log_info("%s: current_format = %s requested format %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), current_format),
-                     pa_format_info_snprint(fmt, sizeof(fmt), requested_format));
+        current_format = pa_idxset_first(current_formats, NULL);
+
+        pa_log_info("%s: existing source format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), current_format));
 
         pa_format_info_to_sample_spec(current_format, &ss, &map);
 
-        if (!pa_format_info_get_rate(requested_format, &requested_sample_rate)) {
-            pa_log_error("%s: sample_rate not published by jack", __func__);
-            goto exit;
-        }
-
-        if (!pa_format_info_get_rate(requested_format, &requested_channels)) {
-            pa_log_error("%s: channels not published by jack", __func__);
-            goto exit;
-        }
+        pa_idxset_free(current_formats, (pa_free_cb_t) pa_format_info_free);
 
         if (requested_format->encoding != current_format->encoding)
             reconfigure = true;
-        else if ((requested_format->encoding == PA_ENCODING_UNKNOWN_4X_IEC61937) && (requested_sample_rate != ss.rate))
-            reconfigure = true;
-        else if ((requested_format->encoding == PA_ENCODING_PCM) && ((requested_sample_rate != ss.rate || requested_channels != ss.channels)))
+        else if ((requested_format->encoding == PA_ENCODING_PCM) && (!pa_sample_spec_equal(&config->ss, &ss)) && (!pa_channel_map_equal(&config->map, &map)))
             reconfigure = true;
 
         if (reconfigure) {
@@ -271,14 +237,33 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
         }
     }
 
-    ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+    /* find a dynamic source which supports requested port and encoding */
+    PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
+        if ((source->usecase_type == PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(source->ports, port->name))) {
+            PA_IDXSET_FOREACH(config_format, source->formats, i) {
+                if (pa_format_info_is_compatible(config_format, requested_format)) {
+                    break;
+                }
+            }
+        }
+        /* check if this source supports requested format */
+        if (config_format) {
+            pa_log_info("%s: found a dynamic source %s for port %s with requested capablity", __func__, source->name, port->name);
+            break;
+        }
+    }
 
-    pa_qahw_card_convert_config_ports_to_card_ports(source->ports, ports, u->card);
+    if (!config_format) {
+        pa_log_error("%s: dynamic source for requested format is not supported for port %s", __func__, port->name);
+        goto exit;
+    }
 
     requested_formats = pa_idxset_new(NULL, NULL);
     pa_idxset_put(requested_formats, requested_format, NULL);
 
     new_source = *source;
+    new_source.default_spec = config->ss;
+    new_source.default_map = config->map;
     new_source.formats = requested_formats;
 
     rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, &new_source, &handle);
@@ -288,8 +273,6 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
     }
 
     pa_hashmap_put(u->source_handles, new_source.name, handle);
-
-    pa_hashmap_free(ports);
 
     pa_idxset_free(requested_formats, (pa_free_cb_t) pa_format_info_free);
 exit:
