@@ -864,6 +864,16 @@ static int free_pa_sink(pa_qahw_sink_data *sdata) {
     return 0;
 }
 
+pa_idxset* pa_qahw_sink_get_config(pa_qahw_sink_handle_t *handle) {
+    pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)handle;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->sink);
+
+    return pa_qahw_sink_get_formats(sdata->pa_sdata->sink);
+}
+
 bool pa_qahw_sink_is_supported_sample_rate(uint32_t sample_rate) {
     bool supported = false;
     uint32_t i;

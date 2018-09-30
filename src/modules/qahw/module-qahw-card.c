@@ -85,6 +85,7 @@ typedef struct {
 
 typedef struct {
     pa_qahw_sink_handle_t *handle;
+    bool force_suspended;
 } pa_qahw_card_sink_info;
 
 struct userdata {
@@ -117,6 +118,8 @@ struct userdata {
 
 static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name,
                                    pa_qahw_source_config *source, pa_qahw_source_handle_t **source_handle);
+static int pa_qahw_card_add_sink(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name,
+                                 pa_qahw_sink_config *sink, pa_qahw_sink_handle_t **sink_handle);
 
 static pa_qahw_card_source_info *pa_qahw_card_is_dynamic_source_present_for_port(const char *port_name,
                                                                                     struct userdata *u) {
@@ -139,6 +142,28 @@ static pa_qahw_card_source_info *pa_qahw_card_is_dynamic_source_present_for_port
     }
 
     return source_info;
+}
+
+static pa_qahw_card_sink_info *pa_qahw_card_is_dynamic_sink_present_for_port(const char *port_name, struct userdata *u) {
+    pa_qahw_card_sink_info *sink_info = NULL;
+    pa_qahw_sink_config *sink;
+    void *state;
+
+    pa_assert(port_name);
+    pa_assert(u);
+
+    /* check if any sink is already created on same port */
+    PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
+        if ((sink->usecase_type == PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(sink->ports, port_name))) {
+            sink_info = pa_hashmap_get(u->sinks, sink->name);
+            if (sink_info) {
+                pa_log_info("%s: Found an existing dynamic sink %s for port %s", __func__, sink->name, port_name);
+                break;
+            }
+        }
+    }
+
+    return sink_info;
 }
 
 static void pa_qahw_card_remove_dynamic_source(pa_device_port *port, struct userdata *u) {
@@ -394,6 +419,170 @@ static void pa_qahw_loopback_callback(const char *port_name, pa_qahw_loopback_ev
     }
 }
 
+static void pa_qahw_card_remove_dynamic_sink(pa_device_port *port, struct userdata *u) {
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_card_sink_info *sink_info = NULL;
+    void *state;
+
+    pa_assert(port);
+
+    pa_log_debug("%s:", __func__);
+
+    /*find a dynamic sink which supports give a port, currently assumption is that one dynamic sink is supported for a port */
+    PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
+        if ((sink->usecase_type == PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(sink->ports, port->name))) {
+            /* check if this sink supports required encoding */
+            pa_log_info("%s: Found a dynamic sink %s for port %s", __func__, sink->name, port->name);
+            sink_info = pa_hashmap_get(u->sinks, sink->name);
+            if (!sink_info)
+                continue;
+
+            break;
+        }
+    }
+
+    if (!sink_info) {
+        pa_log_error("%s: no dynamic usecase present, skip removal of sink ", __func__);
+        goto exit;
+    }
+
+    pa_qahw_sink_close(sink_info->handle);
+
+    pa_hashmap_remove(u->sinks, sink->name);
+    pa_xfree(sink_info);
+
+exit:
+    return;
+}
+
+static void pa_qahw_card_add_dynamic_sink(pa_device_port *port, pa_qahw_jack_out_config *config, struct userdata *u) {
+    int rc;
+    bool reconfigure = false;
+
+    pa_qahw_card_sink_info *sink_info = NULL;
+
+    pa_qahw_sink_config *sink;
+    pa_qahw_sink_config new_sink;
+
+    pa_idxset *requested_formats;
+    pa_format_info *requested_format;
+
+    pa_format_info *current_format;
+    pa_format_info *config_format;
+
+    pa_idxset *current_formats;
+
+    pa_sample_spec ss;
+    pa_channel_map map;
+
+    char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
+
+    void *state;
+    uint32_t i;
+
+    pa_assert(port);
+    pa_assert(config);
+    pa_assert(u);
+
+    pa_log_debug("%s:", __func__);
+
+    if (config->encoding == PA_ENCODING_PCM) {
+        requested_format = pa_format_info_from_sample_spec(&config->ss, &config->map);
+        if (!requested_format) {
+            pa_log_error("%s: Invalid jack format", __func__);
+            goto exit;
+        }
+    } else {
+        requested_format = pa_format_info_new();
+        pa_format_info_set_rate(requested_format, config->ss.rate);
+    }
+
+    requested_format->encoding = config->encoding;
+
+    pa_log_info("%s: requested format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), requested_format));
+
+    /* check if any dynamic sink is already created on same port */
+    sink_info = pa_qahw_card_is_dynamic_sink_present_for_port(port->name, u);
+
+    /* check if reconfigure is needed if yes then close free existing sink and recreate new sink */
+    if (sink_info) {
+        if (sink_info->force_suspended) {
+            pa_log_debug("%s: sink force suspended, skipping", __func__);
+            goto exit;
+        }
+
+        current_formats = pa_qahw_sink_get_config(sink_info->handle);
+        if (!current_formats || (pa_idxset_size(current_formats) != 1)) {  /* dynamic sink should have single format */
+            pa_log_error("%s: pa_qahw_sink_get_config failed", __func__);
+            goto exit;
+        }
+
+        current_format = pa_idxset_first(current_formats, NULL);
+
+        pa_log_info("%s: existing sink format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), current_format));
+
+        pa_format_info_to_sample_spec(current_format, &ss, &map);
+
+        pa_idxset_free(current_formats, (pa_free_cb_t) pa_format_info_free);
+
+        if (requested_format->encoding != current_format->encoding)
+            reconfigure = true;
+        else if ((requested_format->encoding == PA_ENCODING_PCM) && (!pa_sample_spec_equal(&config->ss, &ss)) && (!pa_channel_map_equal(&config->map, &map)))
+            reconfigure = true;
+
+        if (reconfigure) {
+            pa_log_info("%s: sink reconfiguraiton needed, closing current sink and createing new one", __func__);
+            pa_qahw_card_remove_dynamic_sink(port, u);
+        } else {
+            pa_log_info("%s: sink already exits", __func__);
+            goto exit;
+        }
+    }
+
+    /* find a dynamic sink which supports requested port and encoding */
+    PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
+        if ((sink->usecase_type == PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(sink->ports, port->name))) {
+            PA_IDXSET_FOREACH(config_format, sink->formats, i) {
+                if (pa_format_info_is_compatible(config_format, requested_format)) {
+                    break;
+                }
+            }
+        }
+        /* check if this sink supports requested format */
+        if (config_format) {
+            pa_log_info("%s: found a dynamic sink %s for port %s with requested capablity", __func__, sink->name, port->name);
+            break;
+        }
+    }
+
+    if (!config_format) {
+        pa_log_error("%s: dynamic sink for requested format is not supported for port %s", __func__, port->name);
+        goto exit;
+    }
+
+    requested_formats = pa_idxset_new(NULL, NULL);
+    pa_idxset_put(requested_formats, requested_format, NULL);
+
+    new_sink = *sink;
+    new_sink.default_spec = config->ss;
+    new_sink.default_map = config->map;
+    new_sink.formats = requested_formats;
+    new_sink.default_encoding = config->encoding;
+
+    sink_info = pa_xnew0(pa_qahw_card_sink_info, 1);
+    rc = pa_qahw_card_add_sink(u->module, u->card, u->driver, u->module_handle, u->module_name, &new_sink, &(sink_info->handle));
+    if (rc) {
+        pa_log_error("%s: sink %s create failed for port %s, error %d ", __func__, sink->name, port->name, rc);
+        sink_info->handle = NULL;
+    }
+
+    pa_hashmap_put(u->sinks, new_sink.name, sink_info);
+
+    pa_idxset_free(requested_formats, (pa_free_cb_t) pa_format_info_free);
+exit:
+   return;
+}
+
 static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)), pa_qahw_jack_event_data_t *event_data, void *prv_data) {
     const char *port_name = NULL;
     pa_available_t status = PA_AVAILABLE_UNKNOWN;
@@ -430,20 +619,28 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
         if (port) {
             if (event == PA_QAHW_JACK_AVAILABLE) {
                 pa_device_port_set_available(port, status);
-             } else if (event == PA_QAHW_JACK_UNAVAILABLE) {
+            } else if (event == PA_QAHW_JACK_UNAVAILABLE) {
                 pa_device_port_set_available(port, status);
 
                 if (port->direction == PA_DIRECTION_INPUT) {
-                     pa_qahw_card_remove_dynamic_source(port, u);
+                    pa_qahw_card_remove_dynamic_source(port, u);
+                } else if (port->direction == PA_DIRECTION_OUTPUT) {
+                    pa_qahw_card_remove_dynamic_sink(port, u);
                 }
-             } else if ((event == PA_QAHW_JACK_CONFIG_UPDATE) && (port->available == PA_AVAILABLE_YES)) {
+
+            } else if ((event == PA_QAHW_JACK_CONFIG_UPDATE) && (port->available == PA_AVAILABLE_YES)) {
                 if (port->direction == PA_DIRECTION_INPUT) {
                     jack_info = pa_hashmap_get(u->jacks, port_name);
                     jack_info->jack_curr_config = *((pa_qahw_jack_out_config *)event_data->pa_qahw_jack_info);
 
                     pa_qahw_card_add_dynamic_source(port, (pa_qahw_jack_out_config *)event_data->pa_qahw_jack_info, u);
+                } else if (port->direction == PA_DIRECTION_OUTPUT) {
+                    jack_info = pa_hashmap_get(u->jacks, port_name);
+                    jack_info->jack_curr_config = *((pa_qahw_jack_out_config *)event_data->pa_qahw_jack_info);
+
+                    pa_qahw_card_add_dynamic_sink(port, (pa_qahw_jack_out_config *)event_data->pa_qahw_jack_info, u);
                 }
-             } else {
+            } else {
                 pa_log_error("unsupported event %d", event);
             }
         } else {
