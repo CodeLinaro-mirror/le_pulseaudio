@@ -214,8 +214,6 @@ static int pa_qahw_source_process_msg(pa_msgobject *o, int code, void *data, int
 }
 
 static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, bool passthrough) {
-    pa_encoding_t encoding = PA_ENCODING_INVALID;
-    pa_format_info *f;
     pa_qahw_source_data *sdata = (pa_qahw_source_data *) s->userdata;
     pa_source_data *pa_sdata = NULL;
     qahw_source_data *qahw_sdata = NULL;
@@ -249,22 +247,11 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, boo
         old_rate = pa_sdata->source->sample_spec.rate; /*take backup*/
         pa_sdata->source->sample_spec.rate = spec->rate;
 
-        PA_IDXSET_FOREACH(f, pa_sdata->formats, i) {
-            /* currently a source supports single format */
-            encoding = f->encoding;
-            break;
-        }
-
-        if (encoding == PA_ENCODING_INVALID) {
-            pa_log_info("Format not populated ");
-            return -1;
-        }
-
         qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->source->active_port));
 
         pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, spec->rate);
 
-        rc = restart_qahw_source(qahw_sdata->module_handle, encoding, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, qahw_sdata->devices,
+        rc = restart_qahw_source(qahw_sdata->module_handle, PA_ENCODING_PCM, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, qahw_sdata->devices,
                                 qahw_sdata->flags, qahw_sdata->handle, qahw_sdata);
         if (PA_UNLIKELY(rc)) {
             pa_sdata->source->sample_spec.rate = old_rate; /*restore old rate if failed*/

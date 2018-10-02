@@ -357,8 +357,6 @@ static int pa_qahw_sink_process_msg(pa_msgobject *o, int code, void *data, int64
 
 static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool passthrough) {
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *) s->userdata;
-    pa_encoding_t encoding = PA_ENCODING_INVALID;
-    pa_format_info *f;
     pa_sink_data *pa_sdata = NULL;
     qahw_sink_data *qahw_sdata = NULL;
     pa_qahw_card_port_device_data *port_device_data;
@@ -395,22 +393,12 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool pa
         old_rate = pa_sdata->sink->sample_spec.rate; /* take backup */
         pa_sdata->sink->sample_spec.rate = spec->rate;
 
-        PA_IDXSET_FOREACH(f, pa_sdata->formats, i) {
-            /* take first format */ /*FIXME: encoding should be obtained from current format */
-            encoding = f->encoding;
-            break;
-        }
-
-        if (encoding == PA_ENCODING_INVALID) {
-            pa_log_info("Format not populated ");
-            return -1;
-        }
         port_device_data = PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port);
         qahw_sdata->devices = port_device_data->device;
 
         pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, spec->rate);
 
-        rc = restart_qahw_sink(qahw_sdata->module_handle, encoding, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map, qahw_sdata->devices,
+        rc = restart_qahw_sink(qahw_sdata->module_handle, PA_ENCODING_PCM, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map, qahw_sdata->devices,
                               qahw_sdata->flags, qahw_sdata->handle, sdata);
         if (PA_UNLIKELY(rc)) {
             pa_sdata->sink->sample_spec.rate = old_rate; /* restore old rate if failed */
