@@ -72,6 +72,12 @@ static const char* const valid_modargs[] = {
     NULL
 };
 
+struct jack_handle_list {
+    pa_qahw_jack_handle_t *handle;
+    pa_qahw_jack_type_t jack_type;
+    PA_LLIST_FIELDS(struct jack_handle_list);
+};
+
 struct userdata {
     pa_core *core;
     pa_card *card;
@@ -90,9 +96,8 @@ struct userdata {
     pa_hashmap *source_handles;
 
     pa_qahw_effect_handle_t effect_handle;
-    pa_qahw_effect_status *effect_status;
 
-    pa_qahw_jack_handle_t *jack_handle;
+    PA_LLIST_HEAD(struct jack_handle_list, jack_handle_list_head);
 
     pa_qahw_config_data *config_data;
     char *conf_dir_name;
@@ -103,36 +108,6 @@ struct userdata {
 
 static int pa_qahw_card_add_source(pa_module *module, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, char *module_name,
                                    pa_qahw_source_config *source, pa_qahw_source_handle_t **source_handle);
-
-pa_qahw_effect_data sink_effects_info[] = {
-    {AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_NON_BLOCKING, {true, true, true, true, false}},
-    {AUDIO_OUTPUT_FLAG_FAST, {false, false, false, false, false}},
-    {AUDIO_OUTPUT_FLAG_RAW, {false, false, false, false, false}},
-};
-
-pa_qahw_port_effect_data port_effects_info[] = {
-    {"speaker", {false, false, false, false, true}},
-    {"headset", {false, false, false, false, false}},
-    {"headphone", {false, false, false, false, false}},
-    {"lineout", {false, false, false, false, false}},
-    {"headset-mic", {false, false, false, false, false}},
-    {"builtin-mic", {false, false, false, false, false}},
-    {"hdmi-in", {false, false, false, false, false}},
-};
-
-static void pa_qahw_card_fill_sink_effect_status(pa_qahw_effect_status *effect_status, pa_qahw_sink_handle_t *handle) {
-    int i = 0;
-
-    pa_assert(effect_status);
-    pa_assert(handle);
-
-    effect_status->handle = handle;
-    effect_status->sink_id = pa_qahw_sink_get_index(handle);
-    for (i = 0; i < PA_QAHW_EFFECT_MAX; i++)
-        effect_status->effect_loaded[i] = false;
-
- return;
-}
 
 static int pa_qahw_card_convert_config_ports_to_card_ports(pa_hashmap *src_ports, pa_hashmap *dest_ports, pa_card *card) {
     pa_qahw_card_port_config *config_port;
@@ -371,26 +346,28 @@ exit:
    return;
 }
 
-static void pa_qahw_card_jack_callback(pa_qahw_jack_event_t event, pa_qahw_jack_event_data_t *event_data, void *prv_data) {
+static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)), pa_qahw_jack_event_data_t *event_data, void *prv_data) {
     const char *port_name = NULL;
     pa_available_t status = PA_AVAILABLE_UNKNOWN;
     pa_device_port *port;
     struct userdata *u;
+    pa_qahw_jack_event_t event;
 
+    pa_assert(event_data);
     pa_assert(prv_data);
 
     u  = (struct userdata *)prv_data;
 
+    event = event_data->event;
     if ((event != PA_QAHW_JACK_AVAILABLE) && (event != PA_QAHW_JACK_UNAVAILABLE) && (event != PA_QAHW_JACK_CONFIG_UPDATE)) {
         pa_log_error("%s: unsupport qahw jack event %d",__func__, event);
-        return;
+        return PA_HOOK_CANCEL;
     }
 
-    pa_assert(event_data);
 
     if (event_data->jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS) {
         pa_log_info("PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS not supported currently");
-        return;
+        return PA_HOOK_CANCEL;
     }
 
     if (event == PA_QAHW_JACK_AVAILABLE)
@@ -398,7 +375,7 @@ static void pa_qahw_card_jack_callback(pa_qahw_jack_event_t event, pa_qahw_jack_
     else if (event == PA_QAHW_JACK_UNAVAILABLE)
         status = PA_AVAILABLE_NO;
 
-    port_name = pa_qahw_util_jack_type_to_port_name(event_data->jack_type);
+    port_name = pa_qahw_util_get_port_name_from_jack_type(event_data->jack_type);
     if (port_name != NULL) {
         pa_log_info("port %s satus %d event %x", port_name, status, event);
         port = pa_hashmap_get(u->card->ports, port_name);
@@ -431,41 +408,50 @@ static void pa_qahw_card_jack_callback(pa_qahw_jack_event_t event, pa_qahw_jack_
         pa_log_error("unsupport jack type %d", event_data->jack_type);
     }
 
-    return;
+    return PA_HOOK_OK;
 }
 
-static void pa_qahw_card_disable_jack_detection(pa_qahw_jack_handle_t *jhandle) {
-    pa_assert(jhandle);
+static void pa_qahw_card_disable_jack_detection(struct jack_handle_list *list_head, pa_module *m) {
+    struct jack_handle_list *i, *n;
 
-    pa_qahw_jack_disable(jhandle);
+    pa_assert(list_head);
 
-    return;
+    PA_LLIST_FOREACH_SAFE(i, n, list_head) {
+        if (pa_qahw_jack_deregister_event_callback(i->handle, m))
+            pa_log_info("Jack event callback deregister successful for jack %d\n", i->jack_type);
+        else
+            pa_log_error("Jack event callback deregister failed for jack %d\n",  i->jack_type);
+
+        PA_LLIST_REMOVE(struct jack_handle_list, list_head, i);
+        pa_xfree(i);
+    }
 }
 
 static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
-    int rc;
     pa_qahw_jack_handle_t *jack_handle;
     pa_qahw_jack_type_t jack_types = PA_QAHW_JACK_TYPE_INVALID;
+    struct jack_handle_list *jack_handle_list_entry = NULL;
+    pa_device_port *port;
+    void *state;
 
-    if (pa_hashmap_get(u->card->ports, "headset") || pa_hashmap_get(u->card->ports, "headphone") || pa_hashmap_get(u->card->ports, "headset-mic"))
-        jack_types = PA_QAHW_JACK_TYPE_WIRED_HEADSET | PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS | PA_QAHW_JACK_TYPE_WIRED_HEADPHONE;
+   /* register for jack detection for dynamic port, PA_AVAILABLE_NO means its dynamic port */
+    PA_HASHMAP_FOREACH(port, u->card->ports, state) {
+        if (port->available == PA_AVAILABLE_NO)
+            jack_types = pa_qahw_util_get_jack_type_from_port_name(port->name);
+        else
+            continue;
 
-    if (pa_hashmap_get(u->card->ports, "lineout"))
-        jack_types |= PA_QAHW_JACK_TYPE_LINEOUT;
-
-    /*TODO: Add HDMI/SPDIF later */
-    if (pa_hashmap_get(u->card->ports, "hdmi-in"))
-        jack_types |= PA_QAHW_JACK_TYPE_HDMI;
-
-    if (jack_types == PA_QAHW_JACK_TYPE_INVALID)
-        pa_log_error("skipping jack enable as PA_QAHW_JACK_TYPE_INVALID");
-
-    rc = pa_qahw_jack_enable(u->module, jack_types, pa_qahw_card_jack_callback, &jack_handle, (void *)u);
-    if (rc) {
-        pa_log_error("enable qahw jack failed %d", rc);
-        u->jack_handle = NULL;
-    } else {
-        u->jack_handle = jack_handle;
+        jack_handle = pa_qahw_jack_register_event_callback(jack_types, pa_qahw_jack_callback, u->module, (void *)u);
+        if (!jack_handle) {
+            pa_log_error("%s: Enable qahw jack failed for port %s\n", __func__, port->name);
+        } else {
+            jack_handle_list_entry = pa_xnew0(struct jack_handle_list, 1);
+            jack_handle_list_entry->handle = jack_handle;
+            jack_handle_list_entry->jack_type = jack_types;
+            PA_LLIST_INIT(struct jack_handle_list, jack_handle_list_entry);
+            PA_LLIST_PREPEND(struct jack_handle_list, u->jack_handle_list_head, jack_handle_list_entry);
+            jack_handle_list_entry = NULL;
+        }
     }
 }
 
@@ -712,7 +698,6 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
 
         pa_hashmap_put(u->sink_handles, sink->name, handle);
 
-        pa_qahw_card_fill_sink_effect_status(&u->effect_status[sink->id-1], handle);
     }
 
     return rc;
@@ -730,12 +715,12 @@ static void pa_qahw_card_free_sinks(struct userdata *u, const char *profile_name
         sink_handle = pa_hashmap_get(u->sink_handles, sink->name);
 
         if (sink_handle) {
-            pa_qahw_free_sink_effects(u->effect_handle, pa_qahw_sink_get_index(sink_handle));
+            if (u->effect_handle != NULL)
+                pa_qahw_free_sink_effects(u->effect_handle, pa_qahw_sink_get_index(sink_handle));
             pa_qahw_sink_close(sink_handle);
             pa_hashmap_remove(u->sink_handles, sink->name);
         }
     }
-    pa_xfree(u->effect_status);
 }
 
 int pa__init(pa_module *m) {
@@ -786,15 +771,13 @@ int pa__init(pa_module *m) {
 
     pa_qahw_card_create(u);
 
-
     if (!u->config_data->default_profile) {
         pa_log_info("%s: default profile not present in card conf", __func__);
         u->config_data->default_profile = (char *)DEFAULT_PROFILE;
     }
 
+    pa_qahw_sink_module_init();
     if (pa_hashmap_size(u->config_data->sinks)) {
-        u->effect_status = (pa_qahw_effect_status *)pa_xnew0(pa_qahw_effect_status, (pa_hashmap_size(u->config_data->sinks)));
-
         u->sink_handles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
         if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
@@ -813,15 +796,14 @@ int pa__init(pa_module *m) {
             goto fail;
     }
 
-    pa_qahw_module_extn_init(u->core, u ->card, u->module_handle);
-    pa_qahw_loopback_init(u->module_handle, u->core, u->card);
+    pa_qahw_module_extn_init(u->core, u->card, u->module_handle);
+    pa_qahw_loopback_init(u->module_handle, u->core, u->card, u->config_data->loopbacks);
 
     pa_log_debug("module %s loaded handle %p", u->module_name, u->module_handle);
 
     dbus_path = pa_sprintf_malloc("%s/%s", QAHW_EFFECT_OBJECT_PATH, QAHW_MODULE_PRIMARY);
     dbus_protocol = pa_dbus_protocol_get(u->core);
-    u->effect_handle = pa_qahw_init_effect(dbus_path, dbus_protocol, sink_effects_info, port_effects_info,
-                                           u->effect_status, u->card, pa_hashmap_size(u->config_data->sinks), pa_hashmap_size(u->config_data->sources));
+    u->effect_handle = pa_qahw_init_effect(dbus_path, dbus_protocol, u->config_data->effects, u->card);
 
     return ret;
 
@@ -842,6 +824,12 @@ void pa__done(pa_module *m) {
         return;
 
     pa_qahw_module_extn_deinit();
+
+    if (u->effect_handle) {
+        pa_qahw_deinit_effect(u->effect_handle);
+        u->effect_handle = NULL;
+    }
+
     pa_qahw_loopback_deinit();
 
     if (u->sink_handles) {
@@ -851,8 +839,7 @@ void pa__done(pa_module *m) {
         pa_hashmap_free(u->sink_handles);
     }
 
-    if (u->effect_handle)
-        pa_qahw_deinit_effect(u->effect_handle);
+    pa_qahw_sink_module_deinit();
 
     if (u->source_handles) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
@@ -864,8 +851,8 @@ void pa__done(pa_module *m) {
     if (u->module_handle)
         qahw_unload_module(u->module_handle);
 
-    if (u->jack_handle)
-        pa_qahw_card_disable_jack_detection(u->jack_handle);
+    if (u->jack_handle_list_head)
+        pa_qahw_card_disable_jack_detection(u->jack_handle_list_head, u->module_handle);
 
     pa_qahw_card_free(u);
 

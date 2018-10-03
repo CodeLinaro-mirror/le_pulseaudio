@@ -36,6 +36,9 @@ typedef struct {
     char *type;
     int id;
     audio_input_flags_t flags;
+    pa_sample_spec default_spec;
+    pa_encoding_t default_encoding;
+    pa_channel_map default_map;
     uint32_t alternate_sample_rate;
     pa_idxset *formats;
     pa_hashmap *ports;

@@ -28,7 +28,9 @@
 #include "qahw-config-parser.h"
 #include "qahw-sink.h"
 #include "qahw-source.h"
+#include "qahw-effect.h"
 #include "qahw-utils.h"
+#include "qahw-loopback.h"
 
 #define QAHW_CARD_DEFAULT_CONF_NAME "default.conf"
 #define QAHW_CARD_DEFAULT_TARGET_NAME_LENGTH 7
@@ -39,11 +41,178 @@
 #define QAHW_CARD_SOURCE_PREFIX "Source "
 #define QAHW_CARD_EFFECT_PREFIX "Effect "
 #define QAHW_CARD_SND_SUFFIX "snd-card"
+#define QAHW_CARD_LOOPBACK_PREFIX "Loopback "
 
 static pa_qahw_sink_config* pa_qahw_config_get_sink(pa_hashmap *sinks, char *name);
 static pa_qahw_source_config *pa_qahw_config_get_source(pa_hashmap *sources, char *name);
 static pa_qahw_card_profile_config* pa_qahw_config_get_profile(pa_hashmap *profiles, char *name);
 static pa_qahw_card_port_config* pa_qahw_config_get_port(pa_hashmap *ports, char *name);
+
+static pa_qahw_loopback_config* pa_qahw_config_get_loopback(pa_hashmap *loopbacks, char *name) {
+    pa_qahw_loopback_config *loopback = NULL;
+
+    pa_assert(loopbacks);
+    pa_assert(name);
+
+    if (!pa_startswith(name, QAHW_CARD_LOOPBACK_PREFIX)) {
+        goto exit;
+    }
+    /* point to Port name */
+    name += strlen(QAHW_CARD_LOOPBACK_PREFIX);
+
+    loopback = pa_hashmap_get(loopbacks, name);
+    if (loopback) {
+        goto exit;
+    }
+
+    loopback = pa_xnew0(pa_qahw_loopback_config, 1);
+
+    loopback->in_ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+
+    loopback->out_ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+
+    loopback->name = pa_xstrdup(name);
+
+    pa_log_debug("%s::loopback name is %s", __func__, loopback->name);
+
+    pa_hashmap_put(loopbacks, loopback->name, loopback);
+
+exit:
+    return loopback;
+}
+
+static void pa_qahw_config_free_loopback(pa_qahw_loopback_config *loopback) {
+    pa_assert(loopback);
+
+    pa_log_info("%s: freeing loopback %s", __func__, loopback->name);
+
+    pa_xfree(loopback->name);
+
+    pa_xfree(loopback->description);
+
+    pa_hashmap_free(loopback->in_ports);
+
+    if (loopback->in_port_conf_string)
+        pa_xstrfreev(loopback->in_port_conf_string);
+
+    pa_hashmap_free(loopback->out_ports);
+
+    if (loopback->out_port_conf_string)
+        pa_xstrfreev(loopback->out_port_conf_string);
+
+    pa_xfree(loopback);
+} /* end loopback parsing related functions */
+
+static pa_qahw_effect_config* pa_qahw_config_get_effect(pa_hashmap *effects, char *name) {
+    pa_qahw_effect_config *effect = NULL;
+
+    pa_assert(effects);
+    pa_assert(name);
+
+    if (!pa_startswith(name, QAHW_CARD_EFFECT_PREFIX)) {
+        goto exit;
+    }
+    /* point to Port name */
+    name += strlen(QAHW_CARD_EFFECT_PREFIX);
+
+    effect = pa_hashmap_get(effects, name);
+    if (effect) {
+        goto exit;
+    }
+
+    effect = pa_xnew0(pa_qahw_effect_config, 1);
+
+    effect->name = pa_xstrdup(name);
+
+    effect->sinks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+    effect->ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+
+    pa_log_debug("%s::effect name is %s", __func__, effect->name);
+
+    pa_hashmap_put(effects, effect->name, effect);
+
+exit:
+    return effect;
+}
+
+static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_card_port_config *port = NULL;
+    pa_qahw_effect_config *effect = NULL;
+
+    int ret = -1;
+    int i = 0;
+    char **items;
+    char *endpoint_name;
+
+    pa_log_error("%s", __func__);
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if (!(effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    effect->endpoint_conf_string =  pa_split_spaces_strv(state->rvalue);
+    items = effect->endpoint_conf_string;
+
+    if (!(items = pa_split_spaces_strv(state->rvalue))) {
+        pa_log_error("%s: [%s:%u] port name missing", __func__, state->filename, state->lineno);
+        goto exit;
+    }
+
+    while ((endpoint_name = items[i++])) {
+        if (pa_streq(effect->type, "sink")) {
+            if ((sink = pa_hashmap_get(config_data->sinks, endpoint_name))) {
+                pa_hashmap_put(effect->sinks, endpoint_name, sink);
+                pa_log_error("%s: adding sink %s to effect %s ", __func__, sink->name, effect->name);
+            } else {
+                pa_log_error("%s: invalid sink %s", __func__, endpoint_name);
+                goto exit;
+            }
+        }
+
+        if (pa_streq(effect->type, "port")) {
+            if ((port = pa_hashmap_get(config_data->ports, endpoint_name))) {
+                pa_hashmap_put(effect->ports, endpoint_name, port);
+                pa_log_error("%s: adding port %s to effect %s ", __func__, port->name, effect->name);
+            } else {
+                pa_log_error("%s: invalid port %s", __func__, endpoint_name);
+                goto exit;
+            }
+        }
+
+
+    }
+    ret = 0;
+exit:
+    return ret;
+}
+
+
+static void pa_qahw_config_free_effect(pa_qahw_effect_config *effect) {
+    pa_assert(effect);
+
+    pa_log_info("%s: freeing effect %s", __func__, effect->name);
+
+    pa_xfree(effect->name);
+
+    pa_xfree(effect->description);
+
+    pa_xfree(effect->type);
+
+    pa_hashmap_free(effect->sinks);
+
+    pa_hashmap_free(effect->ports);
+
+    if (effect->endpoint_conf_string)
+        pa_xstrfreev(effect->endpoint_conf_string);
+
+    pa_xfree(effect);
+} /* end effect parsing related functions */
 
 static pa_qahw_source_config* pa_qahw_config_get_source(pa_hashmap *sources, char *name) {
     pa_qahw_source_config *source = NULL;
@@ -124,6 +293,7 @@ static int pa_qahw_config_parse_type(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink;
     pa_qahw_source_config *source;
+    pa_qahw_effect_config *effect;
 
     int ret = -1;
 
@@ -145,7 +315,14 @@ static int pa_qahw_config_parse_type(pa_config_parser_state *state) {
         }
         source->type = pa_xstrdup(state->rvalue);
         pa_log_debug("%s: type %s for source %s", __func__, source->type, source->name);
-    } else {
+    } else if ((effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
+        if (!pa_qahw_effect_is_supported_type(state->rvalue)) {
+            pa_log_error("%s: invalid effect type %s", __func__, state->lvalue);
+            goto exit;
+        }
+        effect->type = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: type %s for effect %s", __func__, effect->type, effect->name);
+     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
     }
@@ -161,6 +338,7 @@ static int pa_qahw_config_parse_encodings(pa_config_parser_state *state) {
     pa_encoding_t encoding;
     pa_qahw_sink_config *sink = NULL;
     pa_qahw_source_config *source = NULL;
+    pa_qahw_card_port_config *port = NULL;
 
     pa_format_info *format;
     pa_idxset *formats = NULL;
@@ -181,7 +359,10 @@ static int pa_qahw_config_parse_encodings(pa_config_parser_state *state) {
     } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
         name = source->name;
         formats = source->formats;
-    } else {
+    } else if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        name = port->name;
+        formats = port->formats;
+     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
     }
@@ -270,10 +451,149 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_default_encoding(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+    pa_encoding_t encoding;
+
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if (!(encoding = pa_encoding_from_string(state->rvalue))) {
+        pa_log_error("%s: [%s:%u] invalid encoding %s", __func__, state->filename, state->lineno, state->rvalue);
+        goto exit;
+    }
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        if (!pa_qahw_sink_is_supported_encoding(encoding)) {
+            pa_log_error("%s: unsupported sink encoding %s sink %s", __func__, state->rvalue, sink->name);
+            goto exit;
+        }
+        sink->default_encoding = encoding;
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        if (!pa_qahw_source_is_supported_encoding(encoding)) {
+            pa_log_error("%s: unsupported source encoding %s source %s", __func__, state->rvalue, source->name);
+            goto exit;
+        }
+        source->default_encoding = encoding;
+    } else {
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_default_sample_rate(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+
+    int ret = -1;
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        pa_atou(state->rvalue, &sink->default_spec.rate);
+        if (!pa_qahw_sink_is_supported_sample_rate(sink->default_spec.rate)) {
+            pa_log_error("%s: unsupported  sample rate %d by sink %s", __func__, sink->default_spec.rate, sink->name);
+            goto exit;
+        }
+        pa_log_debug("%s: default sample rate %d for sink %s", __func__, sink->default_spec.rate, sink->name);
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        pa_atou(state->rvalue, &source->default_spec.rate);
+        if (!pa_qahw_source_is_supported_sample_rate(source->default_spec.rate)) {
+            pa_log_error("%s: unsupported  sample rate %d by source %s", __func__, source->default_spec.rate, source->name);
+            goto exit;
+        }
+        pa_log_debug("%s: default sample rate %d for souce %s", __func__, source->default_spec.rate, source->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+   ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_default_sample_format(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+
+    int ret = -1;
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        sink->default_spec.format = pa_parse_sample_format(state->rvalue);
+        pa_log_debug("%s: default sample format %s to usecase %s", __func__, state->rvalue, sink->name);
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        source->default_spec.format = pa_parse_sample_format(state->rvalue);
+        pa_log_debug("%s: default sample format %s to usecase %s", __func__, state->rvalue, source->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+   ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_default_channel_map(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+
+    pa_channel_map map;
+    char cm[PA_CHANNEL_MAP_SNPRINT_MAX];
+
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if (!pa_channel_map_parse(&map, state->rvalue)) {
+        pa_log_error("%s: [%s:%u] invalid channel map", __func__, state->filename, state->lineno);
+        goto exit;
+    }
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        sink->default_map = map;
+        sink->default_spec.channels = map.channels;
+        pa_log_debug("%s adding default channel map %s to sink %s", __func__, pa_channel_map_snprint(cm, sizeof(cm), &map), sink->name);
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        source->default_map = map;
+        source->default_spec.channels = map.channels;
+        pa_log_debug("%s adding default channel map %s to source %s", __func__, pa_channel_map_snprint(cm, sizeof(cm), &map), source->name);
+    } else {
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
 static int pa_qahw_config_parse_sample_rates(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink = NULL;
     pa_qahw_source_config *source = NULL;
+    pa_qahw_card_port_config *port = NULL;
 
     pa_format_info *format;
     pa_idxset *formats = NULL;
@@ -296,6 +616,9 @@ static int pa_qahw_config_parse_sample_rates(pa_config_parser_state *state) {
     } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
         formats = source->formats;
         name = source->name;
+    } else if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        formats = port->formats;
+        name = port->name;
     } else {
         goto exit;
     }
@@ -336,7 +659,7 @@ static int pa_qahw_config_parse_sample_rates(pa_config_parser_state *state) {
             goto exit;
         }
 
-        pa_log_debug("%s: adding sample rate %d to usecase %s", __func__, sample_rates[i], name);
+        pa_log_debug("%s: adding sample rate %d to %s", __func__, sample_rates[i], name);
         i++;
     }
 
@@ -351,7 +674,7 @@ exit:
 
     if (items)
         pa_xstrfreev(items);
-    
+
     return ret;
 }
 
@@ -359,6 +682,7 @@ static int pa_qahw_config_parse_sample_formats(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink = NULL;
     pa_qahw_source_config *source = NULL;
+    pa_qahw_card_port_config *port = NULL;
 
     pa_format_info *format;
     pa_idxset *formats = NULL;
@@ -381,7 +705,10 @@ static int pa_qahw_config_parse_sample_formats(pa_config_parser_state *state) {
     } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
         formats = source->formats;
         name = source->name;
-    } else {
+    } else if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        formats = port->formats;
+        name = port->name;
+     } else {
         goto exit;
     }
 
@@ -415,7 +742,7 @@ static int pa_qahw_config_parse_sample_formats(pa_config_parser_state *state) {
     }
 
     PA_IDXSET_FOREACH(format, formats, j)
-        pa_format_info_set_prop_int_array(format, PA_PROP_FORMAT_SAMPLE_FORMAT, sample_formats, i);
+        pa_format_info_set_prop_string_array(format, PA_PROP_FORMAT_SAMPLE_FORMAT, (const char **)items, i);
 
     ret = 0;
 
@@ -429,10 +756,11 @@ exit:
     return ret;
 }
 
-static int pa_qahw_config_parse_default_channel_map(pa_config_parser_state *state) {
+static int pa_qahw_config_parse_channel_maps(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink = NULL;
     pa_qahw_source_config *source = NULL;
+    pa_qahw_card_port_config *port = NULL;
 
     pa_format_info *format;
     pa_idxset *formats = NULL;
@@ -449,6 +777,8 @@ static int pa_qahw_config_parse_default_channel_map(pa_config_parser_state *stat
         formats = sink->formats;
     } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
         formats = source->formats;
+    } else if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        formats = port->formats;
     } else {
         goto exit;
     }
@@ -628,6 +958,8 @@ static int pa_qahw_config_parse_description(pa_config_parser_state *state) {
     pa_qahw_card_port_config *port;
     pa_qahw_sink_config *sink;
     pa_qahw_source_config *source;
+    pa_qahw_loopback_config *loopback;
+    pa_qahw_effect_config *effect;
 
     int ret = 0;
 
@@ -643,6 +975,10 @@ static int pa_qahw_config_parse_description(pa_config_parser_state *state) {
         sink->description = pa_xstrdup(state->rvalue);
     } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
         source->description = pa_xstrdup(state->rvalue);
+    } else if ((loopback = pa_qahw_config_get_loopback(config_data->loopbacks, state->section))) {
+        loopback->description = pa_xstrdup(state->rvalue);
+    } else if ((effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
+        effect->description = pa_xstrdup(state->rvalue);
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         ret = -1;
@@ -759,11 +1095,14 @@ static int pa_qahw_config_parse_profile_max_source_channels(pa_config_parser_sta
 
 static int pa_qahw_config_parse_port_names(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
-    pa_qahw_card_profile_config *profile;
+
     pa_qahw_card_profile_config *profile1;
+    pa_qahw_card_profile_config *profile;
+    pa_qahw_card_port_config *port;
     pa_qahw_sink_config *sink = NULL;
     pa_qahw_source_config *source = NULL;
-    pa_qahw_card_port_config *port;
+    pa_qahw_loopback_config *loopback = NULL;
+
     pa_hashmap *ports = NULL;
     pa_hashmap *profiles = NULL;
 
@@ -796,7 +1135,10 @@ static int pa_qahw_config_parse_port_names(pa_config_parser_state *state) {
         items = source->port_conf_string;
         profiles = source->profiles;
         name = source->name;
-     } else {
+    } else if ((loopback = pa_qahw_config_get_loopback(config_data->loopbacks, state->section))) {
+        name = loopback->name;
+        items = pa_split_spaces_strv(state->rvalue);
+    } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         ret = -1;
         goto exit;
@@ -814,17 +1156,32 @@ static int pa_qahw_config_parse_port_names(pa_config_parser_state *state) {
         port = pa_hashmap_get(config_data->ports, port_name);
         if (!port) {
             pa_log_error("%s: invalid port %s", __func__, port_name);
+            pa_xstrfreev(items);
             ret = -1;
             goto exit;
+        }
+
+        /* handle loopback separately as it has both in and out ports */
+        if (loopback) {
+            if (port->direction == PA_DIRECTION_INPUT) {
+                ports = loopback->in_ports;
+                if (!loopback->in_port_conf_string)
+                    loopback->in_port_conf_string = items;
+            } else {
+                ports = loopback->out_ports;
+                if (!loopback->out_port_conf_string)
+                    loopback->out_port_conf_string = items;
+            }
         }
 
         pa_log_debug("%s: adding port %s to %s", __func__, port->name, name);
         pa_hashmap_put(ports, port_name, port);
 
+        /* port list is only for profile */
         if (!source && !sink)
             continue;
 
-        /* add a profile to sink if this port belong to this sink */
+        /* add a profile to sink/source if this port belong to this sink/source */
         PA_HASHMAP_FOREACH(profile1, config_data->profiles, hashmap_state) {
             if (pa_hashmap_get(profile1->ports, port->name)) {
                 if (!pa_hashmap_get(profiles, profile1->name)) {
@@ -882,6 +1239,7 @@ static pa_qahw_card_port_config* pa_qahw_config_get_port(pa_hashmap *ports, char
 
     port = pa_xnew0(pa_qahw_card_port_config, 1);
     port->name = pa_xstrdup(name);
+    port->formats = pa_idxset_new(NULL, NULL);
 
     pa_log_debug("%s::port name is %s", __func__, port->name);
 
@@ -946,6 +1304,34 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_port_format_detection(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_card_port_config *port;
+    int ret = 0;
+    int k;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    port = pa_qahw_config_get_port(config_data->ports, state->section);
+    if (!port) {
+        ret = -1;
+        goto exit;
+    }
+
+    if ((k = pa_parse_boolean(state->rvalue)) < 0) {
+        pa_log_error("%s: invalid port format detectin type %s(it should be yes or no)", __func__, state->rvalue);
+        ret = -1;
+        goto exit;
+    }
+
+    port->format_detection = k;
+
+exit:
+    return ret;
+}
+
 static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
     pa_assert(port);
 
@@ -954,6 +1340,8 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
     pa_xfree(port->name);
 
     pa_xfree(port->description);
+
+    pa_idxset_free(port->formats, (pa_free_cb_t) pa_format_info_free);
 
     pa_xfree(port);
 }
@@ -1046,23 +1434,22 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         /* [Port... ] */
         { "direction",            pa_qahw_config_parse_port_direction,                      NULL, NULL },
         { "device",               pa_qahw_config_parse_port_device,                         NULL, NULL },
+        { "format-detection",     pa_qahw_config_parse_port_format_detection,               NULL, NULL },
 
         /* [Profile... ] */
         { "max-sink-channels",    pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },
         { "max-source-channels",  pa_qahw_config_parse_profile_max_source_channels ,        NULL, NULL },
 
+        /* [Effect... ] */
+        { "endpoint-names",       pa_qahw_config_parse_effect_endpoint_names,               NULL, NULL },
+
         { "use-hw-volume",        pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
 
-        /* common between sink and source */
+        /* common between sink and source and effect*/
         { "type",                 pa_qahw_config_parse_type,                                NULL, NULL },
 
         /* common between sink and source*/
-        { "encoding",             pa_qahw_config_parse_encodings,                           NULL, NULL },
         { "flags",                pa_qahw_config_parse_flags,                               NULL, NULL },
-        { "sample-rates",         pa_qahw_config_parse_sample_rates,                        NULL, NULL },
-        { "sample-rates",         pa_qahw_config_parse_sample_rates,                        NULL, NULL },
-        { "sample-formats",       pa_qahw_config_parse_sample_formats,                      NULL, NULL },
-        { "default-channel-map",  pa_qahw_config_parse_default_channel_map,                 NULL, NULL },
         { "alternate-sample-rate", pa_qahw_config_parse_alternative_sample_rate,            NULL, NULL },
 
         /* common between profile, sink and source */
@@ -1072,11 +1459,24 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         /* common between port and profile section */
         { "priority",             pa_qahw_config_parse_priority,                            NULL, NULL },
 
-        /* common between port and profile and sink */
+        /* common between port and profile, sink source port and effect section */
         { "description",          pa_qahw_config_parse_description,                         NULL, NULL },
 
         /* common between port, sink and source */
         { "presence",             pa_qahw_config_parse_presence,                            NULL, NULL },
+        { "default-encoding",     pa_qahw_config_parse_default_encoding,                    NULL, NULL },
+        { "default-sample-rate",  pa_qahw_config_parse_default_sample_rate,                 NULL, NULL },
+        { "default-sample-format", pa_qahw_config_parse_default_sample_format,              NULL, NULL },
+        { "default-channel-map",  pa_qahw_config_parse_default_channel_map,                 NULL, NULL },
+        { "encodings",            pa_qahw_config_parse_encodings,                           NULL, NULL },
+        { "sample-rates",         pa_qahw_config_parse_sample_rates,                        NULL, NULL },
+        { "sample-formats",       pa_qahw_config_parse_sample_formats,                      NULL, NULL },
+        { "channel-maps",         pa_qahw_config_parse_channel_maps,                        NULL, NULL },
+
+         /* [Loopback...] */
+        { "in-port-names",        pa_qahw_config_parse_port_names,                          NULL, NULL },
+
+        { "out-port-names",       pa_qahw_config_parse_port_names,                          NULL, NULL },
 
         {  NULL, NULL, NULL, NULL }
     };
@@ -1095,6 +1495,10 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
     config_data->sinks = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_sink);
 
     config_data->sources = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_source);
+
+    config_data->loopbacks = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_loopback);
+
+    config_data->effects = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_effect);
 
     conf_full_path = pa_qahw_config_parser_get_conf_file_name(dir, conf_file_name);
     if (!conf_full_path) {
@@ -1127,7 +1531,17 @@ void pa_qahw_config_parse_free(pa_qahw_config_data *config_data) {
 
     pa_assert(config_data);
 
-   if (config_data->sinks) {
+    if (config_data->effects) {
+        pa_xfree(config_data->effects);
+        config_data->effects = NULL;
+    }
+
+    if (config_data->loopbacks) {
+        pa_hashmap_free(config_data->loopbacks);
+        config_data->loopbacks = NULL;
+    }
+
+    if (config_data->sinks) {
         pa_hashmap_free(config_data->sinks);
         config_data->sinks = NULL;
     }
