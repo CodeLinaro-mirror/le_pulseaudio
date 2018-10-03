@@ -842,8 +842,6 @@ int pa__init(pa_module *m) {
 
     }
 
-    pa_qahw_card_enable_jack_detection(u);
-
     pa_log_info("%s: using default profile %s", __func__, u->config_data->default_profile);
     pa_log_info("%s: use_dolby_hw_loopback %d", __func__, u->config_data->use_dolby_hw_loopback);
 
@@ -852,6 +850,8 @@ int pa__init(pa_module *m) {
         if (PA_UNLIKELY(pa_qahw_card_create_sources(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
             goto fail;
     }
+
+    pa_qahw_card_enable_jack_detection(u);
 
     pa_qahw_module_extn_init(u->core, u->card, u->module_handle);
     pa_qahw_loopback_init(u->module_handle, u->core, u->card, u->config_data->loopbacks, pa_qahw_loopback_callback, (void *)u);
