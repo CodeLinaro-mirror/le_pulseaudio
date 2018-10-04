@@ -228,7 +228,7 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
         if (!format) {
             format = pa_idxset_first(config_port->formats, NULL);
 
-            if (pa_qahw_utils_convert_format_to_sample_spec(format, &ss, &map, &default_ss, &default_map, 0, 0)) {
+            if (pa_qahw_utils_format_to_sample_spec(format, &ss, &map, &default_ss, &default_map)) {
                 pa_log_error("%s: No default port config for port %s", __func__, port_name);
                 return -1;
             }

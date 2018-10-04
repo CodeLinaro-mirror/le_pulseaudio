@@ -317,14 +317,16 @@ pa_sample_format_t pa_qahw_util_get_pa_sample_from_qahw_format(audio_format_t fo
     return pa_sample_format;
 }
 
-int pa_qahw_utils_convert_format_to_sample_spec(pa_format_info *format, pa_sample_spec *ss, pa_channel_map *map, pa_sample_spec *default_ss, pa_channel_map *default_map,
-                                                int rate_idx, int sample_format_idx) {
+int pa_qahw_utils_format_to_sample_spec(pa_format_info *format, pa_sample_spec *ss, pa_channel_map *map,
+                                                        pa_sample_spec *default_ss, pa_channel_map *default_map) {
     int32_t *sample_rates = NULL;
     int32_t num_sample_rates;
-    int32_t *sample_formats = NULL;
+    char **sample_formats = NULL;
     int32_t num_sample_formats;
     int32_t rc = -1;
     pa_format_info *new_format;
+    int rate_idx = 0;
+    int sample_format_idx = 0;
 
     pa_assert(format);
     pa_assert(ss);
@@ -334,28 +336,32 @@ int pa_qahw_utils_convert_format_to_sample_spec(pa_format_info *format, pa_sampl
 
     new_format = pa_format_info_copy(format);
 
-    /* if sample rate is an array then overwite default sample rate with first first sample rate in array */
+    /* if sample rate is an array then overwite default sample rate with first sample rate in array */
     if (pa_format_info_get_prop_type(format, PA_PROP_FORMAT_RATE) == PA_PROP_TYPE_INT_ARRAY) {
         pa_log_info("%s: sample rate is in an array", __func__);
         pa_format_info_get_prop_int_array(format, PA_PROP_FORMAT_RATE, &sample_rates, &num_sample_rates);
+
         if (rate_idx >= num_sample_rates) {
             pa_log_error("%s: invalid sample rate index %d", __func__, rate_idx);
             goto exit;
         }
+
         pa_format_info_set_rate(new_format, sample_rates[rate_idx]);
         pa_xfree(sample_rates);
     }
 
-    /* if sample rate is an array then overwite default sample rate with first first sample rate in array */
-    if (pa_format_info_get_prop_type(format, PA_PROP_FORMAT_SAMPLE_FORMAT) == PA_PROP_TYPE_INT_ARRAY) {
+    /* if sample format is an array then overwite default sample format with first sample format in array */
+    if (pa_format_info_get_prop_type(format, PA_PROP_FORMAT_SAMPLE_FORMAT) == PA_PROP_TYPE_STRING_ARRAY) {
         pa_log_info("%s: sample format is in an array", __func__);
-        pa_format_info_get_prop_int_array(format, PA_PROP_FORMAT_SAMPLE_FORMAT, &sample_formats, &num_sample_formats);
+        pa_format_info_get_prop_string_array(format, PA_PROP_FORMAT_SAMPLE_FORMAT, &sample_formats, &num_sample_formats);
+
         if (sample_format_idx >= num_sample_formats) {
-            pa_log_error("%s: invalid sample format index %d", __func__, rate_idx);
+            pa_log_error("%s: invalid sample format index %d", __func__, sample_format_idx);
             goto exit;
         }
-        pa_format_info_set_sample_format(new_format, sample_formats[sample_format_idx]);
-        pa_xfree(sample_formats);
+
+        pa_format_info_set_sample_format(new_format, pa_parse_sample_format(sample_formats[sample_format_idx]));
+        pa_format_info_free_string_array(sample_formats, num_sample_formats);
     }
 
     rc = pa_format_info_to_sample_spec2(new_format, ss, map, default_ss, default_map);
