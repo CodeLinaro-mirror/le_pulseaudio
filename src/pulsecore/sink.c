@@ -1239,6 +1239,9 @@ void pa_sink_render(pa_sink*s, size_t length, pa_memchunk *result) {
         if (result->length > length)
             result->length = length;
 
+        result->timestamp = PA_NSEC_INVALID;
+        result->duration = PA_NSEC_INVALID;
+
     } else if (n == 1) {
         pa_cvolume volume;
 
@@ -1247,6 +1250,12 @@ void pa_sink_render(pa_sink*s, size_t length, pa_memchunk *result) {
 
         if (result->length > length)
             result->length = length;
+
+        /* Partial read => timestamp/duration is no longer valid */
+        if (result->index != 0)
+            result->timestamp = PA_NSEC_INVALID;
+        if (result->length != info[0].chunk.length)
+            result->duration = PA_NSEC_INVALID;
 
         pa_sw_cvolume_multiply(&volume, &s->thread_info.soft_volume, &info[0].volume);
 
@@ -1274,6 +1283,9 @@ void pa_sink_render(pa_sink*s, size_t length, pa_memchunk *result) {
         pa_memblock_release(result->memblock);
 
         result->index = 0;
+        /* FIXME: can we salvage a single timestamp? */
+        result->timestamp = PA_NSEC_INVALID;
+        result->duration = PA_NSEC_INVALID;
     }
 
     inputs_drop(s, info, n, result);
@@ -1319,6 +1331,10 @@ void pa_sink_render_into(pa_sink*s, pa_memchunk *target) {
             target->length = length;
 
         pa_silence_memchunk(target, &s->sample_spec);
+
+        target->timestamp = PA_NSEC_INVALID;
+        target->duration = PA_NSEC_INVALID;
+
     } else if (n == 1) {
         pa_cvolume volume;
 
@@ -1359,6 +1375,9 @@ void pa_sink_render_into(pa_sink*s, pa_memchunk *target) {
                                 s->thread_info.soft_muted);
 
         pa_memblock_release(target->memblock);
+        /* FIXME: can we salvage a single timestamp? */
+        target->timestamp = PA_NSEC_INVALID;
+        target->duration = PA_NSEC_INVALID;
     }
 
     inputs_drop(s, info, n, target);
@@ -1381,6 +1400,10 @@ void pa_sink_render_into_full(pa_sink *s, pa_memchunk *target) {
 
     pa_assert(!s->thread_info.rewind_requested);
     pa_assert(s->thread_info.rewind_nbytes == 0);
+
+    /* All bets on getting a meaningful timestamp/duration are off */
+    target->timestamp = PA_NSEC_INVALID;
+    target->duration = PA_NSEC_INVALID;
 
     if (s->thread_info.state == PA_SINK_SUSPENDED) {
         pa_silence_memchunk(target, &s->sample_spec);
@@ -1434,6 +1457,10 @@ void pa_sink_render_full(pa_sink *s, size_t length, pa_memchunk *result) {
 
         result->length = length;
     }
+
+    /* All bets on getting a meaningful timestamp/duration are off */
+    result->timestamp = PA_NSEC_INVALID;
+    result->duration = PA_NSEC_INVALID;
 
     pa_sink_unref(s);
 }

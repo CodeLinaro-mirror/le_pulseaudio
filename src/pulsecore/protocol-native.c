@@ -2684,6 +2684,11 @@ static void command_auth(pa_pdispatch *pd, uint32_t command, uint32_t tag, pa_ta
         pa_log_debug("Negotiated SHM type: %s", pa_mem_type_to_string(shm_type));
     }
 
+    if (c->version >= 33) {
+        /* Enable support for receiving buffer timestamp and duration */
+        pa_pstream_enable_stream_times(c->pstream);
+    }
+
     reply = reply_new(tag);
     pa_tagstruct_putu32(reply, PA_PROTOCOL_VERSION | (do_shm ? 0x80000000 : 0) |
                         (do_memfd ? 0x40000000 : 0));

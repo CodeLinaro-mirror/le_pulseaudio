@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <pulse/timeval.h>
 #include <pulse/xmalloc.h>
 #include <pulsecore/macro.h>
 
@@ -72,6 +73,11 @@ void pa_mcalign_push(pa_mcalign *m, const pa_memchunk *c) {
     /* Append to the leftover memory block */
     if (m->leftover.memblock) {
 
+        /* We're going to completely or partially merge into leftover, which
+         * means the timestamp/duration will no longer be valid */
+        m->leftover.timestamp = PA_NSEC_INVALID;
+        m->leftover.duration = PA_NSEC_INVALID;
+
         /* Try to merge */
         if (m->leftover.memblock == c->memblock &&
             m->leftover.index + m->leftover.length == c->index) {
@@ -114,6 +120,9 @@ void pa_mcalign_push(pa_mcalign *m, const pa_memchunk *c) {
                 m->current = *c;
                 m->current.index += l;
                 m->current.length -= l;
+                /* Since the chunk was partiall consumed, invalidate timestamp/duration */
+                m->current.timestamp = PA_NSEC_INVALID;
+                m->current.duration = PA_NSEC_INVALID;
                 pa_memblock_ref(m->current.memblock);
             }
         }
@@ -165,6 +174,12 @@ int pa_mcalign_pop(pa_mcalign *m, pa_memchunk *c) {
         l /= m->base;
         l *= m->base;
         pa_assert(l > 0);
+
+        /* We have to split the memchunk, reset timestamp/duration */
+        if (m->current.length != l) {
+            m->leftover.timestamp = PA_NSEC_INVALID;
+            m->leftover.duration = PA_NSEC_INVALID;
+        }
 
         /* Prepare the returned block */
         *c = m->current;

@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <pulse/timeval.h>
 #include <pulse/xmalloc.h>
 
 #include <pulsecore/log.h>
@@ -514,6 +515,9 @@ int pa_memblockq_peek(pa_memblockq* bq, pa_memchunk *chunk) {
         }
 
         chunk->index = 0;
+        chunk->timestamp = PA_NSEC_INVALID;
+        chunk->duration = PA_NSEC_INVALID;
+
         return 0;
     }
 
@@ -525,6 +529,12 @@ int pa_memblockq_peek(pa_memblockq* bq, pa_memchunk *chunk) {
     d = bq->read_index - bq->current_read->index;
     chunk->index += (size_t) d;
     chunk->length -= (size_t) d;
+
+    /* Partial reads => timestamp/duration are invalidated */
+    if (d != 0) {
+        chunk->timestamp = PA_NSEC_INVALID;
+        chunk->duration = PA_NSEC_INVALID;
+    }
 
     return 0;
 }
@@ -597,6 +607,8 @@ int pa_memblockq_peek_fixed_size(pa_memblockq *bq, size_t block_size, pa_memchun
 
     rchunk.index = 0;
     rchunk.length = block_size;
+    rchunk.timestamp = PA_NSEC_INVALID;
+    rchunk.duration = PA_NSEC_INVALID;
 
     *chunk = rchunk;
     return 0;

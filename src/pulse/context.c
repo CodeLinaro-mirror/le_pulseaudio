@@ -560,6 +560,11 @@ static void setup_complete_callback(pa_pdispatch *pd, uint32_t command, uint32_t
             pa_log_debug("Memfd possible: %s", pa_yes_no(c->memfd_on_local));
             pa_log_debug("Negotiated SHM type: %s", pa_mem_type_to_string(c->shm_type));
 
+            if (c->version >= 33) {
+                /* Enable support for sending buffer timestamp and duration */
+                pa_pstream_enable_stream_times(c->pstream);
+            }
+
             reply = pa_tagstruct_command(c, PA_COMMAND_SET_CLIENT_NAME, &tag);
 
             if (c->version >= 13) {
