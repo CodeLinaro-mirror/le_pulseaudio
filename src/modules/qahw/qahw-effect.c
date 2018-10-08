@@ -312,7 +312,9 @@ void pa_qahw_free_sink_effects(pa_qahw_effect_handle_t effect_handle,
 
     if (effect_mdata->effects != NULL) {
         PA_HASHMAP_FOREACH(effect, effect_mdata->effects, state) {
-            sink = pa_hashmap_get(effect->sinks, sink_name);
+            if (effect->sinks != NULL)
+                sink = pa_hashmap_get(effect->sinks, sink_name);
+
             if (sink != NULL) {
                 if ((sink->lib_handle != NULL) && (sink->effect_handle != NULL)) {
                     qahw_effect_release(sink->lib_handle, sink->effect_handle);
@@ -622,18 +624,27 @@ static void pa_qahw_port_effect_release(DBusConnection *conn,
             return;
         }
 
-        pa_assert_se(pa_dbus_protocol_remove_interface(port->dbus_protocol,
-                     port->dbus_obj_path, session_interface_info.name) >= 0);
-        pa_dbus_send_empty_reply(conn, msg);
         port->effect_handle = NULL;
         port->lib_handle = NULL;
-        pa_xfree(ses_data->endpoint_name);
-        ses_data->endpoint_name = NULL;
+
+        if (ses_data->endpoint_name != NULL) {
+            pa_xfree(ses_data->endpoint_name);
+            ses_data->endpoint_name = NULL;
+        }
+
         pa_xfree(ses_data);
         ses_data = NULL;
-        pa_hashmap_remove(port->sessions, port->dbus_obj_path);
-        pa_xfree(port->dbus_obj_path);
-        port->dbus_obj_path = NULL;
+
+        if (port->sessions != NULL)
+            pa_hashmap_remove(port->sessions, port->dbus_obj_path);
+
+        if (port->dbus_obj_path != NULL) {
+            pa_assert_se(pa_dbus_protocol_remove_interface(port->dbus_protocol,
+                         port->dbus_obj_path, session_interface_info.name) >= 0);
+            pa_dbus_send_empty_reply(conn, msg);
+            pa_xfree(port->dbus_obj_path);
+            port->dbus_obj_path = NULL;
+        }
     }
 
     pa_dbus_send_empty_reply(conn, msg);
@@ -680,18 +691,26 @@ static void pa_qahw_sink_effect_release(DBusConnection *conn,
             return;
         }
 
-        pa_assert_se(pa_dbus_protocol_remove_interface(sink->dbus_protocol,
-                     sink->dbus_obj_path, session_interface_info.name) >= 0);
-        pa_dbus_send_empty_reply(conn, msg);
         sink->effect_handle = NULL;
         sink->lib_handle = NULL;
-        pa_xfree(ses_data->endpoint_name);
-        ses_data->endpoint_name = NULL;
+
+        if (ses_data->endpoint_name != NULL) {
+            pa_xfree(ses_data->endpoint_name);
+            ses_data->endpoint_name = NULL;
+        }
         pa_xfree(ses_data);
         ses_data = NULL;
-        pa_hashmap_remove(sink->sessions, sink->dbus_obj_path);
-        pa_xfree(sink->dbus_obj_path);
-        sink->dbus_obj_path = NULL;
+
+        if (sink->sessions != NULL)
+            pa_hashmap_remove(sink->sessions, sink->dbus_obj_path);
+
+        if (sink->dbus_obj_path != NULL) {
+            pa_assert_se(pa_dbus_protocol_remove_interface(sink->dbus_protocol,
+                         sink->dbus_obj_path, session_interface_info.name) >= 0);
+            pa_dbus_send_empty_reply(conn, msg);
+            pa_xfree(sink->dbus_obj_path);
+            sink->dbus_obj_path = NULL;
+        }
     }
     pa_dbus_send_empty_reply(conn, msg);
 }
@@ -764,7 +783,8 @@ static void pa_qahw_port_effect_create(DBusConnection *conn,
         return;
     }
 
-    port = pa_hashmap_get(effect->ports, port_name);
+    if (effect->ports != NULL)
+        port = pa_hashmap_get(effect->ports, port_name);
 
     if (!port) {
         pa_log_error("Invalid port name.\n");
@@ -791,6 +811,7 @@ static void pa_qahw_port_effect_create(DBusConnection *conn,
         ses_data->endpoint_name = pa_xstrdup(port_name);
         ses_data->endpoints = effect->ports;
         pa_hashmap_put(m_data->sessions, port->dbus_obj_path, ses_data);
+        port->sessions = m_data->sessions;
         pa_assert_se(pa_dbus_protocol_add_interface(port->dbus_protocol,
                      port->dbus_obj_path, &session_interface_info, ses_data) >= 0);
         pa_assert_se((reply = dbus_message_new_method_return(msg)));
@@ -892,7 +913,10 @@ static void pa_qahw_sink_effect_create(DBusConnection *conn,
             dbus_error_free(&error);
             return;
         }
-        sink = pa_hashmap_get(effect->sinks, sink_name);
+
+        if (effect->sinks != NULL)
+            sink = pa_hashmap_get(effect->sinks, sink_name);
+
         if (!sink) {
             pa_log_error("%s: Unable to retrieve sink info\n", __func__);
             pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Unable to retrieve sink info.");
@@ -983,10 +1007,12 @@ static void pa_qahw_port_get_supported_effects(DBusConnection *conn,
 
     dbus_message_iter_get_basic(&arg_i, &port_name);
 
-    PA_HASHMAP_FOREACH(effect, m_data->effects, state)
-        if (pa_hashmap_get(effect->ports, port_name)
-            && pa_hashmap_get(m_data->card->ports, port_name))
-            port_effects++;
+    PA_HASHMAP_FOREACH(effect, m_data->effects, state) {
+        if ((effect->ports != NULL) && (m_data->card->ports != NULL))
+                if (pa_hashmap_get(effect->ports, port_name)
+                    && pa_hashmap_get(m_data->card->ports, port_name))
+                    port_effects++;
+    }
 
     if (port_effects <= 0) {
         pa_log_error("Invalid port name %s", port_name);
@@ -1064,9 +1090,11 @@ static void pa_qahw_sink_get_supported_effects(DBusConnection *conn,
     }
 
     /* calculate number of effects supported on this sink */
-    PA_HASHMAP_FOREACH(effect, m_data->effects, state)
-        if (pa_hashmap_get(effect->sinks, sink_name))
-            sink_effects++;
+    PA_HASHMAP_FOREACH(effect, m_data->effects, state) {
+        if (effect->sinks != NULL)
+            if (pa_hashmap_get(effect->sinks, sink_name))
+                sink_effects++;
+    }
 
     if (sink_effects <= 0) {
         pa_log_error("Invalid sink index.\n");
@@ -1317,6 +1345,7 @@ pa_qahw_effect_handle_t pa_qahw_init_effect(char *dbus_obj_path,
                pa_log_info("%s: Adding effect %s of type %s to sink %s", __func__,
                            effect_info->name, effect_info->type, name);
            }
+           effect_info->ports = NULL;
        } else if  (pa_streq(effect_info->type, "port")) {
            effect_info->ports = pa_hashmap_new_full(pa_idxset_string_hash_func,
                                                     pa_idxset_string_compare_func, NULL,
@@ -1333,6 +1362,7 @@ pa_qahw_effect_handle_t pa_qahw_init_effect(char *dbus_obj_path,
                pa_log_info("%s: Adding effect %s of type %s to port %s", __func__,
                            effect_info->name, effect_info->type, name);
            }
+           effect_info->sinks = NULL;
        }
 
        /* fill uuid */
