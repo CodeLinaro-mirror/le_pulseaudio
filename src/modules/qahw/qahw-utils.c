@@ -65,6 +65,7 @@ pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
     { (char *)"spdif-in",        AUDIO_DEVICE_IN_SPDIF ,            (char *)"AUDIO_DEVICE_IN_SPDIF" },
     { (char *)"linein",          AUDIO_DEVICE_IN_LINE,              (char *)"AUDIO_DEVICE_IN_LINE" },
     { (char *)"bta2dp-in" ,      AUDIO_DEVICE_IN_BLUETOOTH_A2DP,    (char *)"AUDIO_DEVICE_IN_BLUETOOTH_A2DP"},
+    { (char *)"hdmi-arc",        AUDIO_DEVICE_IN_HDMI_ARC,          (char *)"AUDIO_DEVICE_IN_HDMI_ARC" },
 };
 
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {

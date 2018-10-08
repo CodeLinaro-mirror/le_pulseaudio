@@ -865,6 +865,70 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_port_sys_path(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_card_port_config *port = NULL;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        if (pa_streq(state->lvalue, "state-node-path")) {
+            port->state_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding state node path %s to %s", __func__, port->state_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "sample-format-node-path")) {
+            port->sample_format_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding sample format node path %s to %s", __func__, port->sample_format_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "sample-rate-node-path")) {
+            port->sample_rate_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding sample rate node path %s to %s", __func__, port->sample_rate_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "sample-layout-node-path")) {
+            port->sample_layout_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding sample layout node path %s to %s", __func__, port->sample_layout_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "sample-channel-node-path")) {
+            port->sample_channel_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding sample channel node path %s to %s", __func__, port->sample_channel_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "sample-ch-alloc-node-path")) {
+            port->sample_channel_alloc_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding sample channel alloc node path %s to %s", __func__, port->sample_channel_alloc_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "linkon0-node-path")) {
+            port->linkon0_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding linkon0 node path %s to %s", __func__, port->linkon0_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "poweron-node-path")) {
+            port->poweron_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding poweron node path %s to %s", __func__, port->poweron_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "audio-path-node-path")) {
+            port->audio_path_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding audio path node path %s to %s", __func__, port->audio_path_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "arc-enable-node-path")) {
+            port->arc_enable_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding arc enable node path %s to %s", __func__, port->arc_enable_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "arc-state-node-path")) {
+            port->arc_state_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding arc state node path %s to %s", __func__, port->arc_state_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "arc-sample-format-node-path")) {
+            port->arc_sample_format_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding arc sample format node path %s to %s", __func__, port->arc_sample_format_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "arc-sample-rate-node-path")) {
+            port->arc_sample_rate_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding arc sample rate node path %s to %s", __func__, port->arc_sample_rate_node_path, port->name);
+        } else {
+            pa_log_error ("%s: invalid property %s", __func__, state->lvalue);
+            goto exit;
+        }
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
 static int pa_qahw_config_parse_alternative_sample_rate(pa_config_parser_state *state) {
 
     pa_qahw_config_data* config_data = state->userdata;
@@ -1386,12 +1450,58 @@ static int pa_qahw_config_parse_port_format_detection(pa_config_parser_state *st
     }
 
     if ((k = pa_parse_boolean(state->rvalue)) < 0) {
-        pa_log_error("%s: invalid port format detectin type %s(it should be yes or no)", __func__, state->rvalue);
+        pa_log_error("%s: invalid port format detection type %s(it should be yes or no)", __func__, state->rvalue);
         ret = -1;
         goto exit;
     }
 
     port->format_detection = k;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_port_type(pa_config_parser_state *state) {
+    pa_qahw_config_data *config_data = state->userdata;
+    pa_qahw_card_port_config *port;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        port->port_type = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: adding port type %s to %s", __func__, port->port_type, port->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_port_secondary_name(pa_config_parser_state *state) {
+    pa_qahw_config_data *config_data = state->userdata;
+    pa_qahw_card_port_config *port;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        port->secondary_port_name = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: adding secondary port name %s to %s", __func__, port->secondary_port_name, port->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
 
 exit:
     return ret;
@@ -1405,6 +1515,51 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
     pa_xfree(port->name);
 
     pa_xfree(port->description);
+
+    if (port->port_type)
+        pa_xfree(port->port_type);
+
+    if (port->secondary_port_name)
+        pa_xfree(port->secondary_port_name);
+
+    if (port->state_node_path)
+        pa_xfree(port->state_node_path);
+
+    if (port->sample_format_node_path)
+        pa_xfree(port->sample_format_node_path);
+
+    if (port->sample_rate_node_path)
+        pa_xfree(port->sample_rate_node_path);
+
+    if (port->sample_layout_node_path)
+        pa_xfree(port->sample_layout_node_path);
+
+    if (port->sample_channel_node_path)
+        pa_xfree(port->sample_channel_node_path);
+
+    if (port->sample_channel_alloc_node_path)
+        pa_xfree(port->sample_channel_alloc_node_path);
+
+    if (port->linkon0_node_path)
+        pa_xfree(port->linkon0_node_path);
+
+    if (port->poweron_node_path)
+        pa_xfree(port->poweron_node_path);
+
+    if (port->audio_path_node_path)
+        pa_xfree(port->audio_path_node_path);
+
+    if (port->arc_enable_node_path)
+        pa_xfree(port->arc_enable_node_path);
+
+    if (port->arc_state_node_path)
+        pa_xfree(port->arc_state_node_path);
+
+    if (port->arc_sample_format_node_path)
+        pa_xfree(port->arc_sample_format_node_path);
+
+    if (port->arc_sample_rate_node_path)
+        pa_xfree(port->arc_sample_rate_node_path);
 
     pa_idxset_free(port->formats, (pa_free_cb_t) pa_format_info_free);
 
@@ -1493,62 +1648,77 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
 
     pa_config_item items[] = {
         /* [Global] */
-        { "default-profile",      pa_config_parse_string,                                   NULL, "Global" },
-        { "use-dolby-hw-loopback",pa_config_parse_bool,                                     NULL, "Global" },
+        { "default-profile",             pa_config_parse_string,                                   NULL, "Global" },
+        { "use-dolby-hw-loopback",       pa_config_parse_bool,                                     NULL, "Global" },
 
         /* [Port... ] */
-        { "direction",            pa_qahw_config_parse_port_direction,                      NULL, NULL },
-        { "device",               pa_qahw_config_parse_port_device,                         NULL, NULL },
-        { "format-detection",     pa_qahw_config_parse_port_format_detection,               NULL, NULL },
+        { "direction",                   pa_qahw_config_parse_port_direction,                      NULL, NULL },
+        { "device",                      pa_qahw_config_parse_port_device,                         NULL, NULL },
+        { "format-detection",            pa_qahw_config_parse_port_format_detection,               NULL, NULL },
+        { "port-type",                   pa_qahw_config_parse_port_type,                           NULL, NULL },
+        { "secondary-port-name",         pa_qahw_config_parse_port_secondary_name,                 NULL, NULL },
+        { "state-node-path",             pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "sample-format-node-path",     pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "sample-rate-node-path",       pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "sample-layout-node-path",     pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "sample-channel-node-path",    pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "sample-ch-alloc-node-path",   pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "linkon0-node-path",           pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "poweron-node-path",           pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "audio-path-node-path",        pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "arc-enable-node-path",        pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "arc-state-node-path",         pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "arc-sample-format-node-path", pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "arc-sample-rate-node-path",   pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
 
         /* [Profile... ] */
-        { "max-sink-channels",    pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },
-        { "max-source-channels",  pa_qahw_config_parse_profile_max_source_channels ,        NULL, NULL },
+        { "max-sink-channels",           pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },
+        { "max-source-channels",         pa_qahw_config_parse_profile_max_source_channels ,        NULL, NULL },
 
         /* [Effect... ] */
-        { "endpoint-names",       pa_qahw_config_parse_effect_endpoint_names,               NULL, NULL },
+        { "endpoint-names",              pa_qahw_config_parse_effect_endpoint_names,               NULL, NULL },
 
         /* effect library name */
-        { "lib-name",             pa_qahw_config_parse_effect_lib_name,                     NULL, NULL },
+        { "lib-name",                    pa_qahw_config_parse_effect_lib_name,                     NULL, NULL },
 
         /* effect uuid */
-        { "uuid",                 pa_qahw_config_parse_effect_uuid,                         NULL, NULL },
+        { "uuid",                        pa_qahw_config_parse_effect_uuid,                         NULL, NULL },
 
-        { "use-hw-volume",        pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
-
-        /* common between sink and source*/
-        { "type",                 pa_qahw_config_parse_type,                                NULL, NULL },
+        { "use-hw-volume",               pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
 
         /* common between sink and source*/
-        { "flags",                pa_qahw_config_parse_flags,                               NULL, NULL },
-        { "alternate-sample-rate", pa_qahw_config_parse_alternative_sample_rate,            NULL, NULL },
+        { "type",                        pa_qahw_config_parse_type,                                NULL, NULL },
+
+        /* common between sink and source*/
+        { "flags",                       pa_qahw_config_parse_flags,                               NULL, NULL },
+        { "alternate-sample-rate",       pa_qahw_config_parse_alternative_sample_rate,             NULL, NULL },
 
         /* common between profile, sink and source */
-        { "port-names",           pa_qahw_config_parse_port_names,                          NULL, NULL },
+        { "port-names",                  pa_qahw_config_parse_port_names,                          NULL, NULL },
 
 
         /* common between port and profile section */
-        { "priority",             pa_qahw_config_parse_priority,                            NULL, NULL },
+        { "priority",                    pa_qahw_config_parse_priority,                            NULL, NULL },
 
         /* common between port and profile, sink source port and effect section */
-        { "description",          pa_qahw_config_parse_description,                         NULL, NULL },
+        { "description",                 pa_qahw_config_parse_description,                         NULL, NULL },
 
         /* common between port, sink and source */
-        { "presence",             pa_qahw_config_parse_presence,                            NULL, NULL },
-        { "default-encoding",     pa_qahw_config_parse_default_encoding,                    NULL, NULL },
-        { "default-sample-rate",  pa_qahw_config_parse_default_sample_rate,                 NULL, NULL },
-        { "default-sample-format", pa_qahw_config_parse_default_sample_format,              NULL, NULL },
-        { "default-channel-map",  pa_qahw_config_parse_default_channel_map,                 NULL, NULL },
-        { "encodings",            pa_qahw_config_parse_encodings,                           NULL, NULL },
-        { "sample-rates",         pa_qahw_config_parse_sample_rates,                        NULL, NULL },
-        { "sample-formats",       pa_qahw_config_parse_sample_formats,                      NULL, NULL },
-        { "channel-maps",         pa_qahw_config_parse_channel_maps,                        NULL, NULL },
-        { "source-type",          pa_qahw_config_parse_source_type,                         NULL, NULL },
+        { "presence",                    pa_qahw_config_parse_presence,                            NULL, NULL },
+        { "default-encoding",            pa_qahw_config_parse_default_encoding,                    NULL, NULL },
+        { "default-sample-rate",         pa_qahw_config_parse_default_sample_rate,                 NULL, NULL },
+        { "default-sample-format",       pa_qahw_config_parse_default_sample_format,               NULL, NULL },
+        { "default-channel-map",         pa_qahw_config_parse_default_channel_map,                 NULL, NULL },
+        { "encodings",                   pa_qahw_config_parse_encodings,                           NULL, NULL },
+        { "sample-rates",                pa_qahw_config_parse_sample_rates,                        NULL, NULL },
+        { "sample-formats",              pa_qahw_config_parse_sample_formats,                      NULL, NULL },
+        { "channel-maps",                pa_qahw_config_parse_channel_maps,                        NULL, NULL },
+        { "source-type",                 pa_qahw_config_parse_source_type,                         NULL, NULL },
 
          /* [Loopback...] */
-        { "in-port-names",        pa_qahw_config_parse_port_names,                          NULL, NULL },
+        { "in-port-names",               pa_qahw_config_parse_port_names,                          NULL, NULL },
 
-        { "out-port-names",       pa_qahw_config_parse_port_names,                          NULL, NULL },
+        { "out-port-names",              pa_qahw_config_parse_port_names,                          NULL, NULL },
 
         {  NULL, NULL, NULL, NULL }
     };
