@@ -728,3 +728,12 @@ void pa_qahw_source_close(pa_qahw_source_handle_t *handle) {
     free_qahw_source(sdata->qahw_sdata);
     pa_xfree(sdata);
 }
+
+void pa_qahw_source_suspend(pa_qahw_source_handle_t *handle, bool suspend) {
+    pa_qahw_source_data *sdata;
+
+    pa_assert(handle);
+    sdata = (pa_qahw_source_data *)handle;
+
+    pa_source_suspend(sdata->pa_sdata->source, suspend, PA_SUSPEND_UNAVAILABLE);
+}

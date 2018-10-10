@@ -111,5 +111,6 @@ static inline audio_input_flags_t pa_qahw_source_get_flags_from_string(const cha
     return flag;
 }
 
+void pa_qahw_source_suspend(pa_qahw_source_handle_t *handle, bool suspend);
 
 #endif
