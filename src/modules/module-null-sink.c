@@ -55,7 +55,9 @@ PA_MODULE_USAGE(
         "channels=<number of channels> "
         "channel_map=<channel map> "
         "formats=<semi-colon separated sink formats> "
-        "dump=<path to file to dump to> ");
+        "dump=<path to file to dump to> "
+        "avoid_processing=<use stream original sample spec if possible?> "
+);
 
 #define DEFAULT_SINK_NAME "null"
 #define BLOCK_USEC (PA_USEC_PER_SEC * 2)
@@ -86,6 +88,7 @@ static const char* const valid_modargs[] = {
     "channel_map",
     "formats",
     "dump",
+    "avoid_processing",
     NULL
 };
 
@@ -310,6 +313,7 @@ int pa__init(pa_module*m) {
     pa_format_info *format;
     const char *formats, *dump_file;
     size_t nbytes;
+    bool avoid_processing;
 
     pa_assert(m);
 
@@ -320,6 +324,8 @@ int pa__init(pa_module*m) {
 
     ss = m->core->default_sample_spec;
     map = m->core->default_channel_map;
+    avoid_processing = m->core->avoid_processing;
+
     if (pa_modargs_get_sample_spec_and_channel_map(ma, &ss, &map, PA_CHANNEL_MAP_DEFAULT) < 0) {
         pa_log("Invalid sample format specification or channel map");
         goto fail;
@@ -342,6 +348,13 @@ int pa__init(pa_module*m) {
             goto fail;
         }
     }
+
+    if (pa_modargs_get_value_boolean(ma, "avoid_processing", &avoid_processing) < 0) {
+        pa_log("Failed to parse avoid_processing argument.");
+        pa_sink_new_data_done(&data);
+        goto fail;
+    }
+    data.avoid_processing = avoid_processing;
 
     pa_sink_new_data_init(&data);
     data.driver = __FILE__;
