@@ -1033,6 +1033,33 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_avoid_processing(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+
+    bool avoid_processing = false;
+    int ret = 0;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    avoid_processing = pa_parse_boolean(state->rvalue);
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        sink->avoid_processing = avoid_processing;
+        pa_log_debug("%s: avoid_processing %d for sink %s", __func__, sink->avoid_processing, sink->name);
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        source->avoid_processing = avoid_processing;
+        pa_log_debug("%s: avoid_processing %d for source %s", __func__, source->avoid_processing, source->name);
+    }  else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        ret = -1;
+    }
+
+    return ret;
+}
 
 static void pa_qahw_config_free_sink(pa_qahw_sink_config *sink) {
     pa_assert(sink);
@@ -1706,6 +1733,8 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "uuid",                        pa_qahw_config_parse_effect_uuid,                         NULL, NULL },
 
         { "use-hw-volume",               pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
+
+        { "avoid-processing",     pa_qahw_config_parse_avoid_processing,                    NULL, NULL },
 
         /* common between sink and source*/
         { "type",                        pa_qahw_config_parse_type,                                NULL, NULL },

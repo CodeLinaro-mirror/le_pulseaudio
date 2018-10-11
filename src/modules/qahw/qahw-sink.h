@@ -42,6 +42,8 @@ typedef struct {
     pa_encoding_t default_encoding;
     pa_channel_map default_map;
     uint32_t alternate_sample_rate;
+    bool avoid_processing;
+
     pa_idxset *formats;
     pa_hashmap *ports;
     pa_hashmap *profiles;

@@ -68,6 +68,7 @@ typedef struct {
 
     size_t source_buffer_size;
     audio_source_t source_type;
+    uint32_t source_latency_us;
 } qahw_source_data;
 
 typedef struct {
@@ -99,6 +100,8 @@ static int restart_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_
                               audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata);
 static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                               audio_input_flags_t flags, int source_id, pa_qahw_source_data *sdata, audio_source_t source_type);
+static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                            audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata, audio_source_t source_type);
 static int close_qahw_source(qahw_source_data *qahw_sdata);
 
 static const uint32_t supported_source_rates[] =
@@ -243,14 +246,18 @@ static int pa_qahw_source_process_msg(pa_msgobject *o, int code, void *data, int
     return pa_source_process_msg(o, code, data, offset, chunk);
 }
 
-static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, bool passthrough) {
+static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough) {
     pa_qahw_source_data *sdata = (pa_qahw_source_data *) s->userdata;
+    pa_encoding_t encoding = PA_ENCODING_PCM;
     pa_source_data *pa_sdata = NULL;
     qahw_source_data *qahw_sdata = NULL;
 
-    bool supported = false;
-    uint32_t i, rc;
-    uint32_t old_rate;
+    char channel_map_buf[PA_CHANNEL_MAP_SNPRINT_MAX];
+    pa_channel_map new_map;
+
+    char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
+
+    int rc = -1;
 
     pa_assert(s);
     pa_assert(s->userdata);
@@ -258,45 +265,49 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, boo
     pa_assert(sdata->pa_sdata);
     pa_assert(sdata->qahw_sdata);
 
+    pa_log_info("%s", __func__);
+
     pa_sdata = sdata->pa_sdata;
     qahw_sdata = sdata->qahw_sdata;
 
-    for (i = 0; i < ARRAY_SIZE(supported_source_rates) ; i++) {
-        if (spec->rate == supported_source_rates[i]) {
-            supported = true;
-            break;
-        }
-    }
-
-    if (!supported) {
-        pa_log_info("Source does not support sample rate of %d Hz", spec->rate);
-        return -1;
-    }
-
     if (!PA_SOURCE_IS_OPENED(s->state)) {
-        old_rate = pa_sdata->source->sample_spec.rate; /*take backup*/
-        pa_sdata->source->sample_spec.rate = spec->rate;
+        pa_log_info("%s: old sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &pa_sdata->source->sample_spec));
+        pa_log_info("%s: requested sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), spec));
+
+       if (map) {
+            pa_log_info("%s:old channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), &pa_sdata->source->channel_map));
+            pa_log_info("%s:requested channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), map));
+
+            new_map = *map;
+       } else {
+            pa_channel_map_init_auto(&new_map, spec->channels, PA_CHANNEL_MAP_DEFAULT);
+        }
 
         qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->source->active_port));
 
-        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, spec->rate);
+        rc = restart_qahw_source(qahw_sdata->module_handle, encoding, spec, &new_map, qahw_sdata->devices, qahw_sdata->flags,
+                qahw_sdata->handle, qahw_sdata);
+        if (rc) {
+            pa_log_error("%s: could not create qahw source with requested conf, error %d, restoring old conf", __func__, rc);
+            rc = open_qahw_source(qahw_sdata->module_handle, encoding, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, qahw_sdata->devices,
+                                  qahw_sdata->flags, qahw_sdata->handle, qahw_sdata, qahw_sdata->source_type);
+            if (rc)
+                pa_log_info("%s: restoring of qahw source with old config failed, error %d", __func__, rc);
 
-        rc = restart_qahw_source(qahw_sdata->module_handle, PA_ENCODING_PCM, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, qahw_sdata->devices,
-                                qahw_sdata->flags, qahw_sdata->handle, qahw_sdata);
-        if (PA_UNLIKELY(rc)) {
-            pa_sdata->source->sample_spec.rate = old_rate; /*restore old rate if failed*/
-            pa_log_error("Could create reopen qahw source, error %d", rc);
-            return -1;
+            goto exit;
         }
+
+        pa_sdata->source->sample_spec = *spec;
+        pa_sdata->source->channel_map = new_map;
 
         pa_qahw_source_extn_source_handle_update(sdata->source_extn_handle, qahw_sdata->in_handle);
 
-        pa_source_set_fixed_latency(pa_sdata->source, pa_bytes_to_usec(qahw_sdata->source_buffer_size, &s->sample_spec));
+        pa_source_set_fixed_latency(pa_sdata->source, qahw_sdata->source_latency_us);
         return 0;
     }
 
-    pa_log_info("Source could not set sample rate of %d Hz", spec->rate);
-    return -1;
+exit:
+    return rc;
 }
 
 static pa_idxset* pa_qahw_source_get_formats(pa_source *s) {
@@ -419,6 +430,10 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
         goto fail;
     }
 
+    /*FIXME: Add DSP latency */
+    qahw_sdata->source_latency_us = pa_bytes_to_usec(qahw_sdata->source_buffer_size, ss);
+    pa_log_debug("source latency %dus", qahw_sdata->source_latency_us);
+
 fail:
     return rc;
 }
@@ -499,11 +514,11 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t
     return rc;
 }
 
-static int create_pa_source(pa_module *m, char *source_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, uint32_t alternate_sample_rate, pa_card *card,
-                            pa_hashmap *ports, const char *driver, pa_qahw_source_data *source_data) {
+static int create_pa_source(pa_module *m, char *source_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map,
+                            uint32_t alternate_sample_rate, bool avoid_processing, pa_card *card, pa_hashmap *ports, const char *driver,
+                            pa_qahw_source_data *source_data) {
     pa_source_new_data new_data;
     pa_source_data *pa_sdata = NULL;
-    qahw_source_data *qahw_sdata = NULL;
 
     pa_device_port *port;
     pa_format_info *format;
@@ -552,6 +567,8 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_qahw_source_get_name_from_flags(source_data->qahw_sdata->flags));
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
 
+    new_data.avoid_processing = avoid_processing;
+
     pa_sdata->source = pa_source_new(m->core, &new_data, PA_SOURCE_HARDWARE);
     if (!pa_sdata->source) {
         pa_log_error("Could not create source");
@@ -580,12 +597,10 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
         }
     }
 
-    qahw_sdata = source_data->qahw_sdata;
-
     pa_source_set_asyncmsgq(pa_sdata->source, pa_sdata->thread_mq.inq);
     pa_source_set_rtpoll(pa_sdata->source, pa_sdata->rtpoll);
     pa_source_set_max_rewind(pa_sdata->source, 0);
-    pa_source_set_fixed_latency(pa_sdata->source, pa_bytes_to_usec(qahw_sdata->source_buffer_size, ss));
+    pa_source_set_fixed_latency(pa_sdata->source, source_data->qahw_sdata->source_latency_us);
 
     pa_sdata->thread = pa_thread_new(source_name, pa_qahw_source_thread_func, source_data);
     if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
@@ -722,7 +737,8 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
         goto exit;
     }
 
-    rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate, card, ports, driver, sdata);
+    rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate,
+                          source->avoid_processing, card, ports, driver, sdata);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", source->name, rc);
         free_qahw_source(sdata->qahw_sdata);
