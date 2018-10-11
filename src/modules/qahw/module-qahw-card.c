@@ -71,11 +71,10 @@ static const char* const valid_modargs[] = {
     NULL
 };
 
-struct jack_handle_list {
+typedef struct {
     pa_qahw_jack_handle_t *handle;
     pa_qahw_jack_type_t jack_type;
-    PA_LLIST_FIELDS(struct jack_handle_list);
-};
+} pa_qahw_card_jack_info;
 
 struct userdata {
     pa_core *core;
@@ -96,7 +95,7 @@ struct userdata {
 
     pa_qahw_effect_handle_t effect_handle;
 
-    PA_LLIST_HEAD(struct jack_handle_list, jack_handle_list_head);
+    pa_hashmap *jacks;
 
     pa_qahw_config_data *config_data;
     char *conf_dir_name;
@@ -344,28 +343,30 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
     return PA_HOOK_OK;
 }
 
-static void pa_qahw_card_disable_jack_detection(struct jack_handle_list *list_head, pa_module *m) {
-    struct jack_handle_list *i, *n;
+static void pa_qahw_card_disable_jack_detection(pa_hashmap *jacks, pa_module *m) {
+    pa_qahw_card_jack_info *jack_info;
+    void *state;
 
-    pa_assert(list_head);
+    pa_assert(jacks);
 
-    PA_LLIST_FOREACH_SAFE(i, n, list_head) {
-        if (pa_qahw_jack_deregister_event_callback(i->handle, m))
-            pa_log_info("Jack event callback deregister successful for jack %d\n", i->jack_type);
+    PA_HASHMAP_FOREACH(jack_info, jacks, state) {
+        if (pa_qahw_jack_deregister_event_callback(jack_info->handle, m))
+            pa_log_info("Jack event callback deregister successful for jack %d\n", jack_info->jack_type);
         else
-            pa_log_error("Jack event callback deregister failed for jack %d\n",  i->jack_type);
-
-        PA_LLIST_REMOVE(struct jack_handle_list, list_head, i);
-        pa_xfree(i);
+            pa_log_error("Jack event callback deregister failed for jack %d\n",  jack_info->jack_type);
     }
+
+    pa_hashmap_free(jacks);
 }
 
 static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
     pa_qahw_jack_handle_t *jack_handle;
     pa_qahw_jack_type_t jack_types = PA_QAHW_JACK_TYPE_INVALID;
-    struct jack_handle_list *jack_handle_list_entry = NULL;
+    pa_qahw_card_jack_info *jack_info = NULL;
     pa_device_port *port;
     void *state;
+
+    u->jacks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
    /* register for jack detection for dynamic port, PA_AVAILABLE_NO means its dynamic port */
     PA_HASHMAP_FOREACH(port, u->card->ports, state) {
@@ -378,12 +379,11 @@ static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
         if (!jack_handle) {
             pa_log_error("%s: Enable qahw jack failed for port %s\n", __func__, port->name);
         } else {
-            jack_handle_list_entry = pa_xnew0(struct jack_handle_list, 1);
-            jack_handle_list_entry->handle = jack_handle;
-            jack_handle_list_entry->jack_type = jack_types;
-            PA_LLIST_INIT(struct jack_handle_list, jack_handle_list_entry);
-            PA_LLIST_PREPEND(struct jack_handle_list, u->jack_handle_list_head, jack_handle_list_entry);
-            jack_handle_list_entry = NULL;
+            jack_info = pa_xnew0(pa_qahw_card_jack_info, 1);
+            jack_info->handle = jack_handle;
+            jack_info->jack_type = jack_types;
+            pa_hashmap_put(u->jacks, port->name, jack_info);
+            jack_info = NULL;
         }
     }
 }
@@ -781,11 +781,11 @@ void pa__done(pa_module *m) {
         pa_hashmap_free(u->source_handles);
     }
 
+    if (u->jacks)
+        pa_qahw_card_disable_jack_detection(u->jacks, m);
+
     if (u->module_handle)
         qahw_unload_module(u->module_handle);
-
-    if (u->jack_handle_list_head)
-        pa_qahw_card_disable_jack_detection(u->jack_handle_list_head, u->module_handle);
 
     pa_qahw_card_free(u);
 
