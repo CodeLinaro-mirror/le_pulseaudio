@@ -76,6 +76,14 @@ typedef struct {
     pa_qahw_jack_type_t jack_type;
 } pa_qahw_card_jack_info;
 
+typedef struct {
+    pa_qahw_source_handle_t *handle;
+} pa_qahw_card_source_info;
+
+typedef struct {
+    pa_qahw_sink_handle_t *handle;
+} pa_qahw_card_sink_info;
+
 struct userdata {
     pa_core *core;
     pa_card *card;
@@ -90,8 +98,8 @@ struct userdata {
 
     qahw_module_handle_t *module_handle;
 
-    pa_hashmap *sink_handles;
-    pa_hashmap *source_handles;
+    pa_hashmap *sinks;
+    pa_hashmap *sources;
 
     pa_qahw_effect_handle_t effect_handle;
 
@@ -120,7 +128,7 @@ static bool pa_qahw_card_is_dynamic_source_supported_for_port(pa_device_port *po
 
 static void pa_qahw_card_remove_dynamic_source(pa_device_port *port, struct userdata *u) {
     pa_qahw_source_config *source = NULL;
-    pa_qahw_source_handle_t *handle = NULL;
+    pa_qahw_card_source_info *source_info = NULL;
     void *state;
 
     pa_assert(port);
@@ -132,22 +140,23 @@ static void pa_qahw_card_remove_dynamic_source(pa_device_port *port, struct user
         if ((source->usecase_type == PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(source->ports, port->name))) {
             /* check if this source supports required encoding */
             pa_log_info("%s: Found a dynamic source %s for port %s", __func__, source->name, port->name);
-            handle = pa_hashmap_get(u->source_handles, source->name);
-            if (!handle)
+            source_info = pa_hashmap_get(u->sources, source->name);
+            if (!source_info)
                 continue;
 
             break;
         }
     }
 
-    if (source && !handle) {
+    if (source && !source_info) {
         pa_log_error("%s: no dynamic usecase present, skip removal of source ", __func__);
         goto exit;
     }
 
-    pa_qahw_source_close(handle);
+    pa_qahw_source_close(source_info->handle);
 
-    pa_hashmap_remove(u->source_handles, source->name);
+    pa_hashmap_remove(u->sources, source->name);
+    pa_xfree(source_info);
 
 exit:
     return;
@@ -157,7 +166,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
     int rc;
     bool reconfigure = false;
 
-    pa_qahw_source_handle_t *handle = NULL;
+    pa_qahw_card_source_info *source_info = NULL;
 
     pa_qahw_source_config *source;
     pa_qahw_source_config new_source;
@@ -197,18 +206,18 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
     /* check if any dynamic source is already created on same port */
     PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
         if ((source->usecase_type == PA_QAHW_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(source->ports, port->name))) {
-            handle = pa_hashmap_get(u->source_handles, source->name);
-            if (handle) {
+            source_info = pa_hashmap_get(u->sources, source->name);
+            if (source_info) {
                 break;
             }
         }
     }
 
-   /* check if reconfigure is needed if yes then close free existing source and recreate new source */
-    if (handle) {
+    /* check if reconfigure is needed if yes then close free existing source and recreate new source */
+    if (source_info) {
         pa_log_info("%s: Found a existing dynamic source %s for port %s", __func__, source->name, port->name);
 
-        current_formats = pa_qahw_source_get_config(handle);
+        current_formats = pa_qahw_source_get_config(source_info->handle);
         if (!current_formats || (pa_idxset_size(current_formats) != 1)) {  /* dynamic source should have single format */
             pa_log_error("%s: pa_qahw_source_get_config failed", __func__);
             goto exit;
@@ -265,13 +274,14 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
     new_source.default_map = config->map;
     new_source.formats = requested_formats;
 
-    rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, &new_source, &handle);
+    source_info = pa_xnew0(pa_qahw_card_source_info, 1);
+    rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, &new_source, &(source_info->handle));
     if (rc) {
         pa_log_error("%s: source %s create failed for port %s, error %d ", __func__, source->name, port->name, rc);
-        handle = NULL;
+        source_info->handle = NULL;
     }
 
-    pa_hashmap_put(u->source_handles, new_source.name, handle);
+    pa_hashmap_put(u->sources, new_source.name, source_info);
 
     pa_idxset_free(requested_formats, (pa_free_cb_t) pa_format_info_free);
 exit:
@@ -552,21 +562,21 @@ static int pa_qahw_card_create_sources(struct userdata *u, const char *profile_n
 
     void *state;
 
-    pa_qahw_source_handle_t *handle;
+    pa_qahw_card_source_info *source_info;
 
     PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
         if (!(pa_hashmap_get(source->profiles, profile_name)) || source->usecase_type != usecase_type)
             continue;
 
-        rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, source, &handle);
+        source_info = pa_xnew0(pa_qahw_card_source_info, 1);
+        rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, source, &(source_info->handle));
         if (rc) {
             pa_log_error("%s: source %s create failed for profile %s, error %d ", __func__, source->name, profile_name, rc);
-            handle = NULL;
+            source_info->handle = NULL;
             continue;
         }
 
-        pa_hashmap_put(u->source_handles, source->name, handle);
-
+        pa_hashmap_put(u->sources, source->name, source_info);
     }
 
     return rc;
@@ -575,17 +585,19 @@ static int pa_qahw_card_create_sources(struct userdata *u, const char *profile_n
 static void pa_qahw_card_free_sources(struct userdata *u, const char *profile_name) {
     pa_qahw_source_config *source;
     void *state;
-    pa_qahw_source_handle_t *source_handle;
+    pa_qahw_card_source_info *source_info;
 
     PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
         if (!(pa_hashmap_get(source->profiles, profile_name)))
             continue;
 
-        source_handle = pa_hashmap_get(u->source_handles, source->name);
+        source_info = pa_hashmap_get(u->sources, source->name);
 
-        if (source_handle) {
-            pa_qahw_source_close(source_handle);
-            pa_hashmap_remove(u->source_handles, source->name);
+        if (source_info) {
+            pa_qahw_source_close(source_info->handle);
+
+            pa_hashmap_remove(u->sources, source->name);
+            pa_xfree(source_info);
         }
     }
 }
@@ -616,20 +628,21 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
 
     void *state;
 
-    pa_qahw_sink_handle_t *handle;
+    pa_qahw_card_sink_info *sink_info;
 
     PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
         if (!(pa_hashmap_get(sink->profiles, profile_name)) || sink->usecase_type != usecase_type)
             continue;
 
-        rc = pa_qahw_card_add_sink(u->module, u->card, u->driver, u->module_handle, u->module_name, sink, &handle);
+        sink_info = pa_xnew0(pa_qahw_card_sink_info, 1);
+        rc = pa_qahw_card_add_sink(u->module, u->card, u->driver, u->module_handle, u->module_name, sink, &(sink_info->handle));
         if (rc) {
             pa_log_error("%s: sink %s create failed for profile %s, error %d ", __func__, sink->name, profile_name, rc);
-            handle = NULL;
+            sink_info->handle = NULL;
             continue;
         }
 
-        pa_hashmap_put(u->sink_handles, sink->name, handle);
+        pa_hashmap_put(u->sinks, sink->name, sink_info);
 
     }
 
@@ -639,19 +652,21 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
 static void pa_qahw_card_free_sinks(struct userdata *u, const char *profile_name) {
     pa_qahw_sink_config *sink;
     void *state;
-    pa_qahw_sink_handle_t *sink_handle;
+    pa_qahw_card_sink_info *sink_info;
 
     PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
         if (!(pa_hashmap_get(sink->profiles, profile_name)))
             continue;
 
-        sink_handle = pa_hashmap_get(u->sink_handles, sink->name);
+        sink_info = pa_hashmap_get(u->sinks, sink->name);
 
-        if (sink_handle) {
+        if (sink_info) {
             if (u->effect_handle != NULL)
-                pa_qahw_free_sink_effects(u->effect_handle, pa_qahw_sink_get_index(sink_handle));
-            pa_qahw_sink_close(sink_handle);
-            pa_hashmap_remove(u->sink_handles, sink->name);
+                pa_qahw_free_sink_effects(u->effect_handle, pa_qahw_sink_get_index(sink_info->handle));
+            pa_qahw_sink_close(sink_info->handle);
+
+            pa_hashmap_remove(u->sinks, sink->name);
+            pa_xfree(sink_info);
         }
     }
 }
@@ -711,7 +726,7 @@ int pa__init(pa_module *m) {
 
     pa_qahw_sink_module_init();
     if (pa_hashmap_size(u->config_data->sinks)) {
-        u->sink_handles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+        u->sinks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
         if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
             goto fail;
@@ -724,7 +739,7 @@ int pa__init(pa_module *m) {
     pa_log_info("%s: use_dolby_hw_loopback %d", __func__, u->config_data->use_dolby_hw_loopback);
 
     if (pa_hashmap_size(u->config_data->sources)) {
-        u->source_handles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+        u->sources = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
         if (PA_UNLIKELY(pa_qahw_card_create_sources(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
             goto fail;
     }
@@ -765,20 +780,20 @@ void pa__done(pa_module *m) {
 
     pa_qahw_loopback_deinit();
 
-    if (u->sink_handles) {
+    if (u->sinks) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
             pa_qahw_card_free_sinks(u, profile->name);
 
-        pa_hashmap_free(u->sink_handles);
+        pa_hashmap_free(u->sinks);
     }
 
     pa_qahw_sink_module_deinit();
 
-    if (u->source_handles) {
+    if (u->sources) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
             pa_qahw_card_free_sources(u, profile->name);
 
-        pa_hashmap_free(u->source_handles);
+        pa_hashmap_free(u->sources);
     }
 
     if (u->jacks)
