@@ -93,7 +93,7 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
 
     u = pa_xnew0(struct jack_userdata, 1);
 
-    if ((jack_type & PA_QAHW_JACK_TYPE_LINEOUT) || (jack_type & PA_QAHW_JACK_TYPE_WIRED_HEADPHONE))
+    if ((jack_type == PA_QAHW_JACK_TYPE_LINEOUT) || (jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADPHONE))
         jack_type = PA_QAHW_JACK_TYPE_WIRED_HEADSET;
 
     if (!is_jack_enabled(jack_type)) {
@@ -102,9 +102,12 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
 
         if ((jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADSET) || (jack_type ==  PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS)) {
             g_jack_userdata.jdata[g_jack_userdata.jack_count] = pa_qahw_evdev_jack_device_open(jack_type, m, &(u->hook_slot), callback, client_data);
-        } else if  (jack_type ==  PA_QAHW_JACK_TYPE_HDMI) {
+        } else if  (jack_type == PA_QAHW_JACK_TYPE_HDMI) {
             u->jack_type = PA_QAHW_JACK_TYPE_HDMI;
             g_jack_userdata.jdata[g_jack_userdata.jack_count] = pa_qahw_hdmi_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
+        } else if  (jack_type == PA_QAHW_JACK_TYPE_BTA2DP_OUT) {
+            u->jack_type = PA_QAHW_JACK_TYPE_BTA2DP_OUT;
+            g_jack_userdata.jdata[g_jack_userdata.jack_count] = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
         }
 
         if (!(pa_qahw_jack_check_enable_status(g_jack_userdata.jdata[g_jack_userdata.jack_count], jack_type)))
@@ -150,6 +153,10 @@ bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *jack_handle, 
         } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI) {
             pa_qahw_hdmi_jack_detection_disable(jdata, m);
             toggle_jack_status_bits(PA_QAHW_JACK_TYPE_HDMI);
+            g_jack_userdata.jack_count--;
+        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_BTA2DP_OUT) {
+            pa_qahw_external_jack_detection_disable(jdata, m);
+            toggle_jack_status_bits(PA_QAHW_JACK_TYPE_BTA2DP_OUT);
             g_jack_userdata.jack_count--;
         }
     }
