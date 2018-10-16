@@ -216,11 +216,13 @@ static void stream_state_callback(pa_stream *s, void *userdata) {
         case PA_STREAM_READY: {
             int r;
 
-            r = pa_stream_write(s, ctx->data, ctx->length, nop_free_cb, 0, PA_SEEK_ABSOLUTE);
-            pa_assert(r == 0);
+            if (ctx->data) {
+                r = pa_stream_write(s, ctx->data, ctx->length, nop_free_cb, 0, PA_SEEK_ABSOLUTE);
+                pa_assert(r == 0);
 
-            /* Be notified when this stream is drained */
-            pa_stream_set_underflow_callback(s, underflow_cb, userdata);
+                /* Be notified when this stream is drained */
+                pa_stream_set_underflow_callback(s, underflow_cb, userdata);
+            }
 
             pa_threaded_mainloop_signal(ctx->mainloop, false);
             break;
