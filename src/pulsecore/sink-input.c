@@ -984,6 +984,9 @@ void pa_sink_input_peek(pa_sink_input *i, size_t slength /* in sink bytes */, pa
                 pa_resampler_run(i->thread_info.resampler, &wchunk, &rchunk);
 
                 /* FIXME: is there any way to ascertain that the complete buffer was processed by resampling and conversion? */
+#ifdef SINK_INPUT_DEBUG
+                pa_log_debug("Invaliding timestamps due to resampling");
+#endif
                 rchunk.timestamp = PA_NSEC_INVALID;
                 rchunk.duration = PA_NSEC_INVALID;
 

@@ -49,6 +49,8 @@
 
 #include "sink.h"
 
+/* #define SINK_DEBUG */
+
 #define MAX_MIX_CHANNELS 32
 #define MIX_BUFFER_LENGTH (pa_page_size())
 #define ABSOLUTE_MIN_LATENCY (500)
@@ -1252,6 +1254,9 @@ void pa_sink_render(pa_sink*s, size_t length, pa_memchunk *result) {
             result->length = length;
 
         /* Partial read => timestamp/duration is no longer valid */
+#ifdef SINK_DEBUG
+        pa_log_debug("Invalidting timestamps on partial read");
+#endif
         if (result->index != 0)
             result->timestamp = PA_NSEC_INVALID;
         if (result->length != info[0].chunk.length)
@@ -1284,6 +1289,9 @@ void pa_sink_render(pa_sink*s, size_t length, pa_memchunk *result) {
 
         result->index = 0;
         /* FIXME: can we salvage a single timestamp? */
+#ifdef SINK_DEBUG
+        pa_log_debug("Invalidting timestamps after mixing");
+#endif
         result->timestamp = PA_NSEC_INVALID;
         result->duration = PA_NSEC_INVALID;
     }
@@ -1376,6 +1384,9 @@ void pa_sink_render_into(pa_sink*s, pa_memchunk *target) {
 
         pa_memblock_release(target->memblock);
         /* FIXME: can we salvage a single timestamp? */
+#ifdef SINK_DEBUG
+        pa_log_debug("Invalidting timestamps after mixing");
+#endif
         target->timestamp = PA_NSEC_INVALID;
         target->duration = PA_NSEC_INVALID;
     }
@@ -1402,6 +1413,9 @@ void pa_sink_render_into_full(pa_sink *s, pa_memchunk *target) {
     pa_assert(s->thread_info.rewind_nbytes == 0);
 
     /* All bets on getting a meaningful timestamp/duration are off */
+#ifdef SINK_DEBUG
+    pa_log_debug("Invalidting timestamps due to render_into_full");
+#endif
     target->timestamp = PA_NSEC_INVALID;
     target->duration = PA_NSEC_INVALID;
 
@@ -1459,6 +1473,9 @@ void pa_sink_render_full(pa_sink *s, size_t length, pa_memchunk *result) {
     }
 
     /* All bets on getting a meaningful timestamp/duration are off */
+#ifdef SINK_DEBUG
+    pa_log_debug("Invalidting timestamps due to render_full");
+#endif
     result->timestamp = PA_NSEC_INVALID;
     result->duration = PA_NSEC_INVALID;
 

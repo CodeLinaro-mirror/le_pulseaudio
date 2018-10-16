@@ -514,6 +514,9 @@ int pa_memblockq_peek(pa_memblockq* bq, pa_memchunk *chunk) {
             chunk->length = length;
         }
 
+#ifdef MEMBLOCKQ_DEBUG
+        pa_log_debug("Providing silence memchunk with invalid timestamps");
+#endif
         chunk->index = 0;
         chunk->timestamp = PA_NSEC_INVALID;
         chunk->duration = PA_NSEC_INVALID;
@@ -532,6 +535,9 @@ int pa_memblockq_peek(pa_memblockq* bq, pa_memchunk *chunk) {
 
     /* Partial reads => timestamp/duration are invalidated */
     if (d != 0) {
+#ifdef MEMBLOCKQ_DEBUG
+        pa_log_debug("Invalidating memchunk times due to a partial read");
+#endif
         chunk->timestamp = PA_NSEC_INVALID;
         chunk->duration = PA_NSEC_INVALID;
     }
@@ -605,6 +611,9 @@ int pa_memblockq_peek_fixed_size(pa_memblockq *bq, size_t block_size, pa_memchun
         ri += rchunk.length;
     }
 
+#ifdef MEMBLOCKQ_DEBUG
+    pa_log_debug("Providing memchunk copy with invalidated timestamps");
+#endif
     rchunk.index = 0;
     rchunk.length = block_size;
     rchunk.timestamp = PA_NSEC_INVALID;
