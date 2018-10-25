@@ -621,10 +621,19 @@ static void pa_qahw_effect_command(DBusConnection *conn,
     switch (cmd_code) {
         case QAHW_EFFECT_CMD_INIT:
         case QAHW_EFFECT_CMD_SET_CONFIG:
-        case QAHW_EFFECT_CMD_OFFLOAD:
         case QAHW_EFFECT_CMD_SET_PARAM:
             reply_size = sizeof(int32_t);
             break;
+        case QAHW_EFFECT_CMD_OFFLOAD:
+            rc = pa_qahw_effect_cmd_offload(ses_data->effect_handle, ses_data->handle);
+
+            if (rc < 0) {
+                pa_log_error("effect_command returns : %d\n", rc);
+                pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "qahw_effect_command failed.");
+                dbus_error_free(&error);
+                return;
+            }
+            goto done;
         case QAHW_EFFECT_CMD_ENABLE:
             reply_size = sizeof(int32_t);
 
@@ -710,6 +719,7 @@ static void pa_qahw_effect_command(DBusConnection *conn,
         return;
     }
 
+done:
     pa_assert_se((reply = dbus_message_new_method_return(msg)));
     dbus_message_iter_init_append(reply, &r_arg);
     dbus_message_iter_open_container(&r_arg, DBUS_TYPE_ARRAY, "y", &r_array_i);
