@@ -56,6 +56,8 @@ typedef void (*pa_qahw_effect_callback)(pa_qahw_effect_event event_id, void *eve
 typedef struct {
     char *name;
     char *description;
+    char *lib_name;
+    char *uuid;
     pa_hashmap *sinks;
     pa_hashmap *ports;
     pa_hashmap *loopbacks;

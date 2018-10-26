@@ -148,7 +148,7 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
     char **items;
     char *endpoint_name;
 
-    pa_log_error("%s", __func__);
+    pa_log_debug("%s", __func__);
     pa_assert(config_data);
     pa_assert(state);
     pa_assert(state->rvalue);
@@ -193,6 +193,51 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_effect_lib_name(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_effect_config *effect;
+    int ret = -1;
+
+    pa_assert(state);
+    pa_assert(config_data);
+
+    pa_log_debug("%s", __func__);
+
+    if (!(effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    effect->lib_name = pa_xstrdup(state->rvalue);
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_effect_uuid(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_effect_config *effect;
+    int ret = -1;
+
+    pa_assert(state);
+    pa_assert(config_data);
+
+    pa_log_debug("%s", __func__);
+
+    if (!(effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    effect->uuid = pa_xstrdup(state->rvalue);
+
+    ret = 0;
+
+exit:
+    return ret;
+}
 
 static void pa_qahw_config_free_effect(pa_qahw_effect_config *effect) {
     pa_assert(effect);
@@ -200,6 +245,10 @@ static void pa_qahw_config_free_effect(pa_qahw_effect_config *effect) {
     pa_log_info("%s: freeing effect %s", __func__, effect->name);
 
     pa_xfree(effect->name);
+
+    pa_xfree(effect->uuid);
+
+    pa_xfree(effect->lib_name);
 
     pa_xfree(effect->description);
 
@@ -1436,9 +1485,15 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         /* [Effect... ] */
         { "endpoint-names",       pa_qahw_config_parse_effect_endpoint_names,               NULL, NULL },
 
+        /* effect library name */
+        { "lib-name",             pa_qahw_config_parse_effect_lib_name,                     NULL, NULL },
+
+        /* effect uuid */
+        { "uuid",                 pa_qahw_config_parse_effect_uuid,                         NULL, NULL },
+
         { "use-hw-volume",        pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
 
-        /* common between sink and source and effect*/
+        /* common between sink and source*/
         { "type",                 pa_qahw_config_parse_type,                                NULL, NULL },
 
         /* common between sink and source*/

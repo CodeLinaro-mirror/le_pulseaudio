@@ -280,16 +280,35 @@ static pa_dbus_interface_info session_interface_info = {
     .n_signals = 0
 };
 
-pa_qahw_effect_name_to_lib_mapping effect_lib_mapping[] = {
-    { "bassboost", QAHW_EFFECT_BASSBOOST_LIBRARY},
-    { "virtualizer", QAHW_EFFECT_VIRTUALIZER_LIBRARY},
-    { "equalizer", QAHW_EFFECT_EQUALIZER_LIBRARY},
-    { "preset_reverb", QAHW_EFFECT_PRESET_REVERB_LIBRARY},
-    { "audiosphere", QAHW_EFFECT_AUDIOSPHERE_LIBRARY},
-};
+static int pa_qahw_effect_string_to_uuid(char *str, qahw_effect_uuid_t *uuid) {
+    int tmp[10];
 
-static int pa_qahw_get_latency_cmd_code(char *effect_name)
-{
+    if (str == NULL || uuid == NULL) {
+        pa_log_debug("str or uuid is null\n");
+        return -1;
+    }
+
+    if (sscanf(str, "%08x-%04x-%04x-%04x-%02x%02x%02x%02x%02x%02x",
+            tmp, tmp+1, tmp+2, tmp+3, tmp+4, tmp+5, tmp+6, tmp+7, tmp+8, tmp+9) < 10) {
+        pa_log_debug("%s: Unable to parse uuid. Invalid uuid format\n", __func__);
+        return -1;
+    }
+
+    uuid->timeLow = (uint32_t)tmp[0];
+    uuid->timeMid = (uint16_t)tmp[1];
+    uuid->timeHiAndVersion = (uint16_t)tmp[2];
+    uuid->clockSeq = (uint16_t)tmp[3];
+    uuid->node[0] = (uint8_t)tmp[4];
+    uuid->node[1] = (uint8_t)tmp[5];
+    uuid->node[2] = (uint8_t)tmp[6];
+    uuid->node[3] = (uint8_t)tmp[7];
+    uuid->node[4] = (uint8_t)tmp[8];
+    uuid->node[5] = (uint8_t)tmp[9];
+
+    return 0;
+}
+
+static int pa_qahw_get_latency_cmd_code(char *effect_name) {
     if (pa_streq(effect_name, "bassboost"))
         return BASSBOOST_PARAM_LATENCY;
     else if (pa_streq(effect_name, "virtualizer"))
@@ -417,8 +436,7 @@ static bool pa_qahw_is_effect_enabled(pa_qahw_effect_callback_config *cb, char *
     return false;
 }
 
-static int pa_qahw_effect_cmd_offload(pa_qahw_effect_handle_t effect_handle, int handle)
-{
+static int pa_qahw_effect_cmd_offload(pa_qahw_effect_handle_t effect_handle, int handle) {
     uint32_t cmd_size = sizeof(qahw_effect_offload_param_t);
     uint32_t reply_size = sizeof(uint32_t);
     void *reply_data = (void *)malloc(reply_size);
@@ -437,8 +455,7 @@ static int pa_qahw_effect_cmd_offload(pa_qahw_effect_handle_t effect_handle, int
     return rc;
 }
 
-static int pa_qahw_effect_get_latency(pa_qahw_effect_handle_t effect_handle, int handle, char *effect_name)
-{
+static int pa_qahw_effect_get_latency(pa_qahw_effect_handle_t effect_handle, int handle, char *effect_name) {
     uint32_t cmd_size = sizeof(qahw_effect_param_t) + sizeof(uint32_t);
     uint32_t reply_size = sizeof(qahw_effect_param_t) + 2*sizeof(uint32_t);
     uint32_t arr2[reply_size];
@@ -478,40 +495,6 @@ static int pa_qahw_effect_get_latency(pa_qahw_effect_handle_t effect_handle, int
     value = reply_data->data + offset;
 
     return (*(uint32_t *)value);
-}
-
-static char *pa_qahw_get_effect_lib_name(char *effect_name) {
-    uint32_t i;
-
-    pa_assert(effect_name);
-
-    for (i = 0; i < ARRAY_SIZE(effect_lib_mapping); i++) {
-        if (pa_streq(effect_lib_mapping[i].effect_name, effect_name))
-            return (char *)effect_lib_mapping[i].lib_name;
-    }
-
-    return NULL;
-}
-
-static int pa_qahw_get_effect_uuid(char *effect_name, qahw_effect_uuid_t *uuid) {
-    int rc = 0;;
-
-    pa_assert(effect_name);
-
-    if (pa_streq(effect_name, "bassboost"))
-        memcpy(uuid, SL_IID_BASSBOOST_UUID, sizeof(qahw_effect_uuid_t));
-    else if (pa_streq(effect_name, "virtualizer"))
-        memcpy(uuid, SL_IID_VIRTUALIZER_UUID, sizeof(qahw_effect_uuid_t));
-    else if (pa_streq(effect_name, "equalizer"))
-        memcpy(uuid, SL_IID_EQUALIZER_UUID, sizeof(qahw_effect_uuid_t));
-    else if (pa_streq(effect_name, "preset_reverb"))
-        memcpy(uuid, SL_IID_INS_PRESETREVERB_UUID, sizeof(qahw_effect_uuid_t));
-    else if (pa_streq(effect_name, "audiosphere"))
-        memcpy(uuid, SL_IID_AUDIOSPHERE_UUID, sizeof(qahw_effect_uuid_t));
-    else
-        rc = -1;
-
-    return rc;
 }
 
 static void pa_qahw_fill_effect_uuid(DBusMessageIter *struct_i, qahw_effect_uuid_t uuid) {
@@ -1924,15 +1907,14 @@ pa_qahw_effect_handle_t pa_qahw_init_effect(char *dbus_obj_path,
             state1 = NULL;
         }
 
-       /* fill uuid */
-       effect_info->uuid = pa_xnew0(qahw_effect_uuid_t, 1);
+        effect_info->uuid = pa_xnew0(qahw_effect_uuid_t, 1);
 
-       pa_qahw_get_effect_uuid(effect_config->name, effect_info->uuid);
+        if (pa_qahw_effect_string_to_uuid(effect_config->uuid, effect_info->uuid) != 0)
+            pa_log_error("%s: Error parsing uuid for %s\n", __func__, effect_config->name);
 
-       /* get lib name */
-       effect_info->lib_name = pa_xstrdup(pa_qahw_get_effect_lib_name(effect_config->name));
+        effect_info->lib_name = pa_xstrdup(effect_config->lib_name);
 
-       pa_hashmap_put(effect_mdata->effects, effect_info->name, effect_info);
+        pa_hashmap_put(effect_mdata->effects, effect_info->name, effect_info);
     }
 
     effect_mdata->card = card;
