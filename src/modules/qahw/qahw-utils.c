@@ -49,6 +49,7 @@ pa_qahw_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_QAHW_JACK_TYPE_WIRED_HEADPHONE, (char*)"headphone" },
     { PA_QAHW_JACK_TYPE_LINEOUT, (char*)"lineout"},
     { PA_QAHW_JACK_TYPE_HDMI, (char*)"hdmi-in" },
+    { PA_QAHW_JACK_TYPE_BTA2DP_OUT, (char*)"bta2dp-out" },
 };
 
 pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
@@ -56,6 +57,7 @@ pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
     { (char *)"headset",         AUDIO_DEVICE_OUT_WIRED_HEADSET,    (char *)"AUDIO_DEVICE_OUT_WIRED_HEADSET" },
     { (char*)"lineout",          AUDIO_DEVICE_OUT_LINE,             (char *)"AUDIO_DEVICE_OUT_LINE"},
     { (char*)"headphone",        AUDIO_DEVICE_OUT_WIRED_HEADPHONE,  (char *)"AUDIO_DEVICE_OUT_WIRED_HEADPHONE" },
+    { (char *)"bta2dp-out" ,     AUDIO_DEVICE_OUT_BLUETOOTH_A2DP,   (char *)"AUDIO_DEVICE_OUT_BLUETOOTH_A2DP"},
     { (char *)"headset-mic",     AUDIO_DEVICE_IN_WIRED_HEADSET,     (char *)"AUDIO_DEVICE_IN_WIRED_HEADSET" },
     { (char *)"builtin-mic",     AUDIO_DEVICE_IN_BUILTIN_MIC,       (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC" },
     { (char *)"hdmi-in",         AUDIO_DEVICE_IN_HDMI,              (char *)"AUDIO_DEVICE_IN_HDMI" },

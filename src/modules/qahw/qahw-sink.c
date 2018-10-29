@@ -308,6 +308,18 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     port_device_data = PA_DEVICE_PORT_DATA(p);
     pa_assert(port_device_data);
 
+    if (port_device_data->device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_CONNECT, port_device_data->device);
+
+        rc = qahw_out_set_parameters(sdata->qahw_sdata->out_handle, kvpair);
+        if (rc)
+            pa_log_error("qahw routing failed %d",rc);
+
+        pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
+
+        pa_xfree(kvpair);
+    }
+
     kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
     pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
 
