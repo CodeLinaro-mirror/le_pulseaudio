@@ -74,8 +74,8 @@ static const char* const valid_modargs[] = {
 typedef struct {
     pa_qahw_jack_handle_t *handle;
     pa_qahw_jack_type_t jack_type;
-    pa_qahw_jack_config_t jack_curr_config;
-    pa_qahw_jack_config_t jack_prev_config;
+    pa_qahw_jack_out_config jack_curr_config;
+    pa_qahw_jack_out_config jack_prev_config;
 } pa_qahw_card_jack_info;
 
 typedef struct {
@@ -177,7 +177,7 @@ exit:
     return;
 }
 
-static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_config_t *config, struct userdata *u) {
+static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_out_config *config, struct userdata *u) {
     int rc;
     bool reconfigure = false;
 
@@ -331,7 +331,7 @@ static void pa_qahw_card_resume_source_for_port(const char *port_name, struct us
                     jack_info = pa_hashmap_get(u->jacks, port_name);
 
                     /* Incase of config change remove and add new source else remove force suspend */
-                    if (memcmp(&(jack_info->jack_prev_config), &(jack_info->jack_curr_config), sizeof(pa_qahw_jack_config_t))) {
+                    if (memcmp(&(jack_info->jack_prev_config), &(jack_info->jack_curr_config), sizeof(pa_qahw_jack_out_config))) {
                         port = pa_hashmap_get(u->card->ports, port_name);
                         pa_qahw_card_add_dynamic_source(port, &(jack_info->jack_curr_config), u);
                     } else {
@@ -439,9 +439,9 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
              } else if ((event == PA_QAHW_JACK_CONFIG_UPDATE) && (port->available == PA_AVAILABLE_YES)) {
                 if (port->direction == PA_DIRECTION_INPUT) {
                     jack_info = pa_hashmap_get(u->jacks, port_name);
-                    jack_info->jack_curr_config = *((pa_qahw_jack_config_t *)event_data->pa_qahw_jack_info);
+                    jack_info->jack_curr_config = *((pa_qahw_jack_out_config *)event_data->pa_qahw_jack_info);
 
-                    pa_qahw_card_add_dynamic_source(port, (pa_qahw_jack_config_t *)event_data->pa_qahw_jack_info, u);
+                    pa_qahw_card_add_dynamic_source(port, (pa_qahw_jack_out_config *)event_data->pa_qahw_jack_info, u);
                 }
              } else {
                 pa_log_error("unsupported event %d", event);

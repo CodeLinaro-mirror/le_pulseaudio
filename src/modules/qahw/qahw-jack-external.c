@@ -80,7 +80,7 @@ static pa_dbus_interface_info module_interface_info = {
 
 
 static void qahw_jack_external_start_stream(DBusConnection *conn, DBusMessage *msg, void *userdata) {
-    pa_qahw_jack_config_t config;
+    pa_qahw_jack_out_config config;
     pa_qahw_jack_event_data_t event_data;
     pa_qahw_external_jack_data *external_jdata = userdata;
 

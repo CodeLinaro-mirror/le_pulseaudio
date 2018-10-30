@@ -47,7 +47,7 @@ typedef struct {
     pa_qahw_jack_input_mode_t mode;
 } pa_qahw_jack_sys_node_config_t;
 
-static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_config_t *sys_config, pa_qahw_jack_config_t *jack_config) {
+static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_config_t *sys_config, pa_qahw_jack_out_config *jack_config) {
     int rc  = 0;
 
     pa_assert(sys_config);
@@ -135,7 +135,7 @@ static int pa_qahw_format_detection_get_num_channels(int infoframe_channels) {
     return DEFAULT_NUM_CHANNELS;
 }
 
-int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_config_t *jack_config) {
+int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_out_config *jack_config) {
     int rc = -1;
     int mode;
     int sample_rate;
