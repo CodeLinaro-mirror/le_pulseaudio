@@ -141,17 +141,6 @@ static pa_qahw_card_source_info *pa_qahw_card_is_dynamic_source_present_for_port
     return source_info;
 }
 
-static bool pa_qahw_card_is_dynamic_source_supported_for_port(pa_device_port *port, struct userdata *u) {
-    pa_assert(u);
-    pa_assert(port);
-
-    /* FIXME: update this once spdif and arc support is added */
-    if (pa_streq(port->name, "hdmi-in") && !u->config_data->use_dolby_hw_loopback)
-        return true;
-
-    return false;
-}
-
 static void pa_qahw_card_remove_dynamic_source(pa_device_port *port, struct userdata *u) {
     pa_qahw_source_config *source = NULL;
     pa_qahw_card_source_info *source_info = NULL;
@@ -174,7 +163,7 @@ static void pa_qahw_card_remove_dynamic_source(pa_device_port *port, struct user
         }
     }
 
-    if (source && !source_info) {
+    if (!source_info) {
         pa_log_error("%s: no dynamic usecase present, skip removal of source ", __func__);
         goto exit;
     }
@@ -219,10 +208,15 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
 
     pa_log_debug("%s:", __func__);
 
-    requested_format = pa_format_info_from_sample_spec(&config->ss, &config->map);
-    if (!requested_format) {
-        pa_log_error("%s: Invalid jack format", __func__);
-        goto exit;
+    if (config->encoding == PA_ENCODING_PCM) {
+        requested_format = pa_format_info_from_sample_spec(&config->ss, &config->map);
+        if (!requested_format) {
+            pa_log_error("%s: Invalid jack format", __func__);
+            goto exit;
+        }
+    } else {
+        requested_format = pa_format_info_new();
+        pa_format_info_set_rate(requested_format, config->ss.rate);
     }
 
     requested_format->encoding = config->encoding;
@@ -233,7 +227,12 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
     source_info = pa_qahw_card_is_dynamic_source_present_for_port(port->name, u);
 
     /* check if reconfigure is needed if yes then close free existing source and recreate new source */
-    if (source_info && !(source_info->force_suspended)) {
+    if (source_info) {
+       if (source_info->force_suspended) {
+            pa_log_debug("%s: source force suspended, skipping", __func__);
+            goto exit;
+        }
+
         current_formats = pa_qahw_source_get_config(source_info->handle);
         if (!current_formats || (pa_idxset_size(current_formats) != 1)) {  /* dynamic source should have single format */
             pa_log_error("%s: pa_qahw_source_get_config failed", __func__);
@@ -290,6 +289,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_c
     new_source.default_spec = config->ss;
     new_source.default_map = config->map;
     new_source.formats = requested_formats;
+    new_source.default_encoding = config->encoding;
 
     source_info = pa_xnew0(pa_qahw_card_source_info, 1);
     rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, &new_source, &(source_info->handle));
@@ -433,11 +433,11 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
              } else if (event == PA_QAHW_JACK_UNAVAILABLE) {
                 pa_device_port_set_available(port, status);
 
-                if ((port->direction == PA_DIRECTION_INPUT) && pa_qahw_card_is_dynamic_source_supported_for_port(port, u)) {
+                if (port->direction == PA_DIRECTION_INPUT) {
                      pa_qahw_card_remove_dynamic_source(port, u);
                 }
              } else if ((event == PA_QAHW_JACK_CONFIG_UPDATE) && (port->available == PA_AVAILABLE_YES)) {
-                if ((port->direction == PA_DIRECTION_INPUT) && (pa_qahw_card_is_dynamic_source_supported_for_port(port, u))) {
+                if (port->direction == PA_DIRECTION_INPUT) {
                     jack_info = pa_hashmap_get(u->jacks, port_name);
                     jack_info->jack_curr_config = *((pa_qahw_jack_config_t *)event_data->pa_qahw_jack_info);
 
