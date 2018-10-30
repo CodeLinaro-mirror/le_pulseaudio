@@ -44,6 +44,7 @@ typedef struct {
     pa_hashmap *ports;
     pa_hashmap *profiles;
     char **port_conf_string;
+    audio_source_t source_type;
     pa_qahw_card_usecase_type_t usecase_type;
 } pa_qahw_source_config;
 
@@ -112,5 +113,6 @@ static inline audio_input_flags_t pa_qahw_source_get_flags_from_string(const cha
 }
 
 void pa_qahw_source_suspend(pa_qahw_source_handle_t *handle, bool suspend);
+audio_source_t pa_qahw_source_name_to_enum(const char *source_name);
 
 #endif

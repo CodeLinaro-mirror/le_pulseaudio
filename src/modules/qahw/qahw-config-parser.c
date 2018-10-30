@@ -842,6 +842,29 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_source_type(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_source_config *source = NULL;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        source->source_type = pa_qahw_source_name_to_enum((const char *)state->rvalue);
+        pa_log_debug("%s: adding source type %d to %s", __func__, source->source_type, source->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
 static int pa_qahw_config_parse_alternative_sample_rate(pa_config_parser_state *state) {
 
     pa_qahw_config_data* config_data = state->userdata;
@@ -1520,6 +1543,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "sample-rates",         pa_qahw_config_parse_sample_rates,                        NULL, NULL },
         { "sample-formats",       pa_qahw_config_parse_sample_formats,                      NULL, NULL },
         { "channel-maps",         pa_qahw_config_parse_channel_maps,                        NULL, NULL },
+        { "source-type",          pa_qahw_config_parse_source_type,                         NULL, NULL },
 
          /* [Loopback...] */
         { "in-port-names",        pa_qahw_config_parse_port_names,                          NULL, NULL },
