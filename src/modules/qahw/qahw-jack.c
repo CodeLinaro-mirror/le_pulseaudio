@@ -108,6 +108,9 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
         } else if  (jack_type == PA_QAHW_JACK_TYPE_BTA2DP_OUT) {
             u->jack_type = PA_QAHW_JACK_TYPE_BTA2DP_OUT;
             g_jack_userdata.jdata[g_jack_userdata.jack_count] = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
+        } else if  (jack_type ==  PA_QAHW_JACK_TYPE_BTA2DP_IN) {
+            u->jack_type = PA_QAHW_JACK_TYPE_BTA2DP_IN;
+            g_jack_userdata.jdata[g_jack_userdata.jack_count] = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
         }
 
         if (!(pa_qahw_jack_check_enable_status(g_jack_userdata.jdata[g_jack_userdata.jack_count], jack_type)))
