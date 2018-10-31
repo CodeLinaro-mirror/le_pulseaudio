@@ -1433,7 +1433,6 @@ static void pa_qahw_sink_effect_create(DBusConnection *conn,
             pa_log_error("%s: Unable to retrieve sink io handle for sink id: %d\n", __func__, sink_id);
             pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Unable to retrieve sink io handle.");
             dbus_error_free(&error);
-            pa_xfree(ses_data);
             return;
         }
         ses_data = pa_xnew0(pa_qahw_effect_session_data, 1);
