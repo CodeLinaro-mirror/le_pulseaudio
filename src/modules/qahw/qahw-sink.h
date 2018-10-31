@@ -51,6 +51,7 @@ typedef struct {
 
 typedef size_t pa_qahw_sink_handle_t;
 
+bool pa_qahw_sink_is_primary(audio_output_flags_t flags);
 pa_idxset* pa_qahw_sink_get_config(pa_qahw_sink_handle_t *handle);
 audio_io_handle_t pa_qahw_sink_get_io_handle(uint32_t sink_id);
 bool pa_qahw_sink_is_supported_sample_rate(uint32_t sample_rate);
@@ -101,7 +102,9 @@ static inline audio_output_flags_t pa_qahw_sink_get_flags_from_string(const char
 
     if (pa_streq(flag_name, "AUDIO_OUTPUT_FLAG_FAST")) {
         flag = AUDIO_OUTPUT_FLAG_FAST;
-    } else if (pa_streq(flag_name,"AUDIO_OUTPUT_FLAG_RAW")) {
+    } else if (pa_streq(flag_name, "AUDIO_OUTPUT_FLAG_PRIMARY")) {
+        flag = AUDIO_OUTPUT_FLAG_PRIMARY;
+    } else if (pa_streq(flag_name, "AUDIO_OUTPUT_FLAG_RAW")) {
         flag = AUDIO_OUTPUT_FLAG_RAW;
     } else if (pa_streq(flag_name, "AUDIO_OUTPUT_FLAG_DEEP_BUFFER")) {
         flag = AUDIO_OUTPUT_FLAG_DEEP_BUFFER;
