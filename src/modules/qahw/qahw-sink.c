@@ -127,7 +127,7 @@ static const char *pa_qahw_sink_get_name_from_flags(audio_output_flags_t flags) 
         name = "direct_pcm";
     else if (flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
         name = "pcm_offload";
-    else if (flags == AUDIO_OUTPUT_FLAG_RAW)
+    else if (flags == (AUDIO_OUTPUT_FLAG_RAW | AUDIO_OUTPUT_FLAG_FAST))
         name = "ultra_low_latency";
 
     return name;
