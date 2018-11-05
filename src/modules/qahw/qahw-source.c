@@ -723,12 +723,12 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     }
 
     rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate, card, ports, driver, sdata);
-    pa_hashmap_free(ports);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", source->name, rc);
         free_qahw_source(sdata->qahw_sdata);
         pa_xfree(sdata);
         sdata = NULL;
+        goto exit;
     }
 
     rc = pa_qahw_source_extn_create(sdata->pa_sdata->source->core, sdata->qahw_sdata->in_handle, sdata->pa_sdata->source->index, &sdata->source_extn_handle);
@@ -738,11 +738,14 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
         free_pa_source(sdata->pa_sdata);
         pa_xfree(sdata);
         sdata = NULL;
+        goto exit;
     }
 
     *handle = (pa_qahw_source_handle_t *)sdata;
 
 exit:
+    if (ports)
+        pa_hashmap_free(ports);
     return rc;
 }
 
