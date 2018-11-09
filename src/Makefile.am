@@ -1262,7 +1262,8 @@ modlibexec_LTLIBRARIES += \
 		module-role-ducking.la \
 		module-role-exclusive.la \
 		module-role-ignore.la \
-		module-allow-passthrough.la
+		module-allow-passthrough.la \
+		module-policy-voiceui.la
 
 if HAVE_ESOUND
 modlibexec_LTLIBRARIES += \
@@ -1989,6 +1990,12 @@ module_role_exclusive_la_SOURCES = modules/module-role-exclusive.c
 module_role_exclusive_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_role_exclusive_la_LIBADD = $(MODULE_LIBADD)
 module_role_exclusive_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_exclusive
+
+# Defines policy when there is a qsthw lab session is initiated
+module_policy_voiceui_la_SOURCES = modules/module-policy-voiceui.c
+module_policy_voiceui_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_policy_voiceui_la_LIBADD = $(MODULE_LIBADD)
+module_policy_voiceui_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_policy_voiceui
 
 # Ignore certain streams while others are active (e.g. mute tones when there is active voice-prompt)
 module_role_ignore_la_SOURCES = modules/module-role-ignore.c
