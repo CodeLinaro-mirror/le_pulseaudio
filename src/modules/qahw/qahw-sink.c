@@ -449,6 +449,11 @@ static void pa_qahw_sink_thread_func(void *userdata) {
     bool wait;
     int rc;
 
+    if ((pa_sdata->sink->core->realtime_scheduling)) {
+        pa_log_info("%s:: Making io thread for %s as realtime with prio %d", __func__, pa_qahw_sink_get_name_from_flags(qahw_sdata->flags), pa_sdata->sink->core->realtime_priority);
+        pa_make_realtime(pa_sdata->sink->core->realtime_priority);
+    }
+
     pa_thread_mq_install(&pa_sdata->thread_mq);
 
     memset(&out_buf, 0, sizeof(qahw_out_buffer_t));
