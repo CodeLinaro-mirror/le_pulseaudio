@@ -750,7 +750,10 @@ static void prepare_next_write_item(pa_pstream *p) {
             pa_memblock_ref(p->write.memchunk.memblock);
         }
 
-        if (p->use_times) {
+        /* See if we support sending the time on the protocol, and if we have something meaningful to send */
+        if (p->use_times &&
+            (p->write.current->chunk.timestamp != PA_NSEC_INVALID || p->write.current->chunk.duration != PA_NSEC_INVALID)) {
+
             if (time_info == NULL) {
                 /* No SHM data, so we're right after the descriptors */
                 time_info = (uint32_t *) &p->write.minibuf[PA_PSTREAM_DESCRIPTOR_SIZE];
