@@ -152,6 +152,10 @@ bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *jack_handle, 
             pa_hashmap_remove(registered_jacks, port_name);
             pa_qahw_external_jack_detection_disable(jdata, m);
             toggle_jack_status_bits(PA_QAHW_JACK_TYPE_BTA2DP_OUT);
+        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_BTA2DP_IN) {
+            pa_hashmap_remove(registered_jacks, port_name);
+            pa_qahw_external_jack_detection_disable(jdata, m);
+            toggle_jack_status_bits(PA_QAHW_JACK_TYPE_BTA2DP_IN);
         }
     }
 
