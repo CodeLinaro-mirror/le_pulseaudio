@@ -222,8 +222,14 @@ int pa_format_info_to_sample_spec_fake(const pa_format_info *f, pa_sample_spec *
     pa_assert(f);
     pa_assert(ss);
 
-    /* Note: When we add support for non-IEC61937 encapsulated compressed
-     * formats, this function should return a non-zero values for these. */
+    switch (f->encoding) {
+        case PA_ENCODING_PCM:
+        case PA_ENCODING_MPEG:
+            return -PA_ERR_INVALID;
+
+        default:
+            break;
+    }
 
     ss->format = PA_SAMPLE_S16LE;
     if ((f->encoding == PA_ENCODING_TRUEHD_IEC61937) ||

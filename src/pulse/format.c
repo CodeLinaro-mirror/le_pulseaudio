@@ -52,6 +52,7 @@ static const char* const _encoding_str_table[]= {
     [PA_ENCODING_UNKNOWN_IEC61937] = "unknown-iec61937",
     [PA_ENCODING_UNKNOWN_4X_IEC61937] = "unknown-4x-iec61937",
     [PA_ENCODING_UNKNOWN_HBR_IEC61937] = "unknown-hbr-iec61937",
+    [PA_ENCODING_MPEG] = "mpeg",
     [PA_ENCODING_ANY] = "any",
 };
 
