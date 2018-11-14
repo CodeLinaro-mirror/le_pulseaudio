@@ -125,6 +125,12 @@ int pa_format_info_is_pcm(const pa_format_info *f);
  * applies to IEC61937-encapsulated formats. \since FIXME */
 int pa_format_info_is_passthrough(const pa_format_info *f);
 
+/** Returns non-zero when the format info structure represents a compressed
+ * format which cannot be transmitted as a PCM-equivalent format. This applies
+ * to most compressed data except when encapsulated in the IEC61937 format.
+ * \since FIXME. */
+int pa_format_info_is_compressed(const pa_format_info *f);
+
 /** Returns non-zero if the format represented by \a first is a subset of
  * the format represented by \a second. This means that \a second must
  * have all the fields that \a first does, but the reverse need not
