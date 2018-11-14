@@ -113,8 +113,13 @@ void pa_format_info_free(pa_format_info *f);
 int pa_format_info_valid(const pa_format_info *f);
 
 /** Returns non-zero when the format info structure represents a PCM
- * (i.e.\ uncompressed data) format. \since 1.0 */
+ * (i.e. uncompressed data) format. \since 1.0 */
 int pa_format_info_is_pcm(const pa_format_info *f);
+
+/** Returns non-zero when the format info structure represents a compressed
+ * format which can be transmitted as a PCM-equivalent format. This primarily
+ * applies to IEC61937-encapsulated formats. \since FIXME */
+int pa_format_info_is_passthrough(const pa_format_info *f);
 
 /** Returns non-zero if the format represented by \a first is a subset of
  * the format represented by \a second. This means that \a second must

@@ -110,6 +110,21 @@ int pa_format_info_is_pcm(const pa_format_info *f) {
     return f->encoding == PA_ENCODING_PCM;
 }
 
+int pa_format_info_is_passthrough(const pa_format_info *f) {
+    switch (f->encoding) {
+        case PA_ENCODING_AC3_IEC61937:
+        case PA_ENCODING_EAC3_IEC61937:
+        case PA_ENCODING_MPEG_IEC61937:
+        case PA_ENCODING_DTS_IEC61937:
+        case PA_ENCODING_MPEG2_AAC_IEC61937:
+        case PA_ENCODING_TRUEHD_IEC61937:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 char *pa_format_info_snprint(char *s, size_t l, const pa_format_info *f) {
     char *tmp;
 

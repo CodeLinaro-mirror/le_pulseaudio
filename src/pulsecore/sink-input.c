@@ -134,7 +134,7 @@ void pa_sink_input_new_data_set_channel_map(pa_sink_input_new_data *data, const 
 bool pa_sink_input_new_data_is_passthrough(pa_sink_input_new_data *data) {
     pa_assert(data);
 
-    if (PA_LIKELY(data->format) && PA_UNLIKELY(!pa_format_info_is_pcm(data->format)))
+    if (PA_LIKELY(data->format) && PA_UNLIKELY(pa_format_info_is_passthrough(data->format)))
         return true;
 
     if (PA_UNLIKELY(data->flags & PA_SINK_INPUT_PASSTHROUGH))
@@ -1384,7 +1384,7 @@ static void set_real_ratio(pa_sink_input *i, const pa_cvolume *v) {
 bool pa_sink_input_is_passthrough(pa_sink_input *i) {
     pa_sink_input_assert_ref(i);
 
-    if (PA_UNLIKELY(!pa_format_info_is_pcm(i->format)))
+    if (PA_UNLIKELY(pa_format_info_is_passthrough(i->format)))
         return true;
 
     if (PA_UNLIKELY(i->flags & PA_SINK_INPUT_PASSTHROUGH))
