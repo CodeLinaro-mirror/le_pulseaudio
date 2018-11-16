@@ -1484,18 +1484,39 @@ exit:
     return ret;
 }
 
-static int pa_qahw_config_parse_port_secondary_name(pa_config_parser_state *state) {
+static int pa_qahw_config_parse_port_linked_ports_list(pa_config_parser_state *state) {
     pa_qahw_config_data *config_data = state->userdata;
     pa_qahw_card_port_config *port;
+    pa_qahw_card_port_config *linked_port;
+    char **items = NULL;
+    char *port_name = NULL;
     int ret = -1;
+    int i = 0;
 
     pa_assert(config_data);
     pa_assert(state);
     pa_assert(state->rvalue);
 
     if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
-        port->secondary_port_name = pa_xstrdup(state->rvalue);
-        pa_log_debug("%s: adding secondary port name %s to %s", __func__, port->secondary_port_name, port->name);
+        items = pa_split_spaces_strv(state->rvalue);
+
+        if (!items) {
+            pa_log_error("%s: missing linked port list", __func__);
+            goto exit;
+        }
+
+        /* Validate whether all the ports are valid */
+        while ((port_name = items[i++])) {
+            linked_port = pa_hashmap_get(config_data->ports, port_name);
+            if (!linked_port) {
+                pa_log_error("%s: invalid port %s", __func__, port_name);
+                pa_xstrfreev(items);
+                goto exit;
+            }
+        }
+
+        port->linked_ports = items;
+        pa_log_debug("%s: adding linked port list to %s", __func__, port->name);
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
@@ -1519,8 +1540,8 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
     if (port->port_type)
         pa_xfree(port->port_type);
 
-    if (port->secondary_port_name)
-        pa_xfree(port->secondary_port_name);
+    if (port->linked_ports)
+        pa_xstrfreev(port->linked_ports);
 
     if (port->state_node_path)
         pa_xfree(port->state_node_path);
@@ -1656,7 +1677,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "device",                      pa_qahw_config_parse_port_device,                         NULL, NULL },
         { "format-detection",            pa_qahw_config_parse_port_format_detection,               NULL, NULL },
         { "port-type",                   pa_qahw_config_parse_port_type,                           NULL, NULL },
-        { "secondary-port-name",         pa_qahw_config_parse_port_secondary_name,                 NULL, NULL },
+        { "linked-ports",                pa_qahw_config_parse_port_linked_ports_list,              NULL, NULL },
         { "state-node-path",             pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "sample-format-node-path",     pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "sample-rate-node-path",       pa_qahw_config_parse_port_sys_path,                       NULL, NULL },

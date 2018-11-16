@@ -23,9 +23,11 @@ typedef struct pa_qahw_jack_config {
     pa_encoding_t encoding;
     pa_sample_spec ss;
     pa_channel_map map;
+    pa_qahw_jack_type_t active_jack;
 } pa_qahw_jack_out_config;
 
-int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_out_config *curr_config);
+int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys_path sys_path,
+                                                          pa_qahw_jack_out_config *jack_config);
 
 #endif
 
