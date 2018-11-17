@@ -583,50 +583,6 @@ exit:
    return;
 }
 
-static void pa_qahw_card_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qahw_jack_in_config *jack_in_config) {
-    pa_assert(config_port);
-    pa_assert(jack_in_config);
-
-    if (config_port->state_node_path)
-        jack_in_config->jack_sys_path.audio_state = config_port->state_node_path;
-
-    if (config_port->sample_format_node_path)
-        jack_in_config->jack_sys_path.audio_format = config_port->sample_format_node_path;
-
-    if (config_port->sample_rate_node_path)
-        jack_in_config->jack_sys_path.audio_rate = config_port->sample_rate_node_path;
-
-    if (config_port->sample_layout_node_path)
-        jack_in_config->jack_sys_path.audio_layout = config_port->sample_layout_node_path;
-
-    if (config_port->sample_channel_node_path)
-        jack_in_config->jack_sys_path.audio_channel = config_port->sample_channel_node_path;
-
-    if (config_port->sample_channel_alloc_node_path)
-        jack_in_config->jack_sys_path.audio_channel_alloc = config_port->sample_channel_alloc_node_path;
-
-    if (config_port->linkon0_node_path)
-        jack_in_config->jack_sys_path.linkon_0 = config_port->linkon0_node_path;
-
-    if (config_port->poweron_node_path)
-        jack_in_config->jack_sys_path.power_on = config_port->poweron_node_path;
-
-    if (config_port->audio_path_node_path)
-        jack_in_config->jack_sys_path.audio_path = config_port->audio_path_node_path;
-
-    if (config_port->arc_enable_node_path)
-        jack_in_config->jack_sys_path.arc_enable = config_port->arc_enable_node_path;
-
-    if (config_port->arc_state_node_path)
-        jack_in_config->jack_sys_path.arc_audio_state = config_port->arc_state_node_path;
-
-    if (config_port->arc_sample_format_node_path)
-        jack_in_config->jack_sys_path.arc_audio_format = config_port->arc_sample_format_node_path;
-
-    if (config_port->arc_sample_rate_node_path)
-        jack_in_config->jack_sys_path.arc_audio_rate = config_port->arc_sample_rate_node_path;
-}
-
 static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)), pa_qahw_jack_event_data_t *event_data, void *prv_data) {
     const char *port_name = NULL;
     pa_available_t status = PA_AVAILABLE_UNKNOWN;
@@ -767,7 +723,7 @@ static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
 
         if (config_port->format_detection) {
             jack_in_config = pa_xnew0(pa_qahw_jack_in_config, 1);
-            pa_qahw_card_get_jack_sys_path(config_port, jack_in_config);
+            pa_qahw_util_get_jack_sys_path(config_port, jack_in_config);
         }
 
         /* Allocate memory for jack */
@@ -778,7 +734,7 @@ static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
         if (config_port->linked_ports) {
             while ((port_name = config_port->linked_ports[i++])) {
                 secondary_config_port = pa_hashmap_get(u->config_data->ports, port_name);
-                pa_qahw_card_get_jack_sys_path(secondary_config_port, jack_in_config);
+                pa_qahw_util_get_jack_sys_path(secondary_config_port, jack_in_config);
 
                 /* Allocate memory for secondary jack */
                 secondary_jack_info = pa_xnew0(pa_qahw_card_jack_info, 1);
