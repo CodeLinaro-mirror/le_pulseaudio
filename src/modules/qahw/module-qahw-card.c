@@ -1002,6 +1002,22 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
 
     pa_qahw_card_sink_info *sink_info;
 
+    bool is_primary_sink_present = false;
+
+    /* One sink should always be primary, if not return error*/
+    PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
+        if (pa_qahw_sink_is_primary(sink->flags)) {
+            is_primary_sink_present = true;
+            break;
+        }
+    }
+
+    if (!is_primary_sink_present) {
+        pa_log_error("%s:: No primary sink", __func__);
+        rc = -1;
+        goto exit;
+    }
+
     PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
         if (!(pa_hashmap_get(sink->profiles, profile_name)) || sink->usecase_type != usecase_type)
             continue;
@@ -1018,6 +1034,7 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
 
     }
 
+exit:
     return rc;
 }
 
