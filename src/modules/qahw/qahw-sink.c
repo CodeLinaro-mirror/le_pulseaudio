@@ -1005,7 +1005,6 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     }
 
     rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &sink->default_spec, &sink->default_map, sink->use_hw_volume, sink->alternate_sample_rate, card, ports, driver, sdata);
-    pa_hashmap_free(ports);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", sink->name, rc);
         free_qahw_sink(sdata);
@@ -1019,15 +1018,19 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create qahw sink extn %s, error %d", sink->name, rc);
         free_qahw_sink(sdata);
+        pa_qahw_sink_free_common_resources(sdata);
         free_pa_sink(sdata);
         pa_xfree(sdata);
         sdata = NULL;
+        goto exit;
     }
 
     *handle = (pa_qahw_sink_handle_t *)sdata;
     pa_idxset_put(mdata->sinks, sdata, NULL);
 
 exit:
+    if (ports)
+        pa_hashmap_free(ports);
     return rc;
 }
 
