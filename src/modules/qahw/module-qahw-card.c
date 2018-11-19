@@ -215,7 +215,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
     pa_format_info *requested_format;
 
     pa_format_info *current_format;
-    pa_format_info *config_format;
+    pa_format_info *config_format = NULL;
 
     pa_idxset *current_formats;
 
