@@ -523,11 +523,23 @@ static pa_channel_position_t mirror_channel(pa_channel_position_t channel) {
         case PA_CHANNEL_POSITION_SIDE_RIGHT:
             return PA_CHANNEL_POSITION_SIDE_LEFT;
 
+        case PA_CHANNEL_POSITION_FRONT_LEFT_WIDE:
+            return PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE;
+
+        case PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE:
+            return PA_CHANNEL_POSITION_FRONT_LEFT_WIDE;
+
         case PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER:
             return PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER;
 
         case PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER:
             return PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER;
+
+        case PA_CHANNEL_POSITION_REAR_LEFT_OF_CENTER:
+            return PA_CHANNEL_POSITION_REAR_RIGHT_OF_CENTER;
+
+        case PA_CHANNEL_POSITION_REAR_RIGHT_OF_CENTER:
+            return PA_CHANNEL_POSITION_REAR_LEFT_OF_CENTER;
 
         case PA_CHANNEL_POSITION_TOP_FRONT_LEFT:
             return PA_CHANNEL_POSITION_TOP_FRONT_RIGHT;
@@ -540,6 +552,12 @@ static pa_channel_position_t mirror_channel(pa_channel_position_t channel) {
 
         case PA_CHANNEL_POSITION_TOP_REAR_RIGHT:
             return PA_CHANNEL_POSITION_TOP_REAR_LEFT;
+
+        case PA_CHANNEL_POSITION_TOP_SIDE_LEFT:
+               return PA_CHANNEL_POSITION_TOP_SIDE_RIGHT;
+
+        case PA_CHANNEL_POSITION_TOP_SIDE_RIGHT:
+               return PA_CHANNEL_POSITION_TOP_SIDE_LEFT;
 
         default:
             return channel;

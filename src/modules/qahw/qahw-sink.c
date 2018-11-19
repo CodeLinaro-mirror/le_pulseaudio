@@ -127,7 +127,7 @@ static const char *pa_qahw_sink_get_name_from_flags(audio_output_flags_t flags) 
         name = "direct_pcm";
     else if (flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
         name = "pcm_offload";
-    else if (flags == AUDIO_OUTPUT_FLAG_RAW)
+    else if (flags == (AUDIO_OUTPUT_FLAG_RAW | AUDIO_OUTPUT_FLAG_FAST))
         name = "ultra_low_latency";
 
     return name;
@@ -308,6 +308,18 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     port_device_data = PA_DEVICE_PORT_DATA(p);
     pa_assert(port_device_data);
 
+    if (port_device_data->device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_CONNECT, port_device_data->device);
+
+        rc = qahw_out_set_parameters(sdata->qahw_sdata->out_handle, kvpair);
+        if (rc)
+            pa_log_error("qahw routing failed %d",rc);
+
+        pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
+
+        pa_xfree(kvpair);
+    }
+
     kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
     pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
 
@@ -436,6 +448,11 @@ static void pa_qahw_sink_thread_func(void *userdata) {
     void *data;
     bool wait;
     int rc;
+
+    if ((pa_sdata->sink->core->realtime_scheduling)) {
+        pa_log_info("%s:: Making io thread for %s as realtime with prio %d", __func__, pa_qahw_sink_get_name_from_flags(qahw_sdata->flags), pa_sdata->sink->core->realtime_priority);
+        pa_make_realtime(pa_sdata->sink->core->realtime_priority);
+    }
 
     pa_thread_mq_install(&pa_sdata->thread_mq);
 
@@ -850,6 +867,16 @@ static int free_pa_sink(pa_qahw_sink_data *sdata) {
     pa_xfree(pa_sdata);
 
     return 0;
+}
+
+pa_idxset* pa_qahw_sink_get_config(pa_qahw_sink_handle_t *handle) {
+    pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)handle;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->sink);
+
+    return pa_qahw_sink_get_formats(sdata->pa_sdata->sink);
 }
 
 bool pa_qahw_sink_is_supported_sample_rate(uint32_t sample_rate) {

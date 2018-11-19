@@ -51,6 +51,7 @@ typedef struct {
 
 typedef size_t pa_qahw_sink_handle_t;
 
+pa_idxset* pa_qahw_sink_get_config(pa_qahw_sink_handle_t *handle);
 audio_io_handle_t pa_qahw_sink_get_io_handle(uint32_t sink_id);
 bool pa_qahw_sink_is_supported_sample_rate(uint32_t sample_rate);
 int pa_qahw_sink_get_index(pa_qahw_sink_handle_t *handle);

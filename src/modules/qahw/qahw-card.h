@@ -60,6 +60,24 @@ typedef struct {
 
     pa_idxset *formats;
     bool format_detection;
+    char *port_type;
+    char *secondary_port_name;
+
+    char *state_node_path;
+    char *sample_format_node_path;
+    char *sample_rate_node_path;
+    char *sample_layout_node_path;
+    char *sample_channel_node_path;
+    char *sample_channel_alloc_node_path;
+
+    char *linkon0_node_path;
+    char *poweron_node_path;
+    char *audio_path_node_path;
+    char *arc_enable_node_path;
+
+    char *arc_state_node_path;
+    char *arc_sample_format_node_path;
+    char *arc_sample_rate_node_path;
 } pa_qahw_card_port_config;
 
 typedef union {

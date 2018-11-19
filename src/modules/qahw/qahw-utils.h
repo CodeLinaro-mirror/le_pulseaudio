@@ -40,8 +40,9 @@ const char *pa_qahw_util_audio_device_to_port_name(audio_devices_t audio_device,
 audio_devices_t pa_qahw_util_port_to_qahw_device(const char *port);
 audio_devices_t pa_qahw_util_device_name_to_enum(const char *device);
 pa_sample_format_t pa_qahw_util_get_pa_sample_from_qahw_format(audio_format_t format);
-int pa_qahw_utils_convert_format_to_sample_spec(pa_format_info *format, pa_sample_spec *ss, pa_channel_map *map, pa_sample_spec *default_ss, pa_channel_map *default_map,
-                                                int rate_idx, int sample_format_idx);
+int pa_qahw_utils_format_to_sample_spec(pa_format_info *format, pa_sample_spec *ss, pa_channel_map *map,
+                                                        pa_sample_spec *default_ss, pa_channel_map *default_map);
 bool pa_qahw_channel_map_to_qahw(pa_channel_map *pa_map, struct qahw_out_channel_map_param *qahw_map);
 bool pa_qahw_channel_map_from_qahw(struct qahw_out_channel_map_param *qahw_map, pa_channel_map *pa_map);
+void pa_qahw_util_channel_allocation_to_pa_channel_map(pa_channel_map *m, uint32_t channel_allocation);
 #endif

@@ -29,26 +29,51 @@
 #define QAHW_EFFECT_MODULE_IFACE "org.PulseAudio.Core1.Effect"
 #define QAHW_EFFECT_SESSION_IFACE "org.PulseAudio.Core1.Effect.Session"
 
+/* Data associated with effect enable event */
+typedef struct {
+    uint64_t handle;
+    int latency;
+    char *effect_name;
+} pa_qahw_effect_callback_enable_event_data;
+
+/* Data associated with effect disable event */
+typedef struct {
+    int handle;
+    int latency;
+    char *effect_name;
+} pa_qahw_effect_callback_disable_event_data;
+
+/* Effect events */
+typedef enum {
+    PA_QAHW_EFFECT_EVENT_ENABLE,
+    PA_QAHW_EFFECT_EVENT_DISABLE
+} pa_qahw_effect_event;
+
+typedef void* pa_qahw_effect_handle_t;
+
+typedef void (*pa_qahw_effect_callback)(pa_qahw_effect_event event_id, void *event_data, void *prv_data);
+
 typedef struct {
     char *name;
     char *description;
-    char *type;
+    char *lib_name;
+    char *uuid;
     pa_hashmap *sinks;
     pa_hashmap *ports;
+    pa_hashmap *loopbacks;
 
     char **endpoint_conf_string;
 } pa_qahw_effect_config;
 
-typedef void* pa_qahw_effect_handle_t;
+typedef struct {
+    char *endpoint_name;
+    pa_hashmap *effects;
+    pa_qahw_effect_callback cb_func;
+    void *prv_data;
+} pa_qahw_effect_callback_config;
 
-static inline bool pa_qahw_effect_is_supported_type(char *effect_type) {
-    pa_assert(effect_type);
-
-    if (pa_streq(effect_type, "port") || pa_streq(effect_type, "sink"))
-        return true;
-
-    return false;
-}
+int pa_qahw_effect_register_callback(pa_qahw_effect_handle_t effect_handle, pa_qahw_effect_callback_config *callback_config);
+int pa_qahw_effect_deregister_callback(pa_qahw_effect_handle_t effect_handle, char *endpoint_name);
 
 pa_qahw_effect_handle_t pa_qahw_init_effect(char *dbus_path,
                                             pa_dbus_protocol *dbus_protocol,
