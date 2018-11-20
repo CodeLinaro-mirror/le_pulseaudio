@@ -201,7 +201,7 @@ static int source_set_state_in_main_thread_cb(pa_source *s, pa_source_state_t st
     pa_assert_se(u = s->userdata);
 
     if (!PA_SOURCE_IS_LINKED(state) ||
-        !PA_SOURCE_OUTPUT_IS_LINKED(pa_source_output_get_state(u->source_output)))
+        !PA_SOURCE_OUTPUT_IS_LINKED(u->source_output->state))
         return 0;
 
     pa_source_output_cork(u->source_output, state == PA_SOURCE_SUSPENDED);
@@ -232,8 +232,8 @@ static void source_set_volume_cb(pa_source *s) {
     pa_source_assert_ref(s);
     pa_assert_se(u = s->userdata);
 
-    if (!PA_SOURCE_IS_LINKED(pa_source_get_state(s)) ||
-        !PA_SOURCE_OUTPUT_IS_LINKED(pa_source_output_get_state(u->source_output)))
+    if (!PA_SOURCE_IS_LINKED(s->state) ||
+        !PA_SOURCE_OUTPUT_IS_LINKED(u->source_output->state))
         return;
 
     pa_source_output_set_volume(u->source_output, &s->real_volume, s->save_volume, true);
@@ -246,8 +246,8 @@ static void source_set_mute_cb(pa_source *s) {
     pa_source_assert_ref(s);
     pa_assert_se(u = s->userdata);
 
-    if (!PA_SOURCE_IS_LINKED(pa_source_get_state(s)) ||
-        !PA_SOURCE_OUTPUT_IS_LINKED(pa_source_output_get_state(u->source_output)))
+    if (!PA_SOURCE_IS_LINKED(s->state) ||
+        !PA_SOURCE_OUTPUT_IS_LINKED(u->source_output->state))
         return;
 
     pa_source_output_set_mute(u->source_output, s->muted, s->save_muted);
@@ -264,7 +264,7 @@ static void source_output_push_cb(pa_source_output *o, const pa_memchunk *chunk)
     if (!PA_SOURCE_IS_LINKED(u->source->thread_info.state))
         return;
 
-    if (!PA_SOURCE_OUTPUT_IS_LINKED(pa_source_output_get_state(u->source_output))) {
+    if (!PA_SOURCE_OUTPUT_IS_LINKED(u->source_output->thread_info.state)) {
         pa_log("push when no link?");
         return;
     }
@@ -273,7 +273,7 @@ static void source_output_push_cb(pa_source_output *o, const pa_memchunk *chunk)
 
     /* if uplink sink exists, pull data from there; simplify by using
        same length as chunk provided by source */
-    if (u->sink && (pa_sink_get_state(u->sink) == PA_SINK_RUNNING)) {
+    if (u->sink && (u->sink->thread_info.state == PA_SINK_RUNNING)) {
         pa_memchunk tchunk;
         size_t nbytes = chunk->length;
         pa_mix_info streams[2];

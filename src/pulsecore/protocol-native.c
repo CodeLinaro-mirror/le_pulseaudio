@@ -1662,7 +1662,7 @@ static void sink_input_moving_cb(pa_sink_input *i, pa_sink *dest) {
     pa_tagstruct_putu32(t, s->index);
     pa_tagstruct_putu32(t, dest->index);
     pa_tagstruct_puts(t, dest->name);
-    pa_tagstruct_put_boolean(t, pa_sink_get_state(dest) == PA_SINK_SUSPENDED);
+    pa_tagstruct_put_boolean(t, dest->state == PA_SINK_SUSPENDED);
 
     if (s->connection->version >= 13) {
         pa_tagstruct_putu32(t, s->buffer_attr.maxlength);
@@ -1801,7 +1801,7 @@ static void source_output_moving_cb(pa_source_output *o, pa_source *dest) {
     pa_tagstruct_putu32(t, s->index);
     pa_tagstruct_putu32(t, dest->index);
     pa_tagstruct_puts(t, dest->name);
-    pa_tagstruct_put_boolean(t, pa_source_get_state(dest) == PA_SOURCE_SUSPENDED);
+    pa_tagstruct_put_boolean(t, dest->state == PA_SOURCE_SUSPENDED);
 
     if (s->connection->version >= 13) {
         pa_tagstruct_putu32(t, s->buffer_attr.maxlength);
@@ -2083,7 +2083,7 @@ static void command_create_playback_stream(pa_pdispatch *pd, uint32_t command, u
         pa_tagstruct_putu32(reply, s->sink_input->sink->index);
         pa_tagstruct_puts(reply, s->sink_input->sink->name);
 
-        pa_tagstruct_put_boolean(reply, pa_sink_get_state(s->sink_input->sink) == PA_SINK_SUSPENDED);
+        pa_tagstruct_put_boolean(reply, s->sink_input->sink->state == PA_SINK_SUSPENDED);
     }
 
     if (c->version >= 13)
@@ -2399,7 +2399,7 @@ static void command_create_record_stream(pa_pdispatch *pd, uint32_t command, uin
         pa_tagstruct_putu32(reply, s->source_output->source->index);
         pa_tagstruct_puts(reply, s->source_output->source->name);
 
-        pa_tagstruct_put_boolean(reply, pa_source_get_state(s->source_output->source) == PA_SOURCE_SUSPENDED);
+        pa_tagstruct_put_boolean(reply, s->source_output->source->state == PA_SOURCE_SUSPENDED);
     }
 
     if (c->version >= 13)
@@ -2884,8 +2884,8 @@ static void command_get_playback_latency(pa_pdispatch *pd, uint32_t command, uin
     pa_tagstruct_put_usec(reply, 0);
     pa_tagstruct_put_boolean(reply,
                              s->playing_for > 0 &&
-                             pa_sink_get_state(s->sink_input->sink) == PA_SINK_RUNNING &&
-                             pa_sink_input_get_state(s->sink_input) == PA_SINK_INPUT_RUNNING);
+                             s->sink_input->sink->state == PA_SINK_RUNNING &&
+                             s->sink_input->state == PA_SINK_INPUT_RUNNING);
     pa_tagstruct_put_timeval(reply, &tv);
     pa_tagstruct_put_timeval(reply, pa_gettimeofday(&now));
     pa_tagstruct_puts64(reply, s->write_index);
@@ -2929,8 +2929,8 @@ static void command_get_record_latency(pa_pdispatch *pd, uint32_t command, uint3
                           s->current_source_latency +
                           pa_bytes_to_usec(s->on_the_fly_snapshot, &s->source_output->sample_spec));
     pa_tagstruct_put_boolean(reply,
-                             pa_source_get_state(s->source_output->source) == PA_SOURCE_RUNNING &&
-                             pa_source_output_get_state(s->source_output) == PA_SOURCE_OUTPUT_RUNNING);
+                             s->source_output->source->state == PA_SOURCE_RUNNING &&
+                             s->source_output->state == PA_SOURCE_OUTPUT_RUNNING);
     pa_tagstruct_put_timeval(reply, &tv);
     pa_tagstruct_put_timeval(reply, pa_gettimeofday(&now));
     pa_tagstruct_puts64(reply, pa_memblockq_get_write_index(s->memblockq));
@@ -3172,9 +3172,9 @@ static void sink_fill_tagstruct(pa_native_connection *c, pa_tagstruct *t, pa_sin
 
     if (c->version >= 15) {
         pa_tagstruct_put_volume(t, sink->base_volume);
-        if (PA_UNLIKELY(pa_sink_get_state(sink) == PA_SINK_INVALID_STATE))
+        if (PA_UNLIKELY(sink->state == PA_SINK_INVALID_STATE))
             pa_log_error("Internal sink state is invalid.");
-        pa_tagstruct_putu32(t, pa_sink_get_state(sink));
+        pa_tagstruct_putu32(t, sink->state);
         pa_tagstruct_putu32(t, sink->n_volume_steps);
         pa_tagstruct_putu32(t, sink->card ? sink->card->index : PA_INVALID_INDEX);
     }
@@ -3242,9 +3242,9 @@ static void source_fill_tagstruct(pa_native_connection *c, pa_tagstruct *t, pa_s
 
     if (c->version >= 15) {
         pa_tagstruct_put_volume(t, source->base_volume);
-        if (PA_UNLIKELY(pa_source_get_state(source) == PA_SOURCE_INVALID_STATE))
+        if (PA_UNLIKELY(source->state == PA_SOURCE_INVALID_STATE))
             pa_log_error("Internal source state is invalid.");
-        pa_tagstruct_putu32(t, pa_source_get_state(source));
+        pa_tagstruct_putu32(t, source->state);
         pa_tagstruct_putu32(t, source->n_volume_steps);
         pa_tagstruct_putu32(t, source->card ? source->card->index : PA_INVALID_INDEX);
     }
@@ -3397,7 +3397,7 @@ static void sink_input_fill_tagstruct(pa_native_connection *c, pa_tagstruct *t, 
     if (c->version >= 13)
         pa_tagstruct_put_proplist(t, s->proplist);
     if (c->version >= 19)
-        pa_tagstruct_put_boolean(t, (pa_sink_input_get_state(s) == PA_SINK_INPUT_CORKED));
+        pa_tagstruct_put_boolean(t, s->state == PA_SINK_INPUT_CORKED);
     if (c->version >= 20) {
         pa_tagstruct_put_boolean(t, has_volume);
         pa_tagstruct_put_boolean(t, s->volume_writable);
@@ -3437,7 +3437,7 @@ static void source_output_fill_tagstruct(pa_native_connection *c, pa_tagstruct *
     if (c->version >= 13)
         pa_tagstruct_put_proplist(t, s->proplist);
     if (c->version >= 19)
-        pa_tagstruct_put_boolean(t, (pa_source_output_get_state(s) == PA_SOURCE_OUTPUT_CORKED));
+        pa_tagstruct_put_boolean(t, s->state == PA_SOURCE_OUTPUT_CORKED);
     if (c->version >= 22) {
         pa_tagstruct_put_cvolume(t, &v);
         pa_tagstruct_put_boolean(t, s->muted);

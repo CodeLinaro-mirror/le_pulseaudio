@@ -301,7 +301,7 @@ int pa_source_output_new(
         return -PA_ERR_NOTSUPPORTED;
     }
 
-    pa_return_val_if_fail(PA_SOURCE_IS_LINKED(pa_source_get_state(data->source)), -PA_ERR_BADSTATE);
+    pa_return_val_if_fail(PA_SOURCE_IS_LINKED(data->source->state), -PA_ERR_BADSTATE);
     pa_return_val_if_fail(!data->direct_on_input || data->direct_on_input->sink == data->source->monitor_of, -PA_ERR_INVALID);
 
     /* Routing is done. We have a source and a format. */
@@ -369,8 +369,8 @@ int pa_source_output_new(
            module-suspend-on-idle can resume a source */
 
         pa_log_info("Trying to change sample rate");
-        if (pa_source_reconfigure(data->source, &data->sample_spec, pa_source_output_new_data_is_passthrough(data)) >= 0)
-            pa_log_info("Rate changed to %u Hz", data->source->sample_spec.rate);
+        pa_source_reconfigure(data->source, &data->sample_spec, &data->channel_map,
+                pa_source_output_new_data_is_passthrough(data), false);
     }
 
     if (pa_source_output_new_data_is_passthrough(data) &&
@@ -390,7 +390,7 @@ int pa_source_output_new(
         return r;
 
     if ((data->flags & PA_SOURCE_OUTPUT_NO_CREATE_ON_SUSPEND) &&
-        pa_source_get_state(data->source) == PA_SOURCE_SUSPENDED) {
+        data->source->state == PA_SOURCE_SUSPENDED) {
         pa_log("Failed to create source output: source is suspended.");
         return -PA_ERR_BADSTATE;
     }
@@ -543,7 +543,7 @@ static void source_output_set_state(pa_source_output *o, pa_source_output_state_
             !pa_sample_spec_equal(&o->sample_spec, &o->source->sample_spec)) {
             /* We were uncorked and the source was not playing anything -- let's try
              * to update the sample rate to avoid resampling */
-            pa_source_reconfigure(o->source, &o->sample_spec, pa_source_output_is_passthrough(o));
+            pa_source_reconfigure(o->source, &o->sample_spec, &o->channel_map, pa_source_output_is_passthrough(o), false);
         }
 
         pa_assert_se(pa_asyncmsgq_send(o->source->asyncmsgq, PA_MSGOBJECT(o), PA_SOURCE_OUTPUT_MESSAGE_SET_STATE, PA_UINT_TO_PTR(state), 0, NULL) == 0);
@@ -598,9 +598,6 @@ void pa_source_output_unlink(pa_source_output*o) {
     o->state = PA_SOURCE_OUTPUT_UNLINKED;
 
     if (linked && o->source) {
-        if (pa_source_output_is_passthrough(o))
-            pa_source_leave_passthrough(o->source);
-
         /* We might need to update the source's volume if we are in flat volume mode. */
         if (pa_source_flat_volume_enabled(o->source))
             pa_source_set_volume(o->source, NULL, false, false);
@@ -612,8 +609,14 @@ void pa_source_output_unlink(pa_source_output*o) {
     reset_callbacks(o);
 
     if (o->source) {
-        if (PA_SOURCE_IS_LINKED(pa_source_get_state(o->source)))
+        if (PA_SOURCE_IS_LINKED(o->source->state)) {
             pa_source_update_status(o->source);
+
+            if (pa_source_output_is_passthrough(o)) {
+                pa_log_debug("Leaving passthrough, trying to restore previous configuration");
+                pa_source_reconfigure(o->source, NULL, NULL, false, true);
+            }
+        }
 
         o->source = NULL;
     }
@@ -685,9 +688,6 @@ void pa_source_output_put(pa_source_output *o) {
 
         set_real_ratio(o, &o->volume);
     }
-
-    if (pa_source_output_is_passthrough(o))
-        pa_source_enter_passthrough(o->source);
 
     o->thread_info.soft_volume = o->soft_volume;
     o->thread_info.muted = o->muted;
@@ -1356,11 +1356,8 @@ int pa_source_output_start_move(pa_source_output *o) {
 
     pa_idxset_remove_by_data(o->source->outputs, o, NULL);
 
-    if (pa_source_output_get_state(o) == PA_SOURCE_OUTPUT_CORKED)
+    if (o->state == PA_SOURCE_OUTPUT_CORKED)
         pa_assert_se(origin->n_corked-- >= 1);
-
-    if (pa_source_output_is_passthrough(o))
-        pa_source_leave_passthrough(o->source);
 
     if (pa_source_flat_volume_enabled(o->source))
         /* We might need to update the source's volume if we are in flat
@@ -1370,6 +1367,11 @@ int pa_source_output_start_move(pa_source_output *o) {
     pa_assert_se(pa_asyncmsgq_send(o->source->asyncmsgq, PA_MSGOBJECT(o->source), PA_SOURCE_MESSAGE_REMOVE_OUTPUT, o, 0, NULL) == 0);
 
     pa_source_update_status(o->source);
+
+    if (pa_source_output_is_passthrough(o)) {
+        pa_log_debug("Leaving passthrough, trying to restore previous configuration");
+        pa_source_reconfigure(o->source, NULL, NULL, false, true);
+    }
 
     pa_cvolume_remap(&o->volume_factor_source, &o->source->channel_map, &o->channel_map);
 
@@ -1538,8 +1540,7 @@ int pa_source_output_finish_move(pa_source_output *o, pa_source *dest, bool save
            SOURCE_OUTPUT_MOVE_FINISH hook */
 
         pa_log_info("Trying to change sample rate");
-        if (pa_source_reconfigure(dest, &o->sample_spec, pa_source_output_is_passthrough(o)) >= 0)
-            pa_log_info("Rate changed to %u Hz", dest->sample_spec.rate);
+        pa_source_reconfigure(dest, &o->sample_spec, &o->channel_map, pa_source_output_is_passthrough(o), false);
     }
 
     if (o->moving)
@@ -1551,7 +1552,7 @@ int pa_source_output_finish_move(pa_source_output *o, pa_source *dest, bool save
 
     pa_cvolume_remap(&o->volume_factor_source, &o->channel_map, &o->source->channel_map);
 
-    if (pa_source_output_get_state(o) == PA_SOURCE_OUTPUT_CORKED)
+    if (o->state == PA_SOURCE_OUTPUT_CORKED)
         o->source->n_corked++;
 
     pa_source_output_update_rate(o);
@@ -1559,9 +1560,6 @@ int pa_source_output_finish_move(pa_source_output *o, pa_source *dest, bool save
     pa_source_update_status(dest);
 
     update_volume_due_to_moving(o, dest);
-
-    if (pa_source_output_is_passthrough(o))
-        pa_source_enter_passthrough(o->source);
 
     pa_assert_se(pa_asyncmsgq_send(o->source->asyncmsgq, PA_MSGOBJECT(o->source), PA_SOURCE_MESSAGE_ADD_OUTPUT, o, 0, NULL) == 0);
 
