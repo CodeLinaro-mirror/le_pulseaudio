@@ -48,9 +48,10 @@ pa_qahw_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS, (char*)"headset-mic" },
     { PA_QAHW_JACK_TYPE_WIRED_HEADPHONE, (char*)"headphone" },
     { PA_QAHW_JACK_TYPE_LINEOUT, (char*)"lineout"},
-    { PA_QAHW_JACK_TYPE_HDMI, (char*)"hdmi-in" },
+    { PA_QAHW_JACK_TYPE_HDMI_IN, (char*)"hdmi-in" },
     { PA_QAHW_JACK_TYPE_BTA2DP_OUT, (char*)"bta2dp-out" },
     { PA_QAHW_JACK_TYPE_BTA2DP_IN, (char*)"bta2dp-in" },
+    { PA_QAHW_JACK_TYPE_HDMI_ARC, (char *)"hdmi-arc"},
 };
 
 pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
@@ -62,7 +63,7 @@ pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
     { (char *)"headset-mic",     AUDIO_DEVICE_IN_WIRED_HEADSET,     (char *)"AUDIO_DEVICE_IN_WIRED_HEADSET" },
     { (char *)"builtin-mic",     AUDIO_DEVICE_IN_BUILTIN_MIC,       (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC" },
     { (char *)"hdmi-in",         AUDIO_DEVICE_IN_HDMI,              (char *)"AUDIO_DEVICE_IN_HDMI" },
-    { (char *)"spdif-in",        AUDIO_DEVICE_IN_SPDIF ,            (char *)"AUDIO_DEVICE_IN_SPDIF" },
+    { (char *)"spdif-in",        AUDIO_DEVICE_IN_SPDIF,             (char *)"AUDIO_DEVICE_IN_SPDIF" },
     { (char *)"linein",          AUDIO_DEVICE_IN_LINE,              (char *)"AUDIO_DEVICE_IN_LINE" },
     { (char *)"bta2dp-in" ,      AUDIO_DEVICE_IN_BLUETOOTH_A2DP,    (char *)"AUDIO_DEVICE_IN_BLUETOOTH_A2DP"},
     { (char *)"hdmi-arc",        AUDIO_DEVICE_IN_HDMI_ARC,          (char *)"AUDIO_DEVICE_IN_HDMI_ARC" },
@@ -746,4 +747,48 @@ void pa_qahw_util_channel_allocation_to_pa_channel_map(pa_channel_map *m, uint32
             pa_log_error("%s: Channel mapping for %x allocation not supported", __func__, channel_allocation);
             break;
     }
+}
+
+void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qahw_jack_in_config *jack_in_config) {
+    pa_assert(config_port);
+    pa_assert(jack_in_config);
+
+    if (config_port->state_node_path)
+        jack_in_config->jack_sys_path.audio_state = config_port->state_node_path;
+
+    if (config_port->sample_format_node_path)
+        jack_in_config->jack_sys_path.audio_format = config_port->sample_format_node_path;
+
+    if (config_port->sample_rate_node_path)
+        jack_in_config->jack_sys_path.audio_rate = config_port->sample_rate_node_path;
+
+    if (config_port->sample_layout_node_path)
+        jack_in_config->jack_sys_path.audio_layout = config_port->sample_layout_node_path;
+
+    if (config_port->sample_channel_node_path)
+        jack_in_config->jack_sys_path.audio_channel = config_port->sample_channel_node_path;
+
+    if (config_port->sample_channel_alloc_node_path)
+        jack_in_config->jack_sys_path.audio_channel_alloc = config_port->sample_channel_alloc_node_path;
+
+    if (config_port->linkon0_node_path)
+        jack_in_config->jack_sys_path.linkon_0 = config_port->linkon0_node_path;
+
+    if (config_port->poweron_node_path)
+        jack_in_config->jack_sys_path.power_on = config_port->poweron_node_path;
+
+    if (config_port->audio_path_node_path)
+        jack_in_config->jack_sys_path.audio_path = config_port->audio_path_node_path;
+
+    if (config_port->arc_enable_node_path)
+        jack_in_config->jack_sys_path.arc_enable = config_port->arc_enable_node_path;
+
+    if (config_port->arc_state_node_path)
+        jack_in_config->jack_sys_path.arc_audio_state = config_port->arc_state_node_path;
+
+    if (config_port->arc_sample_format_node_path)
+        jack_in_config->jack_sys_path.arc_audio_format = config_port->arc_sample_format_node_path;
+
+    if (config_port->arc_sample_rate_node_path)
+        jack_in_config->jack_sys_path.arc_audio_rate = config_port->arc_sample_rate_node_path;
 }

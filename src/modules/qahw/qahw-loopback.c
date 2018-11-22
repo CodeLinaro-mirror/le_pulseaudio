@@ -27,6 +27,7 @@
 #include "qahw-loopback.h"
 #include "qahw-utils.h"
 #include "qahw-card.h"
+#include "qahw-jack-format.h"
 
 #include <pulsecore/dbus-util.h>
 #include <pulsecore/protocol-dbus.h>
@@ -218,10 +219,56 @@ void pa_qahw_loopback_cb(pa_qahw_effect_event event_id, void *event_data, void *
     }
 }
 
-/*FIXEME: placeholder */
-static pa_format_info *pa_qahw_loopback_read_port_configuration(char *port_name) {
+static pa_qahw_jack_out_config *pa_qahw_loopback_read_port_configuration(char *port_name, pa_qahw_card_port_config *config_port,
+                                                             pa_direction_t direction, pa_qahw_loopback_config *loopback_config) {
+    pa_qahw_jack_type_t jack_type;
+    pa_qahw_jack_in_config *jack_in_config = NULL;
+    pa_qahw_jack_out_config *jack_config = NULL;
+    const char *linked_port_name = NULL;
+    pa_qahw_card_port_config *secondary_config_port = NULL;
+    int i = 0;
 
-    return NULL;
+    pa_assert(config_port);
+
+    jack_type = pa_qahw_util_get_jack_type_from_port_name(port_name);
+
+    jack_in_config = pa_xnew0(pa_qahw_jack_in_config, 1);
+    jack_config = pa_xnew0(pa_qahw_jack_out_config, 1);
+
+    pa_qahw_util_get_jack_sys_path(config_port, jack_in_config);
+
+    if (config_port->linked_ports) {
+        while ((linked_port_name = config_port->linked_ports[i++])) {
+            if (direction == PA_DIRECTION_INPUT)
+                secondary_config_port = pa_hashmap_get(loopback_config->in_ports, linked_port_name);
+            else
+                secondary_config_port = pa_hashmap_get(loopback_config->out_ports, linked_port_name);
+
+            pa_qahw_util_get_jack_sys_path(secondary_config_port, jack_in_config);
+            secondary_config_port = NULL;
+        }
+    }
+
+    switch (jack_type) {
+        case PA_QAHW_JACK_TYPE_HDMI_IN:
+        case PA_QAHW_JACK_TYPE_HDMI_ARC:
+            if (pa_qahw_hdmi_jack_get_config(jack_type, jack_in_config->jack_sys_path, jack_config)) {
+                pa_log_error("%s: error in reading hdmi port config", __func__);
+                pa_xfree(jack_config);
+                jack_config = NULL;
+            }
+
+            break;
+        default:
+            pa_log_error("Unsupported jack type");
+            pa_xfree(jack_config);
+            jack_config = NULL;
+            break;
+    }
+
+    pa_xfree(jack_in_config);
+
+    return jack_config;
 }
 
 static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct audio_port_config *cfg,
@@ -234,19 +281,17 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
     pa_sample_format_t sample_format;
     unsigned int num_channels;
     char *port_name = NULL;
-
-    pa_sample_spec ss;
-    pa_channel_map map;
-
-    char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
-
-    static pa_sample_spec default_ss = {PA_DEFAULT_PORT_FORMAT, PA_DEFAULT_PORT_RATE, PA_DEFAULT_PORT_CHANNELS};
-    pa_channel_map default_map;
-    uint32_t i;
+    pa_qahw_jack_out_config *jack_config = NULL;
 
     pa_qahw_card_port_config *config_port;
     pa_qahw_loopback_config *loopback_config = NULL;
+
+    pa_sample_spec ss;
+    pa_channel_map map;
     pa_format_info *format;
+    char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
+    static pa_sample_spec default_ss = {PA_DEFAULT_PORT_FORMAT, PA_DEFAULT_PORT_RATE, PA_DEFAULT_PORT_CHANNELS};
+    pa_channel_map default_map;
 
     pa_assert(loopbacks);
 
@@ -277,13 +322,6 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
     pa_assert(port_device_data);
     cfg->ext.device.type = port_device_data->device;
 
-    /* intialize default map */
-    pa_channel_map_init_auto(&default_map, PA_DEFAULT_PORT_CHANNELS, PA_CHANNEL_MAP_DEFAULT);
-
-    /* for output read port configration if client has not supplied it
-       if port supports format detection then get it from jack else read the default config from conf
-    */
-
     loopback_config = pa_hashmap_first(loopbacks);
     if (p->direction == PA_DIRECTION_INPUT)
         config_port = pa_hashmap_get(loopback_config->in_ports, port_name);
@@ -297,12 +335,25 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
 
 
     if (cfg->config_mask == PA_QAHW_LOOPBACK_PORT_CONFIG_AUTO) {
-        /* check if supported loopback port */
-        /*FIXME: add code read format from spdif/hdmi */
-        if (config_port->format_detection)
-            format = pa_qahw_loopback_read_port_configuration(port_name);
+        /* if port supports format detection then get it from jack else read the default config from conf */
+        if (config_port->format_detection) {
+            if (p->available == PA_AVAILABLE_YES)
+                jack_config = pa_qahw_loopback_read_port_configuration(port_name, config_port, p->direction, loopback_config);
 
-        if (!format) {
+            if (jack_config) {
+                num_channels = (jack_config->map).channels;
+                sample_format =  (jack_config->ss).format;
+                encoding = jack_config->encoding;
+                cfg->sample_rate = (jack_config->ss).rate;
+
+                pa_xfree(jack_config);
+            } else {
+                return -1;
+            }
+        } else {
+            /* intialize default map */
+            pa_channel_map_init_auto(&default_map, PA_DEFAULT_PORT_CHANNELS, PA_CHANNEL_MAP_DEFAULT);
+
             format = pa_idxset_first(config_port->formats, NULL);
 
             if (pa_qahw_utils_format_to_sample_spec(format, &ss, &map, &default_ss, &default_map)) {
@@ -317,16 +368,6 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
             sample_format =  ss.format;
             encoding = format->encoding;
         }
-    }
-
-    /*FIXME: add validation for other params such as sample rate and sample_format */
-    PA_IDXSET_FOREACH(format, config_port->formats, i) {
-        if (format->encoding == encoding)
-            break;
-    }
-
-    if (!format) {
-        pa_log_error("%s: No default port config for port %s", __func__, port_name);
     }
 
     cfg->channel_mask = pa_qahw_util_get_channel_mask_from_num_channels(num_channels);

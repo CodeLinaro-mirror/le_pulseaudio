@@ -117,7 +117,9 @@ static const uint32_t supported_sink_rates[] =
 static const char *pa_qahw_sink_get_name_from_flags(audio_output_flags_t flags) {
     const char *name = NULL;
 
-    if (flags == AUDIO_OUTPUT_FLAG_FAST)
+    if (flags == AUDIO_OUTPUT_FLAG_PRIMARY)
+        name = "primary";
+    else if (flags == AUDIO_OUTPUT_FLAG_FAST)
         name = "low_latency";
     else if (flags == AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
         name ="deep_buffer";
@@ -311,7 +313,7 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     if (port_device_data->device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) {
         kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_CONNECT, port_device_data->device);
 
-        rc = qahw_out_set_parameters(sdata->qahw_sdata->out_handle, kvpair);
+        rc = qahw_set_parameters(sdata->qahw_sdata->module_handle, kvpair);
         if (rc)
             pa_log_error("qahw routing failed %d",rc);
 
@@ -867,6 +869,13 @@ static int free_pa_sink(pa_qahw_sink_data *sdata) {
     pa_xfree(pa_sdata);
 
     return 0;
+}
+
+bool pa_qahw_sink_is_primary(audio_output_flags_t flags) {
+    if (flags == AUDIO_OUTPUT_FLAG_PRIMARY)
+        return true;
+    else
+        return false;
 }
 
 pa_idxset* pa_qahw_sink_get_config(pa_qahw_sink_handle_t *handle) {

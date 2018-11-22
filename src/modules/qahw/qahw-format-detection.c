@@ -25,13 +25,9 @@
 
 #include "qahw-jack.h"
 #include "qahw-jack-format.h"
+#include "qahw-utils.h"
 
 #define DEFAULT_NUM_CHANNELS 2
-
-/* Specific for HDMI */
-static const char hdmi_in_audio_sample_rate_sys_path[] = "/sys/devices/virtual/switch/sample_rate/state";
-static const char hdmi_in_audio_channel_sys_path[] = "/sys/devices/virtual/switch/channels/state";
-static const char hdmi_in_audio_format_sys_path[] = "/sys/devices/virtual/switch/audio_format/state";
 
 typedef enum {
     PA_QAHW_JACK_INPUT_MODE_PCM = 0,
@@ -135,26 +131,97 @@ static int pa_qahw_format_detection_get_num_channels(int infoframe_channels) {
     return DEFAULT_NUM_CHANNELS;
 }
 
-int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_out_config *jack_config) {
-    int rc = -1;
-    int mode;
-    int sample_rate;
-    int channels;
-    pa_qahw_jack_sys_node_config_t new_config = {0, 16, 0, 0, 0, -1};
+static bool pa_qahw_format_detection_get_value_from_path(const char* path, int *node_value) {
+    bool rc = true;
+    int value = -1;
 
-    if (((sample_rate = pa_qahw_format_detection_read_from_fd(hdmi_in_audio_sample_rate_sys_path)) == -1) ||
-         ((channels = pa_qahw_format_detection_read_from_fd(hdmi_in_audio_channel_sys_path)) == -1) ||
-         ((mode = pa_qahw_format_detection_read_from_fd(hdmi_in_audio_format_sys_path)) == -1)) {
-        pa_log_error("Not able to read sys path");
-        goto exit;
+    if (path) {
+        if ((value = pa_qahw_format_detection_read_from_fd(path)) == -1) {
+            pa_log_error("%s: Unable to read %s path", __func__, path);
+            rc = false;
+        }
     }
 
-    new_config.mode = (pa_qahw_jack_input_mode_t)mode;
-    new_config.sample_rate = (uint32_t)sample_rate;
-    new_config.channels = (uint32_t)channels;
-    new_config.channels = pa_qahw_format_detection_get_num_channels(new_config.channels);
+    *node_value = value;
+
+    return rc;
+}
+
+int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys_path sys_path,
+                                                          pa_qahw_jack_out_config *jack_config) {
+    int rc = -1;
+    pa_qahw_jack_sys_node_config_t new_config = {0, 16, 0, 0, 0, -1};
+    int audio_state_value;
+    int audio_format_value;
+    int audio_rate_value;
+    int audio_channel_value;
+    int audio_channel_alloc_value;
+    int audio_layout_value;
+    int arc_enable_value;
+    int arc_audio_state_value;
+    int arc_audio_format_value;
+    int arc_audio_rate_value;
+
+    jack_config->active_jack = PA_QAHW_JACK_TYPE_INVALID;
+
+    if (!pa_qahw_format_detection_get_value_from_path(sys_path.audio_state, &audio_state_value) ||
+        !pa_qahw_format_detection_get_value_from_path(sys_path.audio_format, &audio_format_value) ||
+        !pa_qahw_format_detection_get_value_from_path(sys_path.audio_rate, &audio_rate_value) ||
+        !pa_qahw_format_detection_get_value_from_path(sys_path.audio_channel, &audio_channel_value) ||
+        !pa_qahw_format_detection_get_value_from_path(sys_path.audio_layout, &audio_layout_value) ||
+        !pa_qahw_format_detection_get_value_from_path(sys_path.audio_channel_alloc, &audio_channel_alloc_value) ||
+        !pa_qahw_format_detection_get_value_from_path(sys_path.arc_enable, &arc_enable_value) ||
+        !pa_qahw_format_detection_get_value_from_path(sys_path.arc_audio_state, &arc_audio_state_value) ||
+        !pa_qahw_format_detection_get_value_from_path(sys_path.arc_audio_format, &arc_audio_format_value) ||
+        !pa_qahw_format_detection_get_value_from_path(sys_path.arc_audio_rate, &arc_audio_rate_value))
+        goto exit;
+
+    if (audio_format_value != -1)
+        new_config.mode = (pa_qahw_jack_input_mode_t)audio_format_value;
+
+
+    if (audio_rate_value != -1)
+        new_config.sample_rate = (uint32_t)audio_rate_value;
+
+    if (audio_channel_value != -1) {
+        audio_channel_value = pa_qahw_format_detection_get_num_channels(audio_channel_value);
+        new_config.channels = (uint32_t)audio_channel_value;
+    }
+
+    if (audio_layout_value != -1) {
+        new_config.layout = (uint32_t)audio_layout_value;
+        audio_channel_value = (new_config.layout == 1) ? 8 : 2;
+    }
+
+    if (audio_channel_alloc_value)
+        new_config.channel_allocation = (uint32_t)audio_channel_alloc_value;
+
+    /* Assign current active jack and based on current configs */
+    if (arc_enable_value) {
+        pa_log_debug("%s: HDMI audio interface SPDIF ARC", __func__);
+        jack_config->active_jack = PA_QAHW_JACK_TYPE_HDMI_ARC;
+
+        new_config.sample_rate = arc_audio_rate_value;
+        new_config.channels = DEFAULT_NUM_CHANNELS;
+        new_config.mode = arc_audio_format_value;
+    } else if (audio_state_value && (audio_layout_value == 0) && audio_format_value) {
+        pa_log_debug("%s: HDMI audio interface SPDIF ARC", __func__);
+        jack_config->active_jack = PA_QAHW_JACK_TYPE_HDMI_ARC;
+
+        new_config.channels = (uint32_t)audio_channel_value;
+        new_config.mode = audio_format_value;
+        new_config.sample_rate = audio_rate_value;
+    } else if (audio_state_value) {
+        pa_log_debug("%s: HDMI audio interface MI2S", __func__);
+        jack_config->active_jack = PA_QAHW_JACK_TYPE_HDMI_IN;
+
+        new_config.channels = (uint32_t)audio_channel_value;
+    }
 
     rc = pa_qahw_format_detection_config_to_jack_config(&new_config, jack_config);
+
+    if ((sys_path.audio_channel_alloc) && (arc_enable_value == 0))
+        pa_qahw_util_channel_allocation_to_pa_channel_map(&(jack_config->map), new_config.channel_allocation);
 
 exit:
     return rc;

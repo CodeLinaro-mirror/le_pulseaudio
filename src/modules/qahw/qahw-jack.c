@@ -68,8 +68,8 @@ static bool pa_qahw_jack_check_enable_status(struct pa_qahw_jack_data *jdata, co
     return status;
 }
 
-pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t jack_type, pa_qahw_jack_callback_t callback,
-                                                                                            pa_module *m, void *client_data) {
+pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t jack_type, pa_qahw_jack_callback_t callback, pa_module *m,
+                                                                                pa_qahw_jack_in_config *jack_in_config, void *client_data) {
     struct jack_userdata *u;
     struct pa_qahw_jack_data *jdata = NULL;
     const char *port_name = NULL;
@@ -94,8 +94,8 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
 
         if ((jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADSET) || (jack_type ==  PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS)) {
             jdata = pa_qahw_evdev_jack_device_open(jack_type, m, &(u->hook_slot), callback, client_data);
-        }  else if  (jack_type ==  PA_QAHW_JACK_TYPE_HDMI) {
-            jdata = pa_qahw_hdmi_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
+        }  else if  ((jack_type ==  PA_QAHW_JACK_TYPE_HDMI_IN) || (jack_type ==  PA_QAHW_JACK_TYPE_HDMI_ARC)) {
+            jdata = pa_qahw_hdmi_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data);
         } else if  (jack_type == PA_QAHW_JACK_TYPE_BTA2DP_OUT) {
             jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
         } else if  (jack_type ==  PA_QAHW_JACK_TYPE_BTA2DP_IN) {
@@ -144,7 +144,7 @@ bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *jack_handle, 
             pa_hashmap_remove(registered_jacks, port_name);
             pa_qahw_evdev_jack_device_close(jdata, m);
             toggle_jack_status_bits(jdata->jack_type);
-        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI) {
+        } else if ((jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI_IN) || (jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI_ARC)) {
             pa_hashmap_remove(registered_jacks, port_name);
             pa_qahw_hdmi_jack_detection_disable(jdata, m);
             toggle_jack_status_bits(jdata->jack_type);

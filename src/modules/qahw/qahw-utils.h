@@ -25,6 +25,7 @@
 #include <qahw_defs.h>
 
 #include "qahw-jack.h"
+#include "qahw-card.h"
 
 #define KV_PAIR_MAX_LENGTH 100
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
@@ -45,4 +46,5 @@ int pa_qahw_utils_format_to_sample_spec(pa_format_info *format, pa_sample_spec *
 bool pa_qahw_channel_map_to_qahw(pa_channel_map *pa_map, struct qahw_out_channel_map_param *qahw_map);
 bool pa_qahw_channel_map_from_qahw(struct qahw_out_channel_map_param *qahw_map, pa_channel_map *pa_map);
 void pa_qahw_util_channel_allocation_to_pa_channel_map(pa_channel_map *m, uint32_t channel_allocation);
+void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qahw_jack_in_config *jack_in_config);
 #endif

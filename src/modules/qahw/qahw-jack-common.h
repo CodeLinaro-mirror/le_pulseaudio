@@ -50,7 +50,7 @@ struct pa_qahw_jack_data* pa_qahw_evdev_jack_device_open(pa_qahw_jack_type_t jac
 int pa_qahw_evdev_jack_device_close(struct pa_qahw_jack_data *jdata, pa_module *m);
 
 struct pa_qahw_jack_data* pa_qahw_hdmi_jack_detection_enable(pa_qahw_jack_type_t jack_type, pa_module *m, pa_hook_slot **hook_slot,
-                                                                                  pa_qahw_jack_callback_t callback, void *client_data);
+                                       pa_qahw_jack_callback_t callback, pa_qahw_jack_in_config *jack_in_config, void *client_data);
 void pa_qahw_hdmi_jack_detection_disable(struct pa_qahw_jack_data *jdata, pa_module *m);
 
 struct pa_qahw_jack_data* pa_qahw_external_jack_detection_enable(pa_qahw_jack_type_t jack_type, pa_module *m, pa_hook_slot **hook_slot,

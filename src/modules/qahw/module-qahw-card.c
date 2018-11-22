@@ -659,48 +659,114 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
     return PA_HOOK_OK;
 }
 
-static void pa_qahw_card_disable_jack_detection(pa_hashmap *jacks, pa_module *m) {
+static void pa_qahw_card_disable_jack_detection(struct userdata *u, pa_module *m) {
     pa_qahw_card_jack_info *jack_info;
+    pa_qahw_card_port_config *config_port = NULL;
+    const char *port_name = NULL;
     void *state;
 
-    pa_assert(jacks);
+    pa_assert(u);
+    pa_assert(u->jacks);
 
-    PA_HASHMAP_FOREACH(jack_info, jacks, state) {
+    PA_HASHMAP_FOREACH(jack_info, u->jacks, state) {
+        port_name = pa_qahw_util_get_port_name_from_jack_type(jack_info->jack_type);
+        config_port = pa_hashmap_get(u->config_data->ports, port_name);
+
+        if (config_port->port_type) {
+            /* no need to deregister secondary port */
+            if (pa_streq(config_port->port_type, "secondary"))
+                continue;
+        }
+
         if (pa_qahw_jack_deregister_event_callback(jack_info->handle, m))
             pa_log_info("Jack event callback deregister successful for jack %d\n", jack_info->jack_type);
         else
             pa_log_error("Jack event callback deregister failed for jack %d\n",  jack_info->jack_type);
     }
 
-    pa_hashmap_free(jacks);
+    pa_hashmap_free(u->jacks);
+    u->jacks = NULL;
 }
 
 static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
-    pa_qahw_jack_handle_t *jack_handle;
+    pa_qahw_jack_handle_t *jack_handle = NULL;
     pa_qahw_jack_type_t jack_types = PA_QAHW_JACK_TYPE_INVALID;
     pa_qahw_card_jack_info *jack_info = NULL;
+    pa_qahw_card_jack_info *secondary_jack_info = NULL;
+    pa_qahw_card_port_config *config_port = NULL;
+    pa_qahw_card_port_config *secondary_config_port = NULL;
     pa_device_port *port;
     void *state;
+    pa_qahw_jack_in_config *jack_in_config = NULL;
+    char *port_name = NULL;
+    int i = 0;
 
     u->jacks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
-   /* register for jack detection for dynamic port, PA_AVAILABLE_NO means its dynamic port */
+    /* register for jack detection for dynamic port, PA_AVAILABLE_NO means its dynamic port */
     PA_HASHMAP_FOREACH(port, u->card->ports, state) {
-        if (port->available == PA_AVAILABLE_NO)
+        config_port = pa_hashmap_get(u->config_data->ports, port->name);
+        if (!config_port)
+            continue;
+
+        if (config_port->port_type) {
+            /* port type secondary means that this port is linked to another primary port
+             * for instance, port "hdmi-arc" might be a secondary port to "hdmi-in" */
+            if (pa_streq(config_port->port_type, "secondary"))
+                continue;
+        }
+
+        if ((port->available == PA_AVAILABLE_NO) || (config_port->format_detection))
             jack_types = pa_qahw_util_get_jack_type_from_port_name(port->name);
         else
             continue;
 
-        jack_handle = pa_qahw_jack_register_event_callback(jack_types, pa_qahw_jack_callback, u->module, (void *)u);
+        if (config_port->format_detection) {
+            jack_in_config = pa_xnew0(pa_qahw_jack_in_config, 1);
+            pa_qahw_util_get_jack_sys_path(config_port, jack_in_config);
+        }
+
+        /* Allocate memory for jack */
+        jack_info = pa_xnew0(pa_qahw_card_jack_info, 1);
+        jack_info->jack_type = jack_types;
+        pa_hashmap_put(u->jacks, port->name, jack_info);
+
+        if (config_port->linked_ports) {
+            while ((port_name = config_port->linked_ports[i++])) {
+                secondary_config_port = pa_hashmap_get(u->config_data->ports, port_name);
+                pa_qahw_util_get_jack_sys_path(secondary_config_port, jack_in_config);
+
+                /* Allocate memory for secondary jack */
+                secondary_jack_info = pa_xnew0(pa_qahw_card_jack_info, 1);
+                secondary_jack_info->jack_type = pa_qahw_util_get_jack_type_from_port_name(port_name);
+                pa_hashmap_put(u->jacks, port_name, secondary_jack_info);
+            }
+
+            jack_in_config->linked_ports = config_port->linked_ports;
+        }
+
+        jack_handle = pa_qahw_jack_register_event_callback(jack_types, pa_qahw_jack_callback, u->module,
+                                                                             jack_in_config, (void *)u);
         if (!jack_handle) {
             pa_log_error("%s: Enable qahw jack failed for port %s\n", __func__, port->name);
+
+            /* Free memory associated with jack */
+            pa_hashmap_remove(u->jacks, port->name);
+            pa_xfree(jack_info);
+
+            /* Free memory associated with secondary jack */
+            if (config_port->linked_ports) {
+                while ((port_name = config_port->linked_ports[i++])) {
+                    secondary_jack_info = pa_hashmap_remove(u->jacks, port_name);
+                    pa_xfree(secondary_jack_info);
+                }
+            }
         } else {
-            jack_info = pa_xnew0(pa_qahw_card_jack_info, 1);
             jack_info->handle = jack_handle;
-            jack_info->jack_type = jack_types;
-            pa_hashmap_put(u->jacks, port->name, jack_info);
-            jack_info = NULL;
         }
+
+        jack_info = NULL;
+        secondary_jack_info = NULL;
     }
 }
 
@@ -936,6 +1002,22 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
 
     pa_qahw_card_sink_info *sink_info;
 
+    bool is_primary_sink_present = false;
+
+    /* One sink should always be primary, if not return error*/
+    PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
+        if (pa_qahw_sink_is_primary(sink->flags)) {
+            is_primary_sink_present = true;
+            break;
+        }
+    }
+
+    if (!is_primary_sink_present) {
+        pa_log_error("%s:: No primary sink", __func__);
+        rc = -1;
+        goto exit;
+    }
+
     PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
         if (!(pa_hashmap_get(sink->profiles, profile_name)) || sink->usecase_type != usecase_type)
             continue;
@@ -952,6 +1034,7 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
 
     }
 
+exit:
     return rc;
 }
 
@@ -1103,8 +1186,7 @@ void pa__done(pa_module *m) {
         pa_hashmap_free(u->sources);
     }
 
-    if (u->jacks)
-        pa_qahw_card_disable_jack_detection(u->jacks, m);
+    pa_qahw_card_disable_jack_detection(u, m);
 
     if (u->module_handle)
         qahw_unload_module(u->module_handle);

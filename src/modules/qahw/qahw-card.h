@@ -61,7 +61,7 @@ typedef struct {
     pa_idxset *formats;
     bool format_detection;
     char *port_type;
-    char *secondary_port_name;
+    char **linked_ports;
 
     char *state_node_path;
     char *sample_format_node_path;

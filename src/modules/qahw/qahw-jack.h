@@ -27,10 +27,11 @@ typedef enum {
     PA_QAHW_JACK_TYPE_WIRED_HEADPHONE = 0x2,
     PA_QAHW_JACK_TYPE_LINEOUT = 0x4,
     PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS = 0x8,
-    PA_QAHW_JACK_TYPE_HDMI = 0x10,
+    PA_QAHW_JACK_TYPE_HDMI_IN = 0x10,
     PA_QAHW_JACK_TYPE_BTA2DP_OUT = 0x20,
     PA_QAHW_JACK_TYPE_BTA2DP_IN = 0x40,
-    PA_QAHW_JACK_TYPE_LAST = PA_QAHW_JACK_TYPE_BTA2DP_IN,
+    PA_QAHW_JACK_TYPE_HDMI_ARC = 0x80,
+    PA_QAHW_JACK_TYPE_LAST = PA_QAHW_JACK_TYPE_HDMI_ARC,
     PA_QAHW_JACK_TYPE_MAX = PA_QAHW_JACK_TYPE_LAST,
 } pa_qahw_jack_type_t;
 
@@ -54,9 +55,33 @@ struct jack_userdata {
     pa_hook_slot *hook_slot;
 };
 
+typedef struct {
+    const char *audio_state;
+    const char *audio_format;
+    const char *audio_rate;
+    const char *audio_layout;
+    const char *audio_channel;
+    const char *audio_channel_alloc;
+
+    const char *linkon_0;
+    const char *power_on;
+    const char *audio_path;
+    const char *arc_enable;
+
+    const char *arc_audio_state;
+    const char *arc_audio_format;
+    const char *arc_audio_rate;
+} pa_qahw_jack_sys_path;
+
+typedef struct {
+    pa_qahw_jack_sys_path jack_sys_path;
+    char **linked_ports;
+} pa_qahw_jack_in_config;
+
 typedef pa_hook_result_t (* pa_qahw_jack_callback_t) (void *dummy __attribute__((unused)), pa_qahw_jack_event_data_t *event_data, void *client_data);
 
-pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t jack_type, pa_qahw_jack_callback_t callback, pa_module *m, void *client_data);
+pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t jack_type, pa_qahw_jack_callback_t callback, pa_module *m,
+                                                                                pa_qahw_jack_in_config *jack_in_config, void *client_data);
 bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *handle, pa_module *m);
 
 #endif
