@@ -1047,7 +1047,7 @@ int pa_source_reconfigure(pa_source *s, pa_sample_spec *spec, pa_channel_map *ma
     pa_assert(restore || (spec != NULL));
     pa_assert(!restore || (spec == NULL && map == NULL && pa_sample_spec_valid(&s->saved_spec)));
 
-    if (!restore && pa_sample_spec_equal(spec, &s->sample_spec))
+    if (!restore && !passthrough && pa_sample_spec_equal(spec, &s->sample_spec))
         return 0;
 
     if (!s->reconfigure && !s->monitor_of)
@@ -1130,7 +1130,7 @@ int pa_source_reconfigure(pa_source *s, pa_sample_spec *spec, pa_channel_map *ma
     }
 
     if (pa_sample_spec_equal(&desired_spec, &s->sample_spec) && passthrough == pa_source_is_passthrough(s))
-        return -1;
+        return 0;
 
     if (!passthrough && pa_source_used_by(s) > 0)
         return -1;
@@ -1333,10 +1333,20 @@ bool pa_source_is_filter(pa_source *s) {
 
 /* Called from main context */
 bool pa_source_is_passthrough(pa_source *s) {
+    pa_source_output *alt_o;
+    uint32_t idx;
 
     pa_source_assert_ref(s);
 
-    /* NB Currently only monitor sources support passthrough mode */
+    /* one and only one PASSTHROUGH outputs can possibly be connected */
+    if (pa_idxset_size(s->outputs) == 1) {
+        alt_o = pa_idxset_first(s->outputs, &idx);
+
+        if (pa_source_output_is_passthrough(alt_o))
+            return true;
+    }
+
+    /* Check if we're a monitor source and sink is in passthrough mode */
     return (s->monitor_of && pa_sink_is_passthrough(s->monitor_of));
 }
 

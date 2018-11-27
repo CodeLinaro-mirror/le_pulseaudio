@@ -363,9 +363,10 @@ int pa_source_output_new(
     if (!data->muted_is_set)
         data->muted = false;
 
-    if (!(data->flags & PA_SOURCE_OUTPUT_VARIABLE_RATE) &&
-        !pa_sample_spec_equal(&data->sample_spec, &data->source->sample_spec)) {
-        /* try to change source format and rate. This is done before the FIXATE hook since
+    if ((!(data->flags & PA_SOURCE_OUTPUT_VARIABLE_RATE) &&
+         !pa_sample_spec_equal(&data->sample_spec, &data->source->sample_spec)) ||
+        pa_source_output_new_data_is_passthrough(data)) {
+        /* try to change source rate. This is done before the FIXATE hook since
            module-suspend-on-idle can resume a source */
 
         pa_log_info("Trying to change sample spec");
@@ -1533,9 +1534,10 @@ int pa_source_output_finish_move(pa_source_output *o, pa_source *dest, bool save
         return -PA_ERR_NOTSUPPORTED;
     }
 
-    if (!(o->flags & PA_SOURCE_OUTPUT_VARIABLE_RATE) &&
-        !pa_sample_spec_equal(&o->sample_spec, &dest->sample_spec)) {
-        /* try to change dest source format and rate if possible without glitches.
+    if ((!(o->flags & PA_SOURCE_OUTPUT_VARIABLE_RATE) &&
+         !pa_sample_spec_equal(&o->sample_spec, &dest->sample_spec)) ||
+        pa_source_output_is_passthrough(o)) {
+        /* try to change dest source rate if possible without glitches.
            module-suspend-on-idle resumes destination source with
            SOURCE_OUTPUT_MOVE_FINISH hook */
 

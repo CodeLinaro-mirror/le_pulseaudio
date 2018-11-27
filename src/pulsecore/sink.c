@@ -1467,7 +1467,7 @@ int pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, b
     pa_assert(restore || (spec != NULL));
     pa_assert(!restore || (spec == NULL && map == NULL && pa_sample_spec_valid(&s->saved_spec)));
 
-    if (!restore && pa_sample_spec_equal(spec, &s->sample_spec))
+    if (!restore && !passthrough && pa_sample_spec_equal(spec, &s->sample_spec))
         return 0;
 
     if (!s->reconfigure)
@@ -1549,7 +1549,7 @@ int pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, b
     }
 
     if (pa_sample_spec_equal(&desired_spec, &s->sample_spec) && passthrough == pa_sink_is_passthrough(s))
-        return -1;
+        return 0;
 
     if (!passthrough && pa_sink_used_by(s) > 0)
         return -1;
