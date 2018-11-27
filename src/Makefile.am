@@ -1403,6 +1403,7 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/qcs405-wsa-snd-card.conf \
       modules/qahw/configs/qcs405-csra1-snd-card.conf \
       modules/qahw/configs/qcs405-csra6-snd-card.conf \
+      modules/qahw/configs/qcs405-csra8-snd-card.conf \
       modules/qahw/configs/qcs405-amic-snd-card.conf
 endif
 
