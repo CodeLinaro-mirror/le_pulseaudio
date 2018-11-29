@@ -251,6 +251,8 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_
     pa_encoding_t encoding = PA_ENCODING_PCM;
     pa_source_data *pa_sdata = NULL;
     qahw_source_data *qahw_sdata = NULL;
+    pa_format_info *format = NULL;
+    uint32_t i;
 
     char channel_map_buf[PA_CHANNEL_MAP_SNPRINT_MAX];
     pa_channel_map new_map;
@@ -273,6 +275,13 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_
     if (!PA_SOURCE_IS_OPENED(s->state)) {
         pa_log_info("%s: old sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &pa_sdata->source->sample_spec));
         pa_log_info("%s: requested sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), spec));
+
+        if (sdata->pa_sdata->formats) {
+            PA_IDXSET_FOREACH(format, sdata->pa_sdata->formats, i) {
+                if (format->encoding != PA_ENCODING_PCM)
+                    goto exit;
+            }
+        }
 
        if (map) {
             pa_log_info("%s:old channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), &pa_sdata->source->channel_map));
