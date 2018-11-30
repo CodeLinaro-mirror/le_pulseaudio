@@ -415,8 +415,9 @@ int pa_sink_input_new(
     if (!data->muted_is_set)
         data->muted = false;
 
-    if (!(data->flags & PA_SINK_INPUT_VARIABLE_RATE) &&
-        !pa_sample_spec_equal(&data->sample_spec, &data->sink->sample_spec)) {
+    if ((!(data->flags & PA_SINK_INPUT_VARIABLE_RATE) &&
+         !pa_sample_spec_equal(&data->sample_spec, &data->sink->sample_spec)) ||
+        pa_sink_input_new_data_is_passthrough(data)) {
         /* try to change sink rate. This is done before the FIXATE hook since
            module-suspend-on-idle can resume a sink */
 
@@ -1901,8 +1902,9 @@ int pa_sink_input_finish_move(pa_sink_input *i, pa_sink *dest, bool save) {
         return -PA_ERR_NOTSUPPORTED;
     }
 
-    if (!(i->flags & PA_SINK_INPUT_VARIABLE_RATE) &&
-        !pa_sample_spec_equal(&i->sample_spec, &dest->sample_spec)) {
+    if ((!(i->flags & PA_SINK_INPUT_VARIABLE_RATE) &&
+         !pa_sample_spec_equal(&i->sample_spec, &dest->sample_spec)) ||
+        pa_sink_input_is_passthrough(i)) {
         /* try to change dest sink rate if possible without glitches.
            module-suspend-on-idle resumes destination sink with
            SINK_INPUT_MOVE_FINISH hook */
