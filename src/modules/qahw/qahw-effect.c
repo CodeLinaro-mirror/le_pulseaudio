@@ -579,6 +579,8 @@ static void pa_qahw_effect_command(DBusConnection *conn,
     void *reply_data = NULL;
     int rc = -1;
     int latency;
+    qahw_effect_offload_param_t *offload_cmd = NULL;
+    qahw_effect_offload_param_t *temp_data = NULL;
 
     pa_assert(conn);
     pa_assert(msg);
@@ -625,14 +627,16 @@ static void pa_qahw_effect_command(DBusConnection *conn,
             reply_size = sizeof(int32_t);
             break;
         case QAHW_EFFECT_CMD_OFFLOAD:
-            rc = pa_qahw_effect_cmd_offload(ses_data->effect_handle, ses_data->handle);
+            reply_size = sizeof(uint32_t);
+            reply_data = (void *)malloc(reply_size);
+            temp_data = (qahw_effect_offload_param_t *)cmd_data;
+            offload_cmd = (qahw_effect_offload_param_t *)malloc(cmd_size);
 
-            if (rc < 0) {
-                pa_log_error("effect_command returns : %d\n", rc);
-                pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "qahw_effect_command failed.");
-                dbus_error_free(&error);
-                return;
-            }
+            offload_cmd->isOffload = temp_data->isOffload;
+            offload_cmd->ioHandle = ses_data->handle;
+
+            rc = qahw_effect_command(ses_data->effect_handle, QAHW_EFFECT_CMD_OFFLOAD, cmd_size, (void *)offload_cmd, &reply_size, reply_data);
+            free(offload_cmd);
             goto done;
         case QAHW_EFFECT_CMD_ENABLE:
             reply_size = sizeof(int32_t);
@@ -710,6 +714,7 @@ static void pa_qahw_effect_command(DBusConnection *conn,
 
     rc = qahw_effect_command(ses_data->effect_handle, cmd_code, cmd_size, cmd_data, &reply_size, reply_data);
 
+done:
     if (rc != 0) {
         if (reply_data)
             free(reply_data);
@@ -719,7 +724,6 @@ static void pa_qahw_effect_command(DBusConnection *conn,
         return;
     }
 
-done:
     pa_assert_se((reply = dbus_message_new_method_return(msg)));
     dbus_message_iter_init_append(reply, &r_arg);
     dbus_message_iter_open_container(&r_arg, DBUS_TYPE_ARRAY, "y", &r_array_i);
