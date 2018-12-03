@@ -23,7 +23,6 @@
 #include <fcntl.h>
 #include <stdbool.h>
 
-#include "qahw-jack.h"
 #include "qahw-jack-format.h"
 #include "qahw-utils.h"
 
@@ -43,6 +42,7 @@ typedef struct {
     pa_qahw_jack_input_mode_t mode;
 } pa_qahw_jack_sys_node_config_t;
 
+/******* Function definitions ********/
 static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_config_t *sys_config, pa_qahw_jack_out_config *jack_config) {
     int rc  = 0;
 
@@ -51,6 +51,7 @@ static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_
 
     if (sys_config->sample_rate == 0)
         sys_config->sample_rate = 48000;
+
     jack_config->ss.rate = sys_config->sample_rate;
     jack_config->ss.format =  PA_SAMPLE_S16LE; /* FIXME:assume format is 16bit for now */
 
@@ -222,6 +223,45 @@ int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys
 
     if ((sys_path.audio_channel_alloc) && (arc_enable_value == 0))
         pa_qahw_util_channel_allocation_to_pa_channel_map(&(jack_config->map), new_config.channel_allocation);
+
+exit:
+    return rc;
+}
+
+int pa_qahw_spdif_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys_path sys_path,
+                                                           pa_qahw_jack_out_config *jack_config) {
+    int rc = -1;
+    pa_qahw_jack_sys_node_config_t new_config = {0, 16, DEFAULT_NUM_CHANNELS, 0, 0, -1};
+    int audio_rate_value = -1;
+    int audio_format_value = -1;
+    int audio_state_value = -1;
+
+    if (sys_path.audio_state) {
+        if ((audio_state_value = pa_qahw_format_detection_read_from_fd(sys_path.audio_state)) == -1) {
+            pa_log_error("%s: Unable to read %s path", __func__, sys_path.audio_state);
+            goto exit;
+        }
+    }
+
+    if (sys_path.audio_format) {
+        if ((audio_format_value = pa_qahw_format_detection_read_from_fd(sys_path.audio_format)) == -1) {
+            pa_log_error("%s: Unable to read %s path", __func__, sys_path.audio_format);
+            goto exit;
+        }
+    }
+
+    if (sys_path.audio_rate) {
+        if ((audio_rate_value = pa_qahw_format_detection_read_from_fd(sys_path.audio_rate)) == -1) {
+            pa_log_error("%s: Unable to read %s path", __func__, sys_path.audio_rate);
+            goto exit;
+        }
+    }
+
+    new_config.mode = (uint32_t)audio_format_value;
+    new_config.sample_rate = (uint32_t)audio_rate_value;
+    new_config.channels = (uint32_t)DEFAULT_NUM_CHANNELS;
+
+    rc = pa_qahw_format_detection_config_to_jack_config(&new_config, jack_config);
 
 exit:
     return rc;
