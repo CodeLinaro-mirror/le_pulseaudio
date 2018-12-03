@@ -292,6 +292,8 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
     static pa_sample_spec default_ss = {PA_DEFAULT_PORT_FORMAT, PA_DEFAULT_PORT_RATE, PA_DEFAULT_PORT_CHANNELS};
     pa_channel_map default_map;
+    char *kvpair;
+    int rc;
 
     pa_assert(loopbacks);
 
@@ -380,6 +382,18 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
     memset(&(cfg->gain), 0, sizeof(struct audio_gain_config));
 
     cfg->type = AUDIO_PORT_TYPE_DEVICE;
+
+    if (port_device_data->device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_CONNECT, port_device_data->device);
+
+        rc = qahw_set_parameters(pa_qahw_loopback_mdata->module_handle, kvpair);
+        if (rc)
+            pa_log_error("qahw routing failed %d",rc);
+
+        pa_log_info("%s: port name: %s kvpair %s device %x", __func__, port_name, kvpair, port_device_data->device);
+
+        pa_xfree(kvpair);
+    }
 
     return 0;
 }
