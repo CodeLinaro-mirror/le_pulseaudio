@@ -430,6 +430,10 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
     }
     qahw_sdata->module_handle = module_handle;
 
+    /* set profile for the recording session */
+    if (qahw_sdata->source_type == AUDIO_SOURCE_UNPROCESSED)
+        qahw_in_set_parameters(qahw_sdata->in_handle, "audio_stream_profile=record_unprocessed");
+
     pa_log_debug("qahw source opened %p", qahw_sdata->in_handle);
 
     qahw_sdata->source_buffer_size = qahw_in_get_buffer_size(qahw_sdata->in_handle);
