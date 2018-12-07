@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2008 Lennart Poettering
+  Copyright (c) 2018, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -996,7 +997,7 @@ static int output_create_sink_input(struct output *o) {
     pa_sink_input_new_data_set_channel_map(&data, &u->sink->channel_map);
     data.module = u->module;
     data.resample_method = u->resample_method;
-    data.flags = PA_SINK_INPUT_VARIABLE_RATE|PA_SINK_INPUT_DONT_MOVE|PA_SINK_INPUT_NO_CREATE_ON_SUSPEND;
+    data.flags = ((u->adjust_time > 0) ? PA_SINK_INPUT_VARIABLE_RATE : 0) | PA_SINK_INPUT_DONT_MOVE|PA_SINK_INPUT_NO_CREATE_ON_SUSPEND;
 
     pa_sink_input_new(&o->sink_input, u->core, &data);
 
