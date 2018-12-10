@@ -27,6 +27,7 @@
 #include "qahw-loopback.h"
 #include "qahw-utils.h"
 #include "qahw-card.h"
+#include "qahw-jack.h"
 #include "qahw-jack-format.h"
 
 #include <pulsecore/dbus-util.h>
@@ -40,6 +41,7 @@
 #define PA_QAHW_LOOPBACK_MAX_SESSIONS 1
 #define E_OK 0
 #define MILLIBELS_CONSTANT 2000
+#define NUM_CHANNEL_POSITIONS 8
 
 #define PA_DEFAULT_PORT_FORMAT PA_SAMPLE_S16LE
 #define PA_DEFAULT_PORT_RATE 48000
@@ -47,11 +49,12 @@
 
 static struct pa_qahw_loopback_module_data {
     pa_card *card;
+    pa_module *m;
     qahw_module_handle_t *module_handle;
     pa_dbus_protocol *dbus_protocol;
     char *dbus_path;
     pa_hashmap *loopbacks;
-    pa_hashmap *loopback_mappings;              // Stores name & patch handle corresponding to a loopback */
+    pa_hashmap *loopback_mappings;              /* Stores name & patch handle corresponding to a loopback */
     pa_hashmap *loopback_sessions;
     pa_qahw_loopback_callback_t callback;
     void *prv_data;
@@ -64,6 +67,12 @@ struct pa_qahw_loopback_session_data {
     char *obj_path;
     int latency;
     const char *src_port;
+    dbus_uint32_t num_sinks;
+    struct audio_port_config src_cfg;
+    struct audio_port_config *sink_cfg;
+    uint32_t src_config_mask;
+    pa_qahw_jack_type_t src_jack_type;
+    pa_qahw_jack_handle_t *jack_handle;
 };
 
 typedef struct {
@@ -94,6 +103,11 @@ enum pa_qahw_session_handler_index {
     SESSION_HANDLER_MAX
 };
 
+enum signal_index {
+    SIGNAL_DETECTION_EVENT,
+    SIGNAL_MAX
+};
+
 pa_dbus_arg_info pa_qahw_loopback_create_args[] = {
     {"config", "(iiuuuiids)a(iiuuuiids)", "in"},
     {"object_path", "o", "out"},
@@ -109,6 +123,10 @@ pa_dbus_arg_info pa_qahw_loopback_set_port_config_args[] = {
 pa_dbus_arg_info pa_qahw_loopback_get_port_config_args[] = {
     {"id", "ii", "in"},
     {"config", "(iiuuuiids)", "out"},
+};
+
+pa_dbus_arg_info detection_event_args[] = {
+    {"handle", "i", NULL},
 };
 
 static pa_dbus_method_handler pa_qahw_loopback_module_handlers[MODULE_HANDLER_MAX] = {
@@ -137,6 +155,13 @@ static pa_dbus_method_handler pa_qahw_loopback_session_handlers[SESSION_HANDLER_
         .receive_cb = pa_qahw_loopback_stop},
 };
 
+static pa_dbus_signal_info det_event_signals[SIGNAL_MAX] = {
+    [SIGNAL_DETECTION_EVENT] = {
+        .name = "DetectionEvent",
+        .arguments = detection_event_args,
+        .n_arguments = sizeof(detection_event_args)/sizeof(pa_dbus_arg_info)},
+};
+
 pa_dbus_interface_info pa_qahw_loopback_module_interface_info = {
     .name = PA_QAHW_LOOPBACK_DBUS_MODULE_IFACE,
     .method_handlers = pa_qahw_loopback_module_handlers,
@@ -155,8 +180,8 @@ pa_dbus_interface_info pa_qahw_loopback_session_interface_info = {
     .property_handlers = NULL,
     .n_property_handlers = 0,
     .get_all_properties_cb = NULL,
-    .signals = NULL,
-    .n_signals = 0
+    .signals = det_event_signals,
+    .n_signals = SIGNAL_MAX
 };
 
 char *pa_qahw_loopback_get_name_from_handle(audio_patch_handle_t handle)
@@ -410,6 +435,119 @@ static dbus_uint32_t pa_qahw_loopback_get_array_size(DBusMessageIter array) {
     return cnt;
 }
 
+static const char *pa_qahw_loopback_get_loopback_event_string(pa_qahw_loopback_event_t event) {
+    switch (event) {
+        case PA_QAHW_LOOPBACK_EVENT_INVALID:
+            return "qahw loopback error event";
+        case PA_QAHW_LOOPBACK_EVENT_FORMAT_UPDATE:
+            return "qahw loopback format update event";
+        case PA_QAHW_LOOPBACK_EVENT_RECREATED:
+            return "qahw loopback session recreated event";
+        default:
+            return NULL;
+    }
+}
+
+static pa_hook_result_t pa_qahw_loopback_jack_callback(void *dummy __attribute__((unused)), pa_qahw_jack_event_data_t *event_data, void *prv_data) {
+    int status = 0;
+    int num_srcs = 1; /* FIXME: change this once loopback supports more than one soruce */
+    pa_qahw_jack_event_t jack_event;
+    pa_qahw_loopback_event_t loopback_event;
+    audio_patch_handle_t handle = AUDIO_PATCH_HANDLE_NONE;
+    pa_qahw_jack_out_config *port_config;
+    struct pa_qahw_loopback_session_data *ses_data;
+    const char *loopback_event_string = NULL;
+    const char *encoding_string = NULL;
+    const char *channel_map_string = NULL;
+    int i = 0;
+
+    DBusMessage *message = NULL;
+    DBusMessageIter arg_i, array_i;
+
+    pa_assert(prv_data);
+    pa_assert(event_data);
+
+    pa_log_info("%s: jack event received, jack_type %d event %d\n", __func__, event_data->jack_type, event_data->event);
+
+    jack_event = event_data->event;
+    ses_data = (struct pa_qahw_loopback_session_data *)prv_data;
+
+    if ((jack_event == PA_QAHW_JACK_AVAILABLE) || (jack_event == PA_QAHW_JACK_UNAVAILABLE)) {
+        pa_log_error("%s: Unsupported qahw jack event", __func__);
+        return PA_HOOK_CANCEL;
+    }
+
+    if (jack_event == PA_QAHW_JACK_ERROR)
+        loopback_event = PA_QAHW_LOOPBACK_EVENT_INVALID;
+    else
+        loopback_event = PA_QAHW_LOOPBACK_EVENT_FORMAT_UPDATE;
+
+    pa_assert(event_data->pa_qahw_jack_info);
+    port_config = (pa_qahw_jack_out_config *)event_data->pa_qahw_jack_info;
+
+    if (ses_data->src_jack_type != port_config->active_jack) {
+        pa_log_error("%s, Unsupported qahw jack %d", __func__, port_config->active_jack);
+        return PA_HOOK_CANCEL;
+    }
+
+    ses_data->src_cfg.sample_rate = (port_config->ss).rate;
+    ses_data->src_cfg.channel_mask = pa_qahw_util_get_channel_mask_from_num_channels((port_config->ss).channels);
+
+    if (port_config->encoding == PA_ENCODING_PCM)
+        ses_data->src_cfg.format = pa_qahw_util_get_qahw_format_from_pa_sample((port_config->ss).format);
+    else
+        ses_data->src_cfg.format = pa_qahw_util_get_qahw_format_from_pa_encoding(port_config->encoding);
+
+    if (ses_data->src_config_mask == PA_QAHW_LOOPBACK_PORT_CONFIG_AUTO) {
+        status = qahw_release_audio_patch(ses_data->common->module_handle, ses_data->ses_handle);
+        if (status) {
+            pa_log_error("Release audio patch failed with status %d\n", status);
+            loopback_event = PA_QAHW_LOOPBACK_EVENT_INVALID;
+        } else {
+            status = qahw_create_audio_patch(ses_data->common->module_handle, num_srcs, &(ses_data->src_cfg),
+                                                            ses_data->num_sinks, ses_data->sink_cfg, &handle);
+            if (status) {
+                pa_log_error("Create audio patch failed with status %d\n", status);
+                loopback_event = PA_QAHW_LOOPBACK_EVENT_INVALID;
+            } else {
+                ses_data->ses_handle = handle;
+                loopback_event = PA_QAHW_LOOPBACK_EVENT_RECREATED;
+            }
+        }
+    }
+
+    /* Generate event and encoding string based on event type */
+    loopback_event_string = pa_qahw_loopback_get_loopback_event_string(loopback_event);
+    encoding_string = pa_encoding_to_string(port_config->encoding);
+
+    /* Raising signal to client on the event of format change detection */
+    pa_assert_se(message = dbus_message_new_signal(ses_data->obj_path, pa_qahw_loopback_session_interface_info.name,
+                                                                    det_event_signals[SIGNAL_DETECTION_EVENT].name));
+
+    dbus_message_iter_init_append(message, &arg_i);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_STRING, &(loopback_event_string));
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_STRING, &(ses_data->src_port));
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_UINT32, &((port_config->ss).rate));
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_UINT32, &((port_config->ss).channels));
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_STRING, &(encoding_string));
+
+    dbus_message_iter_open_container(&arg_i, DBUS_TYPE_ARRAY, "s", &array_i);
+    for (i = 0; i < NUM_CHANNEL_POSITIONS; i++) {
+        channel_map_string = pa_channel_position_to_string((port_config->map).map[i]);
+        if (!channel_map_string)
+            channel_map_string = "nil";
+
+        dbus_message_iter_append_basic(&array_i, DBUS_TYPE_STRING, &channel_map_string);
+    }
+    dbus_message_iter_close_container(&arg_i, &array_i);
+
+    pa_dbus_protocol_send_signal(ses_data->common->dbus_protocol, message);
+
+    dbus_message_unref(message);
+
+    return PA_HOOK_OK;
+}
+
 /******* Module specific function ********/
 static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     int status = 0;
@@ -503,13 +641,22 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
                  sink_cfg[i].channel_mask, sink_cfg[i].format, sink_port_gain[i], sink_cfg[i].ext.device.type);
     }
 
-    if (src_cfg.config_mask == PA_QAHW_LOOPBACK_PORT_CONFIG_AUTO)
-        src_cfg.config_mask = AUDIO_PORT_CONFIG_ALL ^ AUDIO_PORT_CONFIG_GAIN;
-
     /* Create session data */
     ses_data = pa_xnew0(struct pa_qahw_loopback_session_data, 1);
     ses_data->common = u;
     ses_data->src_port = pa_qahw_util_audio_device_to_port_name(src_cfg.ext.device.type, u->card->ports);
+    ses_data->src_config_mask = src_cfg.config_mask;
+    memcpy(&(ses_data->src_cfg), &src_cfg, sizeof(struct audio_port_config) * num_srcs);
+
+    ses_data->sink_cfg = pa_xnew0(struct audio_port_config, num_sinks);
+    memcpy(ses_data->sink_cfg, sink_cfg, sizeof(struct audio_port_config) * num_sinks);
+    ses_data->num_sinks = num_sinks;
+    ses_data->src_jack_type = pa_qahw_util_get_jack_type_from_port_name(ses_data->src_port);
+
+    if (src_cfg.config_mask == PA_QAHW_LOOPBACK_PORT_CONFIG_AUTO) {
+        src_cfg.config_mask = AUDIO_PORT_CONFIG_ALL ^ AUDIO_PORT_CONFIG_GAIN;
+        ses_data->src_cfg.config_mask = AUDIO_PORT_CONFIG_ALL ^ AUDIO_PORT_CONFIG_GAIN;
+    }
 
     /* Notify PA_QAHW_LOOPBACK_EVENT_STARTED to QAHW card module */
     u->callback(ses_data->src_port, PA_QAHW_LOOPBACK_EVENT_STARTED, u->prv_data);
@@ -535,6 +682,7 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
         pa_log_error("QAHW create audio patch failed\n");
         /* Unsuspend source if loopback fails to create */
         u->callback(ses_data->src_port, PA_QAHW_LOOPBACK_EVENT_STOPPED, u->prv_data);
+        pa_xfree(ses_data->sink_cfg);
         pa_xfree(ses_data);
         pa_xfree(sink_cfg);
         pa_xfree(sink_port_gain);
@@ -575,6 +723,13 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
 
     if (status == 0)
         pa_log_debug("Callback registered successfully\n");
+
+    ses_data->jack_handle = pa_qahw_jack_register_event_callback(ses_data->src_jack_type, pa_qahw_loopback_jack_callback,
+                                                                       pa_qahw_loopback_mdata->m, NULL, (void *)ses_data);
+    if (ses_data->jack_handle)
+        pa_log_info("Register jack event callback successful\n");
+    else
+        pa_log_error("Register jack event callback failed\n");
 
     pa_xfree(cb.endpoint_name);
 
@@ -759,6 +914,11 @@ static void pa_qahw_loopback_stop(DBusConnection *conn, DBusMessage *msg, void *
         pa_hashmap_remove(ses_data->common->loopback_sessions, &ses_data->ses_handle);
         pa_hashmap_remove(ses_data->common->loopback_mappings, &ses_data->ses_handle);
         pa_xfree(ses_data->obj_path);
+        pa_xfree(ses_data->sink_cfg);
+
+        if (ses_data->jack_handle)
+            pa_qahw_jack_deregister_event_callback(ses_data->jack_handle, pa_qahw_loopback_mdata->m);
+
         pa_xfree(ses_data);
 
         return;
@@ -773,6 +933,11 @@ static void pa_qahw_loopback_stop(DBusConnection *conn, DBusMessage *msg, void *
     pa_hashmap_remove(ses_data->common->loopback_sessions, &ses_data->ses_handle);
     pa_hashmap_remove(ses_data->common->loopback_mappings, &ses_data->ses_handle);
     pa_xfree(ses_data->obj_path);
+    pa_xfree(ses_data->sink_cfg);
+
+    if (ses_data->jack_handle)
+        pa_qahw_jack_deregister_event_callback(ses_data->jack_handle, pa_qahw_loopback_mdata->m);
+
     pa_xfree(ses_data);
 
     pa_dbus_send_empty_reply(conn, msg);
@@ -781,10 +946,11 @@ static void pa_qahw_loopback_stop(DBusConnection *conn, DBusMessage *msg, void *
 /******* public functions ********/
 void pa_qahw_loopback_init(qahw_module_handle_t *module_handle, pa_core *core, pa_card *card,
                            pa_hashmap *loopbacks, pa_qahw_loopback_callback_t callback,
-                           void *prv_data, pa_qahw_effect_handle_t effect_handle) {
+                           void *prv_data, pa_qahw_effect_handle_t effect_handle, pa_module *m) {
     pa_assert(module_handle);
     pa_assert(core);
     pa_assert(card);
+    pa_assert(m);
     pa_assert(loopbacks);
 
     if (pa_hashmap_size(loopbacks) != PA_QAHW_LOOPBACK_MAX_SESSIONS) {
@@ -800,6 +966,7 @@ void pa_qahw_loopback_init(qahw_module_handle_t *module_handle, pa_core *core, p
 
     pa_qahw_loopback_mdata->module_handle = module_handle;
     pa_qahw_loopback_mdata->card = card;
+    pa_qahw_loopback_mdata->m = m;
     pa_qahw_loopback_mdata->callback = callback;
     pa_qahw_loopback_mdata->prv_data = prv_data;
     pa_qahw_loopback_mdata->loopbacks = loopbacks;

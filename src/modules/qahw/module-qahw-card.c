@@ -1141,7 +1141,7 @@ int pa__init(pa_module *m) {
     dbus_protocol = pa_dbus_protocol_get(u->core);
     u->effect_handle = pa_qahw_init_effect(dbus_path, dbus_protocol, u->config_data->effects, u->card);
 
-    pa_qahw_loopback_init(u->module_handle, u->core, u->card, u->config_data->loopbacks, pa_qahw_loopback_callback, (void *)u, u->effect_handle);
+    pa_qahw_loopback_init(u->module_handle, u->core, u->card, u->config_data->loopbacks, pa_qahw_loopback_callback, (void *)u, u->effect_handle, m);
 
     return ret;
 
