@@ -267,6 +267,13 @@ struct pa_sink {
      * set). Makes a copy of the formats passed in. */
     bool (*set_formats)(pa_sink *s, pa_idxset *formats); /* may be NULL */
 
+    /* Called to inform the sink that a specific compressed stream will
+     * now be providing data to it, or to end such a configured state
+     * if the format is NULL. Must return success or failure value for
+     * whether such a configuration was successful.
+     */
+    bool (*set_format)(pa_sink *s, const pa_format_info *format); /* may be NULL */
+
     /* Called whenever device parameters need to be changed. Called from
      * main thread. */
     int (*reconfigure)(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough);
@@ -469,9 +476,9 @@ pa_sink *pa_sink_get_master(pa_sink *s);
 
 bool pa_sink_is_filter(pa_sink *s);
 
-/* Is the sink in passthrough mode? (that is, is there a passthrough sink input
- * connected to this sink? */
-bool pa_sink_is_passthrough(pa_sink *s);
+/* Is the sink in exclusive mode? (that is, is there a passthrough or
+ * compressed sink input connected to this sink?) */
+bool pa_sink_is_exclusive(pa_sink *s);
 
 void pa_sink_set_volume(pa_sink *sink, const pa_cvolume *volume, bool sendmsg, bool save);
 const pa_cvolume *pa_sink_get_volume(pa_sink *sink, bool force_refresh);
@@ -507,6 +514,7 @@ void pa_sink_move_all_fail(pa_queue *q);
  * https://bugs.freedesktop.org/show_bug.cgi?id=71924 */
 pa_idxset* pa_sink_get_formats(pa_sink *s);
 
+bool pa_sink_set_format(pa_sink *s, pa_format_info *format);
 bool pa_sink_set_formats(pa_sink *s, pa_idxset *formats);
 bool pa_sink_check_format(pa_sink *s, pa_format_info *f);
 pa_idxset* pa_sink_check_formats(pa_sink *s, pa_idxset *in_formats);

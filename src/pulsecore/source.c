@@ -1347,7 +1347,7 @@ bool pa_source_is_passthrough(pa_source *s) {
     }
 
     /* Check if we're a monitor source and sink is in passthrough mode */
-    return (s->monitor_of && pa_sink_is_passthrough(s->monitor_of));
+    return (s->monitor_of && pa_sink_is_exclusive(s->monitor_of));
 }
 
 /* Called from main context. */
