@@ -80,6 +80,8 @@ struct userdata {
 
     int dump_fd;
     bool timestamp_mode;
+
+    bool compressed;
 };
 
 static const char* const valid_modargs[] = {
@@ -126,9 +128,15 @@ static int sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state,
     pa_assert(s);
     pa_assert_se(u = s->userdata);
 
-    if (s->thread_info.state == PA_SINK_SUSPENDED || s->thread_info.state == PA_SINK_INIT) {
-        if (PA_SINK_IS_OPENED(new_state))
+    /* Compressed sink starts on RUNNING */
+    if (s->thread_info.state == PA_SINK_SUSPENDED || s->thread_info.state == PA_SINK_INIT ||
+        (u->compressed && s->thread_info.state == PA_SINK_IDLE)) {
+        if (!u->compressed && PA_SINK_IS_OPENED(new_state))
             u->timestamp = pa_rtclock_now();
+        else if (PA_SINK_IS_RUNNING(new_state))
+            u->timestamp = pa_rtclock_now();
+
+        pa_log_debug("Starting at %lu", u->timestamp);
     }
 
     return 0;
@@ -147,7 +155,7 @@ static void sink_update_requested_latency_cb(pa_sink *s) {
         u->block_usec = s->thread_info.max_latency;
 
     nbytes = pa_usec_to_bytes(u->block_usec, &s->sample_spec);
-    pa_sink_set_max_rewind_within_thread(s, u->timestamp_mode ? 0 : nbytes);
+    pa_sink_set_max_rewind_within_thread(s, u->timestamp_mode || u->compressed ? 0 : nbytes);
     pa_sink_set_max_request_within_thread(s, nbytes);
 }
 
@@ -157,6 +165,7 @@ static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map 
 
     pa_sink_assert_ref(s);
     pa_assert_se(u = s->userdata);
+    pa_assert(!u->compressed);
 
     s->sample_spec = *spec;
 
@@ -169,7 +178,7 @@ static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map 
         u->block_usec = s->thread_info.max_latency;
 
     nbytes = pa_usec_to_bytes(u->block_usec, &s->sample_spec);
-    pa_sink_set_max_rewind(s, u->timestamp_mode ? 0 : nbytes);
+    pa_sink_set_max_rewind(s, u->timestamp_mode || u->compressed ? 0 : nbytes);
     pa_sink_set_max_request(s, nbytes);
 
     return 0;
@@ -192,6 +201,21 @@ static pa_idxset* sink_get_formats_cb(pa_sink *s) {
     pa_assert(u);
 
     return pa_idxset_copy(u->formats, (pa_copy_func_t) pa_format_info_copy);
+}
+
+static bool sink_set_format_cb(pa_sink *s, const pa_format_info *format) {
+    struct userdata *u = s->userdata;
+
+    pa_assert(u);
+
+    if (format && u->compressed && u->dump_fd >= 0) {
+        /* No point mixing formats, let's truncate the dump file */
+        pa_log_info("Truncating dump file on format change");
+        if (ftruncate(u->dump_fd, 0) < 0)
+            pa_log_error("Failed to truncate dump file");
+    }
+
+    return true;
 }
 
 static void process_rewind(struct userdata *u, pa_usec_t now) {
@@ -258,6 +282,15 @@ static void process_render(struct userdata *u, pa_usec_t now) {
             pa_memblock_release(chunk.memblock);
         }
 
+        if (u->compressed) {
+            if (pa_memblock_is_silence(chunk.memblock))
+                pa_log_warn("Got silence memchunk in compressed mode");
+            else if (chunk.duration == PA_NSEC_INVALID)
+                pa_log_warn("Did not get duration in compressed mode");
+
+            /* FIXME: Fix dump format above to include duration/frame boundary */
+        }
+
         /* We don't really use timestamps, this is just for validation. We
          * assume that if timestamps are provided, they start from 0 and
          * verify that each buffer has the expected timestamp based on the
@@ -276,7 +309,11 @@ static void process_render(struct userdata *u, pa_usec_t now) {
 
 /*         pa_log_debug("Ate %lu bytes, %lu nsec at %lu.", (unsigned long) chunk.length,
                 (unsigned long) chunk.duration, (unsigned long) chunk.timestamp); */
-        u->timestamp += pa_bytes_to_usec(chunk.length, &u->sink->sample_spec);
+
+        if (!u->compressed && !u->timestamp_mode)
+            u->timestamp += pa_bytes_to_usec(chunk.length, &u->sink->sample_spec);
+        else if (chunk.duration != PA_NSEC_INVALID)
+            u->timestamp += chunk.duration / PA_NSEC_PER_USEC;
 
         ate += chunk.length;
 
@@ -301,15 +338,20 @@ static void thread_func(void *userdata) {
     for (;;) {
         pa_usec_t now = 0;
         int ret;
+        bool running;
 
-        if (PA_SINK_IS_OPENED(u->sink->thread_info.state))
+        /* A compressed sink only renders in RUNNING, not in IDLE */
+        running = (!u->compressed && PA_SINK_IS_OPENED(u->sink->thread_info.state)) ||
+            PA_SINK_IS_RUNNING(u->sink->thread_info.state);
+
+        if (running)
             now = pa_rtclock_now();
 
         if (PA_UNLIKELY(u->sink->thread_info.rewind_requested))
             process_rewind(u, now);
 
         /* Render some data and drop it immediately */
-        if (PA_SINK_IS_OPENED(u->sink->thread_info.state)) {
+        if (running) {
             if (u->timestamp <= now)
                 process_render(u, now);
 
@@ -393,15 +435,6 @@ int pa__init(pa_module*m) {
         goto fail;
     }
 
-    pa_sink_new_data_init(&data);
-    data.driver = __FILE__;
-    data.module = m;
-    pa_sink_new_data_set_name(&data, pa_modargs_get_value(ma, "sink_name", DEFAULT_SINK_NAME));
-    pa_sink_new_data_set_sample_spec(&data, &ss);
-    pa_sink_new_data_set_channel_map(&data, &map);
-    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_DESCRIPTION, _("Null Output"));
-    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "abstract");
-
     u->formats = pa_idxset_new(NULL, NULL);
     if ((formats = pa_modargs_get_value(ma, "formats", NULL))) {
         char *f = NULL;
@@ -415,13 +448,37 @@ int pa__init(pa_module*m) {
                 goto fail;
             }
 
+            /* Let's minimise the number of ways to provide configuration */
+            if (pa_format_info_is_pcm(format)) {
+                pa_log(_("The 'formats' argument should only be used for compressed formats"));
+                goto fail;
+            }
+
             pa_idxset_put(u->formats, format, NULL);
         }
+
+        u->compressed = true;
+
+        /* Set ourselves up for a 1 byte-per-frame sample spec */
+        ss.format = PA_SAMPLE_U8;
+        ss.channels = 1;
+        pa_channel_map_init_mono(&map);
+
     } else {
         format = pa_format_info_new();
         format->encoding = PA_ENCODING_PCM;
         pa_idxset_put(u->formats, format, NULL);
+        u->compressed = false;
     }
+
+    pa_sink_new_data_init(&data);
+    data.driver = __FILE__;
+    data.module = m;
+    pa_sink_new_data_set_name(&data, pa_modargs_get_value(ma, "sink_name", DEFAULT_SINK_NAME));
+    pa_sink_new_data_set_sample_spec(&data, &ss);
+    pa_sink_new_data_set_channel_map(&data, &map);
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_DESCRIPTION, _("Null Output"));
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "abstract");
 
     if (pa_modargs_get_proplist(ma, "sink_properties", data.proplist, PA_UPDATE_REPLACE) < 0) {
         pa_log("Invalid properties");
@@ -443,6 +500,7 @@ int pa__init(pa_module*m) {
     u->sink->reconfigure = sink_reconfigure_cb;
     u->sink->get_formats = sink_get_formats_cb;
     u->sink->set_formats = sink_set_formats_cb;
+    u->sink->set_format = sink_set_format_cb;
     u->sink->userdata = u;
 
     pa_sink_set_asyncmsgq(u->sink, u->thread_mq.inq);
@@ -450,7 +508,7 @@ int pa__init(pa_module*m) {
 
     u->block_usec = BLOCK_USEC;
     nbytes = pa_usec_to_bytes(u->block_usec, &u->sink->sample_spec);
-    pa_sink_set_max_rewind(u->sink, u->timestamp_mode ? 0 : nbytes);
+    pa_sink_set_max_rewind(u->sink, u->timestamp_mode || u->compressed ? 0 : nbytes);
     pa_sink_set_max_request(u->sink, nbytes);
 
     if (!(u->thread = pa_thread_new("null-sink", thread_func, u))) {
