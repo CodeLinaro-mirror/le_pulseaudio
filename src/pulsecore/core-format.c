@@ -224,14 +224,19 @@ int pa_format_info_to_sample_spec_fake(const pa_format_info *f, pa_sample_spec *
 
     switch (f->encoding) {
         case PA_ENCODING_PCM:
-        case PA_ENCODING_MPEG:
             return -PA_ERR_INVALID;
 
+        case PA_ENCODING_MPEG:
+            /* Fake a frame size of 1 byte for compressed data */
+            ss->format = PA_SAMPLE_U8;
+            break;
+
         default:
+            /* Passthrough format */
+            ss->format = PA_SAMPLE_S16LE;
             break;
     }
 
-    ss->format = PA_SAMPLE_S16LE;
     if ((f->encoding == PA_ENCODING_TRUEHD_IEC61937) ||
         (f->encoding == PA_ENCODING_DTSHD_IEC61937) ||
         (f->encoding == PA_ENCODING_UNKNOWN_HBR_IEC61937)) {
@@ -244,6 +249,11 @@ int pa_format_info_to_sample_spec_fake(const pa_format_info *f, pa_sample_spec *
              * sample spec's channel count. */
             pa_channel_map_init_auto(map, 8, PA_CHANNEL_MAP_ALSA);
         }
+    } else if (f->encoding == PA_ENCODING_MPEG) {
+        /* Fake a frame size of 1 byte for compressed data */
+        ss->channels = 1;
+        if (map)
+            pa_channel_map_init_mono(map);
     } else {
         ss->channels = 2;
         if (map)
