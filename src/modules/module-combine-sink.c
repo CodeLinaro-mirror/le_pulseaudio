@@ -136,6 +136,7 @@ struct userdata {
 
     pa_time_event *time_event;
     pa_usec_t adjust_time;
+    pa_usec_t timer_interval;
 
     bool automatic;
     bool auto_desc;
@@ -225,10 +226,13 @@ static void adjust_rates(struct userdata *u) {
         return;
 
     avg_total_latency /= n;
+    pa_log_info("[%s] avg total latency is %0.2f msec.", u->sink->name, (double) avg_total_latency / PA_USEC_PER_MSEC);
+
+    /* Don't adjust rates if we've not been asked to */
+    if (u->adjust_time == 0)
+        goto done;
 
     target_latency = PA_MAX(max_sink_latency, min_total_latency);
-
-    pa_log_info("[%s] avg total latency is %0.2f msec.", u->sink->name, (double) avg_total_latency / PA_USEC_PER_MSEC);
     pa_log_info("[%s] target latency is %0.2f msec.", u->sink->name, (double) target_latency / PA_USEC_PER_MSEC);
 
     base_rate = u->sink->sample_spec.rate;
@@ -261,6 +265,7 @@ static void adjust_rates(struct userdata *u) {
         pa_sink_input_set_rate(o->sink_input, new_rate);
     }
 
+done:
     pa_asyncmsgq_send(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_UPDATE_LATENCY, NULL, (int64_t) avg_total_latency, NULL);
 }
 
@@ -277,7 +282,7 @@ static void time_callback(pa_mainloop_api *a, pa_time_event *e, const struct tim
         u->core->mainloop->time_free(e);
         u->time_event = NULL;
     } else
-        pa_core_rttime_restart(u->core, e, pa_rtclock_now() + u->adjust_time);
+        pa_core_rttime_restart(u->core, e, pa_rtclock_now() + u->timer_interval);
 }
 
 static void process_render_null(struct userdata *u, pa_usec_t now) {
@@ -674,8 +679,8 @@ static void unsuspend(struct userdata *u) {
     PA_IDXSET_FOREACH(o, u->outputs, idx)
         output_enable(o);
 
-    if (!u->time_event && u->adjust_time > 0)
-        u->time_event = pa_core_rttime_new(u->core, pa_rtclock_now() + u->adjust_time, time_callback, u);
+    if (!u->time_event)
+        u->time_event = pa_core_rttime_new(u->core, pa_rtclock_now() + u->timer_interval, time_callback, u);
 
     pa_log_info("Resumed successfully...");
 }
@@ -1516,8 +1521,9 @@ int pa__init(pa_module*m) {
     PA_IDXSET_FOREACH(o, u->outputs, idx)
         output_verify(o);
 
-    if (u->adjust_time > 0)
-        u->time_event = pa_core_rttime_new(m->core, pa_rtclock_now() + u->adjust_time, time_callback, u);
+    /* Always run the timer event, even when adjust_time is 0, so we have meaningful latency updates */
+    u->timer_interval = u->adjust_time ? u->adjust_time : DEFAULT_ADJUST_TIME_USEC;
+    u->time_event = pa_core_rttime_new(m->core, pa_rtclock_now() + u->timer_interval, time_callback, u);
 
     pa_modargs_free(ma);
 
