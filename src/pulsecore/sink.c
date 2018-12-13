@@ -1451,7 +1451,7 @@ int pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, b
     bool default_rate_is_usable = false;
     bool alternate_rate_is_usable = false;
     bool avoid_processing = s->avoid_processing;
-    pa_channel_map old_map, *new_map;
+    pa_channel_map old_map, *new_map = NULL;
 
     /* We currently only try to reconfigure the sample spec */
 
@@ -1497,10 +1497,16 @@ int pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, b
     if (restore) {
         /* We try to restore the saved spec */
         desired_spec = s->saved_spec;
+        /* Restore the previous channel map as well */
+        new_map = &s->saved_map;
 
     } else if (passthrough) {
         /* We have to try to use the sink input spec */
         desired_spec = *spec;
+
+        /* Set the requested channel map */
+        if (map)
+            new_map = map;
 
     } else if (avoid_processing) {
         desired_spec = s->sample_spec;
@@ -1512,10 +1518,17 @@ int pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, b
         if (pa_sample_size_of_format(spec->format) >= pa_sample_size_of_format(default_format))
             desired_spec.format = spec->format;
 
+        /* Set the requested channel map */
+        if (map)
+            new_map = map;
+
     } else if (default_rate == spec->rate || alternate_rate == spec->rate) {
         /* We can directly try to use this rate */
         desired_spec = s->sample_spec;
         desired_spec.rate = spec->rate;
+
+        /* For sample rate reconfiguration, don't touch the channel map */
+        new_map = NULL;
 
     } else {
         /* See if we can pick a rate that results in less resampling effort */
@@ -1534,6 +1547,9 @@ int pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, b
             desired_spec.rate = alternate_rate;
         else
             desired_spec.rate = default_rate;
+
+        /* For sample rate reconfiguration, don't touch the channel map */
+        new_map = NULL;
     }
 
     if (pa_sample_spec_equal(&desired_spec, &s->sample_spec) && passthrough == pa_sink_is_passthrough(s))
@@ -1547,20 +1563,6 @@ int pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, b
 
     /* Keep the old channel map in case it changes */
     old_map = s->channel_map;
-
-    if (restore) {
-        /* Restore the previous channel map as well */
-        new_map = &s->saved_map;
-    } else if (map) {
-        /* Set the requested channel map */
-        new_map = map;
-    } else if (desired_spec.channels == s->sample_spec.channels) {
-        /* No requested channel map, but channel count is unchanged so don't change */
-        new_map = &s->channel_map;
-    } else {
-        /* No requested channel map, let the device decide */
-        new_map = NULL;
-    }
 
     if (s->reconfigure(s, &desired_spec, new_map, passthrough) >= 0) {
         char spec_str[PA_SAMPLE_SPEC_SNPRINT_MAX];
