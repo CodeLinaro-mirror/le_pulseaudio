@@ -32,6 +32,7 @@
 #include <qahw_effect_presetreverb.h>
 #include <qahw_effect_environmentalreverb.h>
 #include <qahw_effect_audiosphere.h>
+#include <qahw_effect_trumpet.h>
 
 typedef enum {
     PA_QAHW_EFFECT_TYPE_SINK = 0,
