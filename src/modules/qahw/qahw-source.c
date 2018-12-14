@@ -319,6 +319,30 @@ exit:
     return rc;
 }
 
+int pa_qahw_source_get_media_config(pa_qahw_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
+        pa_qahw_source_data *sdata = (pa_qahw_source_data *)handle;
+        pa_format_info *f;
+
+        uint32_t i;
+        int ret = -1;
+
+        pa_assert(sdata);
+        pa_assert(sdata->pa_sdata);
+        pa_assert(sdata->pa_sdata->source);
+
+        *ss = sdata->pa_sdata->source->sample_spec;
+        *map = sdata->pa_sdata->source->channel_map;
+
+        PA_IDXSET_FOREACH(f, sdata->pa_sdata->formats, i) {
+            /* currently a source supports single format */
+            *encoding = f->encoding;
+            ret = 0;
+            break;
+        }
+
+        return ret;
+}
+
 static pa_idxset* pa_qahw_source_get_formats(pa_source *s) {
     pa_qahw_source_data *sdata = (pa_qahw_source_data *) s->userdata;
 
@@ -685,6 +709,7 @@ bool pa_qahw_source_is_supported_sample_rate(uint32_t sample_rate) {
 
     return supported;
 }
+
 pa_idxset* pa_qahw_source_get_config(pa_qahw_source_handle_t *handle) {
     pa_qahw_source_data *sdata = (pa_qahw_source_data *)handle;
 

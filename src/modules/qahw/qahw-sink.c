@@ -436,6 +436,31 @@ exit:
     return rc;
 }
 
+int pa_qahw_sink_get_media_config(pa_qahw_sink_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
+        pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)handle;
+        pa_format_info *f;
+
+        uint32_t i;
+        int ret = -1;
+
+        pa_assert(sdata);
+        pa_assert(sdata->pa_sdata);
+        pa_assert(sdata->pa_sdata->sink);
+
+        *ss = sdata->pa_sdata->sink->sample_spec;
+        *map = sdata->pa_sdata->sink->channel_map;
+
+        PA_IDXSET_FOREACH(f, sdata->pa_sdata->formats, i) {
+            /* currently a sink supports single format */
+            *encoding = f->encoding;
+            ret = 0;
+            break;
+        }
+
+        return ret;
+}
+
+
 static pa_idxset* pa_qahw_sink_get_formats(pa_sink *s) {
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *) s->userdata;
 

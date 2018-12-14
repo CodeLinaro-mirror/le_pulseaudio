@@ -57,6 +57,8 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
 pa_idxset* pa_qahw_source_get_config(pa_qahw_source_handle_t *handle);
 void pa_qahw_source_close(pa_qahw_source_handle_t *handle);
 bool pa_qahw_source_is_supported_sample_rate(uint32_t sample_rate);
+/* function to get media config */
+int pa_qahw_source_get_media_config(pa_qahw_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding);
 
 static inline bool pa_qahw_source_is_supported_type(char *source_type) {
     pa_assert(source_type);
