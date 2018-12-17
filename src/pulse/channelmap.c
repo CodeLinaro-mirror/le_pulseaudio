@@ -52,14 +52,8 @@ const char *const table[PA_CHANNEL_POSITION_MAX] = {
     [PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER] = "front-left-of-center",
     [PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER] = "front-right-of-center",
 
-    [PA_CHANNEL_POSITION_REAR_LEFT_OF_CENTER] = "rear-left-of-center",
-    [PA_CHANNEL_POSITION_REAR_RIGHT_OF_CENTER] = "rear-right-of-center",
-
     [PA_CHANNEL_POSITION_SIDE_LEFT] = "side-left",
     [PA_CHANNEL_POSITION_SIDE_RIGHT] = "side-right",
-
-    [PA_CHANNEL_POSITION_FRONT_LEFT_WIDE] = "front-left-wide",
-    [PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE] = "front-right-wide",
 
     [PA_CHANNEL_POSITION_AUX0] = "aux0",
     [PA_CHANNEL_POSITION_AUX1] = "aux1",
@@ -104,6 +98,9 @@ const char *const table[PA_CHANNEL_POSITION_MAX] = {
     [PA_CHANNEL_POSITION_TOP_REAR_LEFT] = "top-rear-left",
     [PA_CHANNEL_POSITION_TOP_REAR_RIGHT] = "top-rear-right",
 
+    [PA_CHANNEL_POSITION_FRONT_LEFT_WIDE] = "front-left-wide",
+    [PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE] = "front-right-wide",
+
     [PA_CHANNEL_POSITION_TOP_SIDE_LEFT] = "top-side-left",
     [PA_CHANNEL_POSITION_TOP_SIDE_RIGHT] = "top-side-right"
 };
@@ -124,14 +121,8 @@ const char *const pretty_table[PA_CHANNEL_POSITION_MAX] = {
     [PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER] = N_("Front Left-of-center"),
     [PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER] = N_("Front Right-of-center"),
 
-    [PA_CHANNEL_POSITION_REAR_LEFT_OF_CENTER] = N_("Rear Left-of-center"),
-    [PA_CHANNEL_POSITION_REAR_RIGHT_OF_CENTER] = N_("Rear Right-of-center"),
-
     [PA_CHANNEL_POSITION_SIDE_LEFT] = N_("Side Left"),
     [PA_CHANNEL_POSITION_SIDE_RIGHT] = N_("Side Right"),
-
-    [PA_CHANNEL_POSITION_FRONT_LEFT_WIDE] = N_("Front Left Wide"),
-    [PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE] = N_("Front Right Wide"),
 
     [PA_CHANNEL_POSITION_AUX0] = N_("Auxiliary 0"),
     [PA_CHANNEL_POSITION_AUX1] = N_("Auxiliary 1"),
@@ -175,6 +166,9 @@ const char *const pretty_table[PA_CHANNEL_POSITION_MAX] = {
     [PA_CHANNEL_POSITION_TOP_REAR_CENTER] = N_("Top Rear Center"),
     [PA_CHANNEL_POSITION_TOP_REAR_LEFT] = N_("Top Rear Left"),
     [PA_CHANNEL_POSITION_TOP_REAR_RIGHT] = N_("Top Rear Right"),
+
+    [PA_CHANNEL_POSITION_FRONT_LEFT_WIDE] = N_("Front Left Wide"),
+    [PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE] = N_("Front Right Wide"),
 
     [PA_CHANNEL_POSITION_TOP_SIDE_LEFT] = N_("Top Side Left"),
     [PA_CHANNEL_POSITION_TOP_SIDE_RIGHT] = N_("Top Side Right")
