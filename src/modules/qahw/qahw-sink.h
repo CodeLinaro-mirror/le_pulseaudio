@@ -65,6 +65,9 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
 void pa_qahw_sink_close(pa_qahw_sink_handle_t *handle);
 void pa_qahw_sink_module_init(void);
 void pa_qahw_sink_module_deinit(void);
+/* function to get media config */
+int pa_qahw_sink_get_media_config(pa_qahw_sink_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding);
+
 
 static inline bool pa_qahw_sink_is_supported_type(char *sink_type) {
     pa_assert(sink_type);
