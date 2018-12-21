@@ -76,12 +76,12 @@ static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_
         }
     } else if (sys_config->mode == PA_QAHW_JACK_INPUT_MODE_COMPRESS && sys_config->layout == 1) {
         jack_config->encoding = PA_ENCODING_UNKNOWN_HBR_IEC61937; /* HBR */
-        pa_channel_map_init_auto(&(jack_config->map), 8, PA_CHANNEL_MAP_DEFAULT);
+        pa_qahw_util_channel_map_init(&(jack_config->map), 8);
         jack_config->ss.channels = jack_config->map.channels;
     } else if (sys_config->mode == PA_QAHW_JACK_INPUT_MODE_PCM) {
         jack_config->encoding = PA_ENCODING_PCM;
         if (sys_config->layout == 1) {
-            pa_channel_map_init_auto(&(jack_config->map), 8, PA_CHANNEL_MAP_DEFAULT);
+            pa_qahw_util_channel_map_init(&(jack_config->map), 8);
             jack_config->ss.channels = jack_config->map.channels;
             /* FIXME: get channel map from channel allocation and update map with correct channel count. For multichannel pcm transmission rate will be 8
                and 2 for other uscasese,

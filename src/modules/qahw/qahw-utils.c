@@ -791,3 +791,60 @@ void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qa
     if (config_port->arc_sample_rate_node_path)
         jack_in_config->jack_sys_path.arc_audio_rate = config_port->arc_sample_rate_node_path;
 }
+
+/* With reference to the translation table from "Dolby Atmos to Sound Bar Product
+ * System Development Manual" */
+pa_channel_map* pa_qahw_util_channel_map_init(pa_channel_map *m, unsigned channels) {
+    pa_assert(m);
+    pa_assert(pa_channels_valid(channels));
+
+    pa_channel_map_init(m);
+
+    m->channels = (uint8_t) channels;
+
+    switch (channels) {
+        case 1:
+            m->map[0] = PA_CHANNEL_POSITION_MONO;
+            return m;
+        case 7:
+            m->map[6] = PA_CHANNEL_POSITION_REAR_CENTER;
+            /* Fall through */
+        case 6:
+            m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+            m->map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+            m->map[2] = PA_CHANNEL_POSITION_FRONT_CENTER;
+            m->map[3] = PA_CHANNEL_POSITION_LFE;
+            m->map[4] = PA_CHANNEL_POSITION_SIDE_LEFT;
+            m->map[5] = PA_CHANNEL_POSITION_SIDE_RIGHT;
+            return m;
+        case 5:
+            m->map[2] = PA_CHANNEL_POSITION_FRONT_CENTER;
+            m->map[3] = PA_CHANNEL_POSITION_SIDE_LEFT;
+            m->map[4] = PA_CHANNEL_POSITION_SIDE_RIGHT;
+            /* Fall through */
+        case 2:
+            m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+            m->map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+            return m;
+        case 8:
+            m->map[3] = PA_CHANNEL_POSITION_LFE;
+            m->map[4] = PA_CHANNEL_POSITION_SIDE_LEFT;
+            m->map[5] = PA_CHANNEL_POSITION_SIDE_RIGHT;
+            m->map[6] = PA_CHANNEL_POSITION_REAR_LEFT;
+            m->map[7] = PA_CHANNEL_POSITION_REAR_RIGHT;
+            /* Fall through */
+        case 3:
+            m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+            m->map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+            m->map[2] = PA_CHANNEL_POSITION_FRONT_CENTER;
+            return m;
+        case 4:
+            m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+            m->map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+            m->map[2] = PA_CHANNEL_POSITION_SIDE_LEFT;
+            m->map[3] = PA_CHANNEL_POSITION_SIDE_RIGHT;
+            return m;
+        default:
+            return NULL;
+    }
+}
