@@ -52,6 +52,7 @@ pa_qahw_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_QAHW_JACK_TYPE_BTA2DP_OUT, (char*)"bta2dp-out" },
     { PA_QAHW_JACK_TYPE_BTA2DP_IN, (char*)"bta2dp-in" },
     { PA_QAHW_JACK_TYPE_HDMI_ARC, (char *)"hdmi-arc"},
+    { PA_QAHW_JACK_TYPE_SPDIF, (char *)"spdif-in"},
 };
 
 pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {

@@ -25,9 +25,11 @@
 #include <pulsecore/modargs.h>
 #include <pulsecore/protocol-dbus.h>
 #include <pulsecore/thread.h>
+#include <pulsecore/shared.h>
 
 #include "qsthw_api.h"
 #include "qsthw_defs.h"
+#include "qsthw-util.h"
 
 #define OK 0
 #define QSTHW_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qsthw"
@@ -47,6 +49,8 @@ struct qsthw_module_data {
     char *obj_path;
     pa_dbus_protocol *dbus_protocol;
     const qsthw_module_handle_t *st_mod_handle;
+    pa_qsthw_hooks *qsthw;
+    bool is_session_started;
 };
 
 struct qsthw_session_data {
@@ -314,6 +318,12 @@ static void event_callback(struct sound_trigger_recognition_event *event, void *
     dbus_message_iter_close_container(&arg_i, &array_i);
 
     pa_dbus_protocol_send_signal(ses_data->common->dbus_protocol, message);
+
+    if(event->capture_available) {
+        ses_data->common->is_session_started = true;
+        pa_hook_fire(&ses_data->common->qsthw->hooks[PA_HOOK_QSTHW_START_DETECTION],NULL);
+    }
+
     dbus_message_unref(message);
 }
 
@@ -579,6 +589,12 @@ static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *user
     }
 
     pa_log_debug("start recognition");
+    /* fire a hook to stop detection */
+    if (ses_data->common->is_session_started) {
+        pa_hook_fire(&ses_data->common->qsthw->hooks[PA_HOOK_QSTHW_STOP_DETECTION],NULL);
+        ses_data->common->is_session_started = false;
+    }
+
     dbus_message_iter_recurse(&arg_i, &struct_i);
     dbus_message_iter_get_basic(&struct_i, &config.capture_handle);
     dbus_message_iter_next(&struct_i);
@@ -940,6 +956,7 @@ static void global_set_parameters(DBusConnection *conn, DBusMessage *msg, void *
 int pa__init(pa_module *m) {
     struct qsthw_module_data *m_data;
     pa_modargs *ma;
+    int i;
 
     pa_assert(m);
 
@@ -950,6 +967,7 @@ int pa__init(pa_module *m) {
     }
 
     m->userdata = m_data = pa_xnew0(struct qsthw_module_data, 1);
+    m_data->qsthw = pa_xnew0(pa_qsthw_hooks, 1);
     m_data->modargs = ma;
     m_data->module = m;
 
@@ -973,6 +991,11 @@ int pa__init(pa_module *m) {
     m_data->dbus_protocol = pa_dbus_protocol_get(m->core);
     pa_assert_se(pa_dbus_protocol_add_interface(m_data->dbus_protocol,
             m_data->obj_path, &module_interface_info, m_data) >= 0);
+
+    for (i = 0; i < PA_HOOK_QSTHW_MAX; i++)
+        pa_hook_init(&m_data->qsthw->hooks[i], NULL);
+
+    pa_shared_set(m->core, "voice-ui-session", m_data->qsthw);
 
     return 0;
 
@@ -1012,6 +1035,7 @@ void pa__done(pa_module *m) {
     if (m_data->modargs)
         pa_modargs_free(m_data->modargs);
 
+    pa_xfree(m_data->qsthw);
     pa_xfree(m_data);
     m->userdata = NULL;
 }

@@ -215,14 +215,12 @@ static pa_hook_result_t sink_input_move_start_hook_cb(pa_core *c, pa_sink_input 
 
 static pa_hook_result_t sink_input_move_finish_hook_cb(pa_core *c, pa_sink_input *s, struct userdata *u) {
     struct device_info *d;
-    pa_sink_input_state_t state;
 
     pa_assert(c);
     pa_sink_input_assert_ref(s);
     pa_assert(u);
 
-    state = pa_sink_input_get_state(s);
-    if (state != PA_SINK_INPUT_RUNNING && state != PA_SINK_INPUT_DRAINED)
+    if (s->state != PA_SINK_INPUT_RUNNING)
         return PA_HOOK_OK;
 
     if ((d = pa_hashmap_get(u->device_infos, s->sink)))
@@ -259,7 +257,7 @@ static pa_hook_result_t source_output_move_finish_hook_cb(pa_core *c, pa_source_
     pa_source_output_assert_ref(s);
     pa_assert(u);
 
-    if (pa_source_output_get_state(s) != PA_SOURCE_OUTPUT_RUNNING)
+    if (s->state != PA_SOURCE_OUTPUT_RUNNING)
         return PA_HOOK_OK;
 
     if (s->source->monitor_of)
@@ -275,14 +273,12 @@ static pa_hook_result_t source_output_move_finish_hook_cb(pa_core *c, pa_source_
 
 static pa_hook_result_t sink_input_state_changed_hook_cb(pa_core *c, pa_sink_input *s, struct userdata *u) {
     struct device_info *d;
-    pa_sink_input_state_t state;
 
     pa_assert(c);
     pa_sink_input_assert_ref(s);
     pa_assert(u);
 
-    state = pa_sink_input_get_state(s);
-    if ((state == PA_SINK_INPUT_RUNNING || state == PA_SINK_INPUT_DRAINED) && s->sink)
+    if (s->state == PA_SINK_INPUT_RUNNING && s->sink)
         if ((d = pa_hashmap_get(u->device_infos, s->sink)))
             resume(d);
 
@@ -294,7 +290,7 @@ static pa_hook_result_t source_output_state_changed_hook_cb(pa_core *c, pa_sourc
     pa_source_output_assert_ref(s);
     pa_assert(u);
 
-    if (pa_source_output_get_state(s) == PA_SOURCE_OUTPUT_RUNNING && s->source) {
+    if (s->state == PA_SOURCE_OUTPUT_RUNNING && s->source) {
         struct device_info *d;
 
         if (s->source->monitor_of)
@@ -394,18 +390,16 @@ static pa_hook_result_t device_state_changed_hook_cb(pa_core *c, pa_object *o, s
 
     if (pa_sink_isinstance(o)) {
         pa_sink *s = PA_SINK(o);
-        pa_sink_state_t state = pa_sink_get_state(s);
 
         if (pa_sink_check_suspend(s, NULL, NULL) <= 0)
-            if (PA_SINK_IS_OPENED(state))
+            if (PA_SINK_IS_OPENED(s->state))
                 restart(d);
 
     } else if (pa_source_isinstance(o)) {
         pa_source *s = PA_SOURCE(o);
-        pa_source_state_t state = pa_source_get_state(s);
 
         if (pa_source_check_suspend(s, NULL) <= 0)
-            if (PA_SOURCE_IS_OPENED(state))
+            if (PA_SOURCE_IS_OPENED(s->state))
                 restart(d);
     }
 
@@ -485,12 +479,12 @@ void pa__done(pa_module*m) {
     u = m->userdata;
 
     PA_HASHMAP_FOREACH(d, u->device_infos, state) {
-        if (d->sink && pa_sink_get_state(d->sink) == PA_SINK_SUSPENDED) {
+        if (d->sink && d->sink->state == PA_SINK_SUSPENDED) {
             pa_log_debug("Resuming sink %s on module unload.", d->sink->name);
             pa_sink_suspend(d->sink, false, PA_SUSPEND_IDLE);
         }
 
-        if (d->source && pa_source_get_state(d->source) == PA_SOURCE_SUSPENDED) {
+        if (d->source && d->source->state == PA_SOURCE_SUSPENDED) {
             pa_log_debug("Resuming source %s on module unload.", d->source->name);
             pa_source_suspend(d->source, false, PA_SUSPEND_IDLE);
         }

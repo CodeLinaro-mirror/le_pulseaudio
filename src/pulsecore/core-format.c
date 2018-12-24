@@ -249,8 +249,9 @@ int pa_format_info_to_sample_spec_fake(const pa_format_info *f, pa_sample_spec *
 
     if (f->encoding == PA_ENCODING_EAC3_IEC61937 || f->encoding == PA_ENCODING_UNKNOWN_4X_IEC61937)
         ss->rate *= 4;
-    else if (f->encoding == PA_ENCODING_UNKNOWN_HBR_IEC61937)
-        ss->rate = 192000;
+    /* For HBR formats, we make an exception and set format.rate to the
+     * transmission rate than the media rate. This is necessary because we
+     * cannot know before hand what the multiplier is. */
 
     return 0;
 }

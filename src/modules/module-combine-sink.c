@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2008 Lennart Poettering
+  Copyright (c) 2018, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -193,13 +194,13 @@ static void adjust_rates(struct userdata *u) {
     if (pa_idxset_size(u->outputs) <= 0)
         return;
 
-    if (!PA_SINK_IS_OPENED(pa_sink_get_state(u->sink)))
+    if (!PA_SINK_IS_OPENED(u->sink->state))
         return;
 
     PA_IDXSET_FOREACH(o, u->outputs, idx) {
         pa_usec_t sink_latency;
 
-        if (!o->sink_input || !PA_SINK_IS_OPENED(pa_sink_get_state(o->sink)))
+        if (!o->sink_input || !PA_SINK_IS_OPENED(o->sink->state))
             continue;
 
         o->total_latency = pa_sink_input_get_latency(o->sink_input, &sink_latency);
@@ -236,7 +237,7 @@ static void adjust_rates(struct userdata *u) {
         uint32_t new_rate = base_rate;
         uint32_t current_rate;
 
-        if (!o->sink_input || !PA_SINK_IS_OPENED(pa_sink_get_state(o->sink)))
+        if (!o->sink_input || !PA_SINK_IS_OPENED(o->sink->state))
             continue;
 
         current_rate = o->sink_input->sample_spec.rate;
@@ -272,7 +273,7 @@ static void time_callback(pa_mainloop_api *a, pa_time_event *e, const struct tim
 
     adjust_rates(u);
 
-    if (pa_sink_get_state(u->sink) == PA_SINK_SUSPENDED) {
+    if (u->sink->state == PA_SINK_SUSPENDED) {
         u->core->mainloop->time_free(e);
         u->time_event = NULL;
     } else
@@ -696,7 +697,7 @@ static int sink_set_state_in_main_thread_cb(pa_sink *sink, pa_sink_state_t state
 
     switch (state) {
         case PA_SINK_SUSPENDED:
-            pa_assert(PA_SINK_IS_OPENED(pa_sink_get_state(u->sink)));
+            pa_assert(PA_SINK_IS_OPENED(u->sink->state));
 
             suspend(u);
             break;
@@ -704,7 +705,7 @@ static int sink_set_state_in_main_thread_cb(pa_sink *sink, pa_sink_state_t state
         case PA_SINK_IDLE:
         case PA_SINK_RUNNING:
 
-            if (pa_sink_get_state(u->sink) == PA_SINK_SUSPENDED)
+            if (u->sink->state == PA_SINK_SUSPENDED)
                 unsuspend(u);
 
             break;
@@ -996,7 +997,7 @@ static int output_create_sink_input(struct output *o) {
     pa_sink_input_new_data_set_channel_map(&data, &u->sink->channel_map);
     data.module = u->module;
     data.resample_method = u->resample_method;
-    data.flags = PA_SINK_INPUT_VARIABLE_RATE|PA_SINK_INPUT_DONT_MOVE|PA_SINK_INPUT_NO_CREATE_ON_SUSPEND;
+    data.flags = ((u->adjust_time > 0) ? PA_SINK_INPUT_VARIABLE_RATE : 0) | PA_SINK_INPUT_DONT_MOVE|PA_SINK_INPUT_NO_CREATE_ON_SUSPEND;
 
     pa_sink_input_new(&o->sink_input, u->core, &data);
 
@@ -1125,7 +1126,7 @@ static void output_enable(struct output *o) {
 
     if (output_create_sink_input(o) >= 0) {
 
-        if (pa_sink_get_state(o->sink) != PA_SINK_INIT) {
+        if (o->sink->state != PA_SINK_INIT) {
             /* Enable the sink input. That means that the sink
              * is now asked for new data. */
             pa_sink_input_put(o->sink_input);
@@ -1161,7 +1162,7 @@ static void output_disable(struct output *o) {
 static void output_verify(struct output *o) {
     pa_assert(o);
 
-    if (PA_SINK_IS_OPENED(pa_sink_get_state(o->userdata->sink)))
+    if (PA_SINK_IS_OPENED(o->userdata->sink->state))
         output_enable(o);
     else
         output_disable(o);

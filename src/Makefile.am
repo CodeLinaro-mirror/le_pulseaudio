@@ -301,6 +301,8 @@ TESTS_norun = \
 TESTS_daemon = \
 		connect-stress \
 		extended-test \
+		passthrough-test \
+		reconfigure-test \
 		interpol-test \
 		sync-playback
 
@@ -369,6 +371,11 @@ check-daemon:
 	false
 
 endif
+
+libtest_util_la_SOURCES = tests/test-util.h tests/test-util.c
+libtest_util_la_LIBADD = libpulse.la
+libtest_util_la_LDFLAGS = -avoid-version
+noinst_LTLIBRARIES += libtest-util.la
 
 core_util_test_SOURCES = tests/core-util-test.c
 core_util_test_CFLAGS = $(AM_CFLAGS) $(LIBCHECK_CFLAGS)
@@ -479,6 +486,16 @@ extended_test_SOURCES = tests/extended-test.c
 extended_test_LDADD = $(AM_LDADD) libpulse.la
 extended_test_CFLAGS = $(AM_CFLAGS) $(LIBCHECK_CFLAGS)
 extended_test_LDFLAGS = $(AM_LDFLAGS) $(BINLDFLAGS) $(LIBCHECK_LIBS)
+
+passthrough_test_SOURCES = tests/passthrough-test.c
+passthrough_test_LDADD = $(AM_LDADD) libpulse.la libpulsecommon-@PA_MAJORMINOR@.la libtest-util.la
+passthrough_test_CFLAGS = $(AM_CFLAGS) $(LIBCHECK_CFLAGS)
+passthrough_test_LDFLAGS = $(AM_LDFLAGS) $(BINLDFLAGS) $(LIBCHECK_LIBS)
+
+reconfigure_test_SOURCES = tests/reconfigure-test.c
+reconfigure_test_LDADD = $(AM_LDADD) libpulse.la libpulsecommon-@PA_MAJORMINOR@.la libtest-util.la
+reconfigure_test_CFLAGS = $(AM_CFLAGS) $(LIBCHECK_CFLAGS)
+reconfigure_test_LDFLAGS = $(AM_LDFLAGS) $(BINLDFLAGS) $(LIBCHECK_LIBS)
 
 strlist_test_SOURCES = tests/strlist-test.c
 strlist_test_CFLAGS = $(AM_CFLAGS) $(LIBCHECK_CFLAGS)
@@ -1237,7 +1254,8 @@ modlibexec_LTLIBRARIES += \
 		module-role-ducking.la \
 		module-role-exclusive.la \
 		module-role-ignore.la \
-		module-allow-passthrough.la
+		module-allow-passthrough.la \
+		module-policy-voiceui.la
 
 if HAVE_ESOUND
 modlibexec_LTLIBRARIES += \
@@ -1638,7 +1656,7 @@ module_qahw_card_la_SOURCES = \
         modules/qahw/qahw-effect.c modules/qahw/qahw-effect.h \
         modules/qahw/qahw-format-detection.c modules/qahw/qahw-jack-format.h \
         modules/qahw/qahw-config-parser.c modules/qahw/qahw-config-parser.h \
-        modules/qahw/qahw-jack-external.c
+        modules/qahw/qahw-jack-external.c modules/qahw/qahw-jack-spdif.c
 module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(QAHW_API_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
 module_qahw_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qahw_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqahw
@@ -1968,6 +1986,12 @@ module_role_exclusive_la_SOURCES = modules/module-role-exclusive.c
 module_role_exclusive_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_role_exclusive_la_LIBADD = $(MODULE_LIBADD)
 module_role_exclusive_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_exclusive
+
+# Defines policy when there is a qsthw lab session is initiated
+module_policy_voiceui_la_SOURCES = modules/module-policy-voiceui.c
+module_policy_voiceui_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_policy_voiceui_la_LIBADD = $(MODULE_LIBADD)
+module_policy_voiceui_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_policy_voiceui
 
 # Ignore certain streams while others are active (e.g. mute tones when there is active voice-prompt)
 module_role_ignore_la_SOURCES = modules/module-role-ignore.c

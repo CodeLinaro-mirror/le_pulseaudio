@@ -215,7 +215,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
     pa_format_info *requested_format;
 
     pa_format_info *current_format;
-    pa_format_info *config_format;
+    pa_format_info *config_format = NULL;
 
     pa_idxset *current_formats;
 
@@ -253,7 +253,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
 
     /* check if reconfigure is needed if yes then close free existing source and recreate new source */
     if (source_info) {
-       if (source_info->force_suspended) {
+        if (source_info->force_suspended) {
             pa_log_debug("%s: source force suspended, skipping", __func__);
             goto exit;
         }
@@ -1141,7 +1141,7 @@ int pa__init(pa_module *m) {
     dbus_protocol = pa_dbus_protocol_get(u->core);
     u->effect_handle = pa_qahw_init_effect(dbus_path, dbus_protocol, u->config_data->effects, u->card);
 
-    pa_qahw_loopback_init(u->module_handle, u->core, u->card, u->config_data->loopbacks, pa_qahw_loopback_callback, (void *)u, u->effect_handle);
+    pa_qahw_loopback_init(u->module_handle, u->core, u->card, u->config_data->loopbacks, pa_qahw_loopback_callback, (void *)u, u->effect_handle, m);
 
     return ret;
 

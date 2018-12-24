@@ -108,6 +108,8 @@ static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t 
                              audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
 static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                             audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
+static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
+                          audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
 static int close_qahw_sink(pa_qahw_sink_data *sdata);
 static int free_pa_sink(pa_qahw_sink_data *sdata);
 
@@ -369,15 +371,18 @@ static int pa_qahw_sink_process_msg(pa_msgobject *o, int code, void *data, int64
     return pa_sink_process_msg(o, code, data, offset, chunk);
 }
 
-static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool passthrough) {
+static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough) {
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *) s->userdata;
+    pa_encoding_t encoding = PA_ENCODING_PCM;
     pa_sink_data *pa_sdata = NULL;
     qahw_sink_data *qahw_sdata = NULL;
-    pa_qahw_card_port_device_data *port_device_data;
 
-    bool supported = false;
-    uint32_t i, rc;
-    uint32_t old_rate;
+    char channel_map_buf[PA_CHANNEL_MAP_SNPRINT_MAX];
+    pa_channel_map new_map;
+
+    char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
+
+    int rc = -1;
 
     pa_assert(s);
     pa_assert(s->userdata);
@@ -385,49 +390,50 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool pa
     pa_assert(sdata->pa_sdata);
     pa_assert(sdata->qahw_sdata);
 
-    pa_log_debug("%s", __func__);
+    pa_log_info("%s", __func__);
 
     pa_sdata = sdata->pa_sdata;
     qahw_sdata = sdata->qahw_sdata;
 
-    for (i = 0; i < ARRAY_SIZE(supported_sink_rates) ; i++) {
-        if (spec->rate == supported_sink_rates[i]) {
-            supported = true;
-            break;
+    if (!PA_SOURCE_IS_OPENED(s->state)) {
+        pa_log_info("%s: old sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &pa_sdata->sink->sample_spec));
+        pa_log_info("%s: requested sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), spec));
+
+        if (map) {
+            pa_log_info("%s:old channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), &pa_sdata->sink->channel_map));
+            pa_log_info("%s:requested channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), map));
+
+            new_map = *map;
+        } else {
+            pa_channel_map_init_auto(&new_map, spec->channels, PA_CHANNEL_MAP_DEFAULT);
         }
-    }
 
-    if (!supported) {
-        pa_log_info("Sink does not support sample rate of %d Hz", spec->rate);
-        return -1;
-    }
+        qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port));
 
-    if (!PA_SINK_IS_OPENED(s->state)) {
+        /* first try to open with new conf if it fails then restore session with old conf */
+        rc = restart_qahw_sink(qahw_sdata->module_handle, encoding, spec, &new_map, qahw_sdata->devices, qahw_sdata->flags, qahw_sdata->handle, sdata);
+        if (rc) {
+            pa_log_error("%s: could note create qahw sink with requested conf, error %d, restoring old conf", __func__, rc);
+            rc = open_qahw_sink(qahw_sdata->module_handle, encoding, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map, qahw_sdata->devices,
+                                   qahw_sdata->flags, qahw_sdata->handle, sdata);
+            if (rc)
+                pa_log_info("%s: restoring of qahw source with old config failed, error %d", __func__, rc);
 
-        old_rate = pa_sdata->sink->sample_spec.rate; /* take backup */
-        pa_sdata->sink->sample_spec.rate = spec->rate;
-
-        port_device_data = PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port);
-        qahw_sdata->devices = port_device_data->device;
-
-        pa_log_info("Updating rate for device %d, new rate is %d", qahw_sdata->devices, spec->rate);
-
-        rc = restart_qahw_sink(qahw_sdata->module_handle, PA_ENCODING_PCM, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map, qahw_sdata->devices,
-                              qahw_sdata->flags, qahw_sdata->handle, sdata);
-        if (PA_UNLIKELY(rc)) {
-            pa_sdata->sink->sample_spec.rate = old_rate; /* restore old rate if failed */
-            pa_log_error("Could create reopen qahw sink, error %d", rc);
-            return -1;
+            goto exit;
         }
+
+        pa_sdata->sink->sample_spec = *spec;
+        pa_sdata->sink->channel_map = new_map;
 
         pa_qahw_sink_extn_sink_handle_update(sdata->sink_extn_handle, qahw_sdata->out_handle);
-
+        pa_sink_set_max_request(pa_sdata->sink, sdata->qahw_sdata->sink_buffer_size);
+        pa_sink_set_max_rewind(pa_sdata->sink, 0);
         pa_sink_set_fixed_latency(pa_sdata->sink, qahw_sdata->sink_latency_us);
         return 0;
     }
 
-    pa_log_info("Sink could not set sample rate of %d Hz", spec->rate);
-    return -1;
+exit:
+    return rc;
 }
 
 static pa_idxset* pa_qahw_sink_get_formats(pa_sink *s) {
@@ -560,6 +566,7 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
     }
 
     if (pa_qahw_sink_fill_info(qahw_sdata, encoding, ss, map, devices, flags, sink_id)) {
+        rc = -1;
         goto exit;
     }
 
@@ -718,7 +725,8 @@ static int pa_qahw_sink_alloc_common_resources(pa_qahw_sink_data *sdata) {
    return 0;
 }
 
-static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, bool use_hw_volume, uint32_t alternate_sample_rate, pa_card *card, pa_hashmap *ports, const char *driver, pa_qahw_sink_data *sdata) {
+static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, bool use_hw_volume,
+                          uint32_t alternate_sample_rate, bool avoid_processing, pa_card *card, pa_hashmap *ports, const char *driver, pa_qahw_sink_data *sdata) {
     pa_sink_new_data new_data;
     pa_sink_data *pa_sdata;
     pa_device_port *port;
@@ -769,6 +777,8 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
 
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_qahw_sink_get_name_from_flags(sdata->qahw_sdata->flags));
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
+
+    new_data.avoid_processing = avoid_processing;
 
     pa_sdata->sink = pa_sink_new(m->core, &new_data, PA_SINK_HARDWARE | PA_SINK_LATENCY );
     pa_sink_new_data_done(&new_data);
@@ -1004,8 +1014,8 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
         goto exit;
     }
 
-    rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &sink->default_spec, &sink->default_map, sink->use_hw_volume, sink->alternate_sample_rate, card, ports, driver, sdata);
-    pa_hashmap_free(ports);
+    rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &sink->default_spec, &sink->default_map, sink->use_hw_volume,
+                        sink->alternate_sample_rate, sink->avoid_processing, card, ports, driver, sdata);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", sink->name, rc);
         free_qahw_sink(sdata);
@@ -1019,15 +1029,19 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create qahw sink extn %s, error %d", sink->name, rc);
         free_qahw_sink(sdata);
+        pa_qahw_sink_free_common_resources(sdata);
         free_pa_sink(sdata);
         pa_xfree(sdata);
         sdata = NULL;
+        goto exit;
     }
 
     *handle = (pa_qahw_sink_handle_t *)sdata;
     pa_idxset_put(mdata->sinks, sdata, NULL);
 
 exit:
+    if (ports)
+        pa_hashmap_free(ports);
     return rc;
 }
 

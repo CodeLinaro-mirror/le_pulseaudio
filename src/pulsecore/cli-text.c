@@ -250,7 +250,7 @@ char *pa_sink_list_to_string(pa_core *c) {
             sink->flags & PA_SINK_LATENCY ? "LATENCY " : "",
             sink->flags & PA_SINK_FLAT_VOLUME ? "FLAT_VOLUME " : "",
             sink->flags & PA_SINK_DYNAMIC_LATENCY ? "DYNAMIC_LATENCY" : "",
-            pa_sink_state_to_string(pa_sink_get_state(sink)),
+            pa_sink_state_to_string(sink->state),
             pa_suspend_cause_to_string(sink->suspend_cause, suspend_cause_buf),
             sink->priority,
             pa_cvolume_snprint_verbose(cv,
@@ -361,7 +361,7 @@ char *pa_source_list_to_string(pa_core *c) {
             source->flags & PA_SOURCE_DECIBEL_VOLUME ? "DECIBEL_VOLUME " : "",
             source->flags & PA_SOURCE_LATENCY ? "LATENCY " : "",
             source->flags & PA_SOURCE_DYNAMIC_LATENCY ? "DYNAMIC_LATENCY" : "",
-            pa_source_state_to_string(pa_source_get_state(source)),
+            pa_source_state_to_string(source->state),
             pa_suspend_cause_to_string(source->suspend_cause, suspend_cause_buf),
             source->priority,
             pa_cvolume_snprint_verbose(cv,
@@ -489,7 +489,7 @@ char *pa_source_output_list_to_string(pa_core *c) {
             o->flags & PA_SOURCE_OUTPUT_NO_CREATE_ON_SUSPEND ? "NO_CREATE_ON_SUSPEND " : "",
             o->flags & PA_SOURCE_OUTPUT_KILL_ON_SUSPEND ? "KILL_ON_SUSPEND " : "",
             o->flags & PA_SOURCE_OUTPUT_PASSTHROUGH ? "PASSTHROUGH " : "",
-            state_table[pa_source_output_get_state(o)],
+            state_table[o->state],
             o->source->index, o->source->name,
             volume_str,
             pa_yes_no(o->muted),
@@ -525,7 +525,6 @@ char *pa_sink_input_list_to_string(pa_core *c) {
     static const char* const state_table[] = {
         [PA_SINK_INPUT_INIT] = "INIT",
         [PA_SINK_INPUT_RUNNING] = "RUNNING",
-        [PA_SINK_INPUT_DRAINED] = "DRAINED",
         [PA_SINK_INPUT_CORKED] = "CORKED",
         [PA_SINK_INPUT_UNLINKED] = "UNLINKED"
     };
@@ -587,7 +586,7 @@ char *pa_sink_input_list_to_string(pa_core *c) {
             i->flags & PA_SINK_INPUT_NO_CREATE_ON_SUSPEND ? "NO_CREATE_SUSPEND " : "",
             i->flags & PA_SINK_INPUT_KILL_ON_SUSPEND ? "KILL_ON_SUSPEND " : "",
             i->flags & PA_SINK_INPUT_PASSTHROUGH ? "PASSTHROUGH " : "",
-            state_table[pa_sink_input_get_state(i)],
+            state_table[i->state],
             i->sink->index, i->sink->name,
             volume_str,
             pa_yes_no(i->muted),

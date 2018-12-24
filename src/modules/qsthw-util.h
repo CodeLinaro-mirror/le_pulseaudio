@@ -16,25 +16,19 @@
  * 02110-1301  USA
  */
 
-#ifndef fooqahwjackformathfoo
-#define fooqahwjackformathfoo
+#ifndef fooqsthwutilfoo
+#define fooqsthwutilfoo
 
-#include <pulsecore/core-util.h>
+typedef struct pa_qsthw_hooks pa_qsthw_hooks;
 
-#include "qahw-jack.h"
+typedef enum pa_qsthw_hook {
+    PA_HOOK_QSTHW_START_DETECTION,
+    PA_HOOK_QSTHW_STOP_DETECTION,
+    PA_HOOK_QSTHW_MAX,
+} pa_qsthw_hook_t;
 
-typedef struct pa_qahw_jack_config {
-    pa_encoding_t encoding;
-    pa_sample_spec ss;
-    pa_channel_map map;
-    pa_qahw_jack_type_t active_jack;
-} pa_qahw_jack_out_config;
+struct pa_qsthw_hooks {
+    pa_hook hooks[PA_HOOK_QSTHW_MAX];
+};
 
-int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys_path sys_path,
-                                                          pa_qahw_jack_out_config *jack_config);
-
-int pa_qahw_spdif_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys_path sys_path,
-                                                           pa_qahw_jack_out_config *jack_config);
-
-#endif
-
+#endif //fooqsthwutilfoo

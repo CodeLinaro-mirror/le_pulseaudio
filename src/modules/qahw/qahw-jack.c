@@ -100,6 +100,8 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
             jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
         } else if  (jack_type ==  PA_QAHW_JACK_TYPE_BTA2DP_IN) {
             jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
+        } else if  (jack_type == PA_QAHW_JACK_TYPE_SPDIF) {
+            jdata = pa_qahw_spdif_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data);
         }
 
         if (!(pa_qahw_jack_check_enable_status(jdata, port_name, jack_type)))
@@ -156,6 +158,10 @@ bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *jack_handle, 
             pa_hashmap_remove(registered_jacks, port_name);
             pa_qahw_external_jack_detection_disable(jdata, m);
             toggle_jack_status_bits(PA_QAHW_JACK_TYPE_BTA2DP_IN);
+        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_SPDIF) {
+            pa_hashmap_remove(registered_jacks, port_name);
+            pa_qahw_spdif_jack_detection_disable(jdata, m);
+            toggle_jack_status_bits(PA_QAHW_JACK_TYPE_SPDIF);
         }
     }
 
