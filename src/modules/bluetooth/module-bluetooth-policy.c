@@ -39,13 +39,15 @@ PA_MODULE_USAGE(
         "auto_switch=<Switch between hsp and a2dp profile? (0 - never, 1 - media.role=phone, 2 - heuristic> "
         "a2dp_source=<Handle a2dp_source card profile (sink role)?> "
         "ag=<Handle headset_audio_gateway card profile (headset role)?> "
-        "hfgw=<Handle hfgw card profile (headset role)?> DEPRECATED");
+        "hfgw=<Handle hfgw card profile (headset role)?> DEPRECATED "
+        "loopback_latency=<Latency in ms to use with the loopback module>");
 
 static const char* const valid_modargs[] = {
     "auto_switch",
     "a2dp_source",
     "ag",
     "hfgw",
+    "loopback_latency",
     NULL
 };
 
@@ -53,6 +55,7 @@ struct userdata {
     uint32_t auto_switch;
     bool enable_a2dp_source;
     bool enable_ag;
+    uint32_t loopback_latency;
     pa_hook_slot *source_put_slot;
     pa_hook_slot *sink_put_slot;
     pa_hook_slot *source_output_put_slot;
@@ -97,8 +100,13 @@ static pa_hook_result_t source_put_hook_callback(pa_core *c, pa_source *source, 
     }
 
     /* Load module-loopback */
-    args = pa_sprintf_malloc("source=\"%s\" source_dont_move=\"true\" sink_input_properties=\"media.role=%s\"", source->name,
-                             role);
+    if (u->loopback_latency == 0) {
+        args = pa_sprintf_malloc("source=\"%s\" source_dont_move=\"true\" sink_input_properties=\"media.role=%s\"", source->name,
+                                 role);
+    } else {
+        args = pa_sprintf_malloc("source=\"%s\" source_dont_move=\"true\" sink_input_properties=\"media.role=%s\" latency_msec=%lu",
+                                 source->name, role, (unsigned int) u->loopback_latency);
+    }
     (void) pa_module_load(&m, c, "module-loopback", args);
     pa_xfree(args);
 
@@ -454,6 +462,12 @@ int pa__init(pa_module *m) {
     }
     if (pa_modargs_get_value_boolean(ma, "ag", &u->enable_ag) < 0) {
         pa_log("Failed to parse ag argument.");
+        goto fail;
+    }
+
+    u->loopback_latency = 0;
+    if (pa_modargs_get_value_u32(ma, "loopback_latency", &u->loopback_latency) < 0) {
+        pa_log("Failed to parse loopback_latency argument.");
         goto fail;
     }
 
