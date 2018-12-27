@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -204,7 +204,6 @@ exit:
 
 static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_out_config *config, struct userdata *u) {
     int rc;
-    bool reconfigure = false;
 
     pa_qahw_card_source_info *source_info = NULL;
 
@@ -278,18 +277,8 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
             pa_idxset_free(current_formats, (pa_free_cb_t) pa_format_info_free);
         }
 
-        if (requested_format->encoding != encoding)
-            reconfigure = true;
-        else if ((requested_format->encoding == PA_ENCODING_PCM) && (!pa_sample_spec_equal(&config->ss, &ss)) && (!pa_channel_map_equal(&config->map, &map)))
-            reconfigure = true;
-
-        if (reconfigure) {
-            pa_log_info("%s: source reconfiguraiton needed, closing current source and createing new one", __func__);
-            pa_qahw_card_remove_dynamic_source(port, u);
-        } else {
-            pa_log_info("%s: source already exits", __func__);
-            goto exit;
-        }
+        pa_log_info("%s: closing current source and createing new one", __func__);
+        pa_qahw_card_remove_dynamic_source(port, u);
     }
 
     /* find a dynamic source which supports requested port and encoding */
