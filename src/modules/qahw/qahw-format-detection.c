@@ -270,6 +270,8 @@ int pa_qahw_spdif_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sy
     int audio_format_value = -1;
     int audio_state_value = -1;
 
+    jack_config->active_jack = jack_type;
+
     if (sys_path.audio_state) {
         if ((audio_state_value = pa_qahw_format_detection_read_from_fd(sys_path.audio_state)) == -1) {
             pa_log_error("%s: Unable to read %s path", __func__, sys_path.audio_state);
