@@ -141,9 +141,11 @@ static const char *pa_qahw_source_get_name_from_flags(audio_input_flags_t flags)
     else if (flags == AUDIO_INPUT_FLAG_FAST)
         name = "low-latency";
     else if (flags == (QAHW_INPUT_FLAG_TIMESTAMP | QAHW_INPUT_FLAG_COMPRESS))
-        name = "compress";
-   else if (flags == (QAHW_INPUT_FLAG_PASSTHROUGH | QAHW_INPUT_FLAG_COMPRESS))
+        name = "compress-with-timestamp";
+    else if (flags == (QAHW_INPUT_FLAG_PASSTHROUGH | QAHW_INPUT_FLAG_COMPRESS))
         name = "passthrough";
+    else if (flags == QAHW_INPUT_FLAG_COMPRESS)
+        name = "compress";
 
     return name;
 }
