@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -109,22 +109,30 @@ static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_
     /* Check if sample rate is valid for corresponding encoding */
     switch (jack_config->encoding) {
         case PA_ENCODING_UNKNOWN_IEC61937:
-            if ((sys_config->sample_rate != 32000) && (sys_config->sample_rate != 44100) && (sys_config->sample_rate != 48000))
+            if ((sys_config->sample_rate != 32000) && (sys_config->sample_rate != 44100) && (sys_config->sample_rate != 48000)) {
                 pa_log_error("%s: Unsupported sample rate %d for encoding %d", __func__, sys_config->sample_rate, jack_config->encoding);
+                goto exit;
+            }
             break;
         case PA_ENCODING_UNKNOWN_4X_IEC61937:
         case PA_ENCODING_UNKNOWN_HBR_IEC61937:
-            if ((sys_config->sample_rate != 176400) && (sys_config->sample_rate != 192000))
+            if ((sys_config->sample_rate != 176400) && (sys_config->sample_rate != 192000)) {
                 pa_log_error("%s: Unsupported sample rate %d for encoding %d", __func__, sys_config->sample_rate, jack_config->encoding);
+                goto exit;
+            }
             break;
         case  PA_ENCODING_PCM:
-            if (!is_pcm_sample_rate_valid(sys_config->sample_rate))
+            if (!is_pcm_sample_rate_valid(sys_config->sample_rate)) {
                 pa_log_error("%s: Unsupported sample rate %d for encoding %d", __func__, sys_config->sample_rate, jack_config->encoding);
+                goto exit;
+            }
             break;
         default:
             pa_log_error("%s: Unsupported encoding %d", __func__, jack_config->encoding);
-            break;
+            goto exit;
     }
+
+    rc = 0;
 
 exit:
     return rc;
