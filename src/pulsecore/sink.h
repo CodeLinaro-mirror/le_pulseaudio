@@ -281,6 +281,11 @@ struct pa_sink {
     /* Called in compressed mode to flush any buffered data in the sink */
     int (*flush)(pa_sink *s);
 
+    /* Called in compressed mode to drain any buffered data in the sink.
+     * The expectation is that this will be completed asynchronously,
+     * and when complete, pa_sink_drain_complete() must be called. */
+    int (*drain)(pa_sink *s);
+
     /* Contains copies of the above data so that the real-time worker
      * thread can work without access locking */
     struct {
@@ -569,6 +574,8 @@ int64_t pa_sink_get_latency_within_thread(pa_sink *s, bool allow_negative);
 void pa_sink_set_reference_volume_direct(pa_sink *s, const pa_cvolume *volume);
 
 int pa_sink_flush(pa_sink *s);
+int pa_sink_drain(pa_sink *s);
+void pa_sink_drain_complete(pa_sink *s);
 
 /* Verify that we called in IO context (aka 'thread context), or that
  * the sink is not yet set up, i.e. the thread not set up yet. See

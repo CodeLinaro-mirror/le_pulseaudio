@@ -4033,3 +4033,31 @@ int pa_sink_flush(pa_sink *s) {
     else
         return -1;
 }
+
+/* Called from the IO thread. */
+int pa_sink_drain(pa_sink *s) {
+    pa_assert(s);
+    pa_assert_io_context();
+
+    if (s->drain)
+        return s->drain(s);
+    else
+        return -1;
+}
+
+/* Called from the IO thread. */
+void pa_sink_drain_complete(pa_sink *s) {
+    pa_sink_input *i;
+    uint32_t idx;
+
+    pa_assert(s);
+    pa_assert_io_context();
+
+    /* There should be only one stream in compressed mode */
+    i = pa_idxset_first(s->inputs, &idx);
+
+    pa_assert(i);
+    pa_assert(pa_sink_input_is_compressed(i));
+
+    pa_sink_input_drain_complete(i);
+}

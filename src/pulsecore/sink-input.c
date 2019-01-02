@@ -2465,3 +2465,9 @@ void pa_sink_input_set_reference_ratio(pa_sink_input *i, const pa_cvolume *ratio
                  pa_cvolume_snprint_verbose(old_ratio_str, sizeof(old_ratio_str), &old_ratio, &i->channel_map, true),
                  pa_cvolume_snprint_verbose(new_ratio_str, sizeof(new_ratio_str), ratio, &i->channel_map, true));
 }
+
+/* Called from IO context */
+void pa_sink_input_drain_complete(pa_sink_input *i) {
+    if (i->drain_complete)
+        i->drain_complete(i);
+}
