@@ -3890,6 +3890,7 @@ bool pa_sink_set_format(pa_sink *s, pa_format_info *f) {
     bool ret;
 
     pa_assert(s);
+    pa_assert_ctl_context();
 
     if (!s->set_format)
         return false;
