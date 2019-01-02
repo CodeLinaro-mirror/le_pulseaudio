@@ -1403,6 +1403,20 @@ static int sink_input_process_msg(pa_msgobject *o, int code, void *userdata, int
                 handle_seek(ssync, windex);
             }
 
+            /* For compressed streams, we need to send the flush all the way to
+             * the sink so that it can drop any buffered data if possible. */
+            if (pa_sink_input_is_compressed(i)) {
+                switch (code) {
+                    case SINK_INPUT_MESSAGE_FLUSH:
+                        if (pa_sink_flush(i->sink) < 0)
+                            pa_log_warn("Unable to flush sink");
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+
             if (code == SINK_INPUT_MESSAGE_DRAIN) {
                 if (!pa_memblockq_is_readable(s->memblockq))
                     pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, userdata, 0, NULL, NULL);

@@ -4022,3 +4022,14 @@ void pa_sink_set_reference_volume_direct(pa_sink *s, const pa_cvolume *volume) {
     pa_subscription_post(s->core, PA_SUBSCRIPTION_EVENT_SINK|PA_SUBSCRIPTION_EVENT_CHANGE, s->index);
     pa_hook_fire(&s->core->hooks[PA_CORE_HOOK_SINK_VOLUME_CHANGED], s);
 }
+
+/* Called from the IO thread. */
+int pa_sink_flush(pa_sink *s) {
+    pa_assert(s);
+    pa_assert_io_context();
+
+    if (s->flush)
+        return s->flush(s);
+    else
+        return -1;
+}

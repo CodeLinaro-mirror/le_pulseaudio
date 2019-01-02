@@ -278,6 +278,9 @@ struct pa_sink {
      * main thread. */
     int (*reconfigure)(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough);
 
+    /* Called in compressed mode to flush any buffered data in the sink */
+    int (*flush)(pa_sink *s);
+
     /* Contains copies of the above data so that the real-time worker
      * thread can work without access locking */
     struct {
@@ -564,6 +567,8 @@ int64_t pa_sink_get_latency_within_thread(pa_sink *s, bool allow_negative);
  * extra stuff that pa_sink_set_volume() does. This function simply sets
  * s->reference_volume and fires change notifications. */
 void pa_sink_set_reference_volume_direct(pa_sink *s, const pa_cvolume *volume);
+
+int pa_sink_flush(pa_sink *s);
 
 /* Verify that we called in IO context (aka 'thread context), or that
  * the sink is not yet set up, i.e. the thread not set up yet. See
