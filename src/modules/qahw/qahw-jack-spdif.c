@@ -40,6 +40,7 @@ typedef struct {
     pa_hook event_hook;
     pa_qahw_jack_type_t jack_type;
     pa_qahw_jack_in_config *jack_in_config;
+    pa_qahw_jack_type_t active_port_type;
 } pa_qahw_spdif_jack_data_t;
 
 pa_qahw_jack_out_config curr_spdif_jack_config;
@@ -101,12 +102,15 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
         }
 
         if (audio_change_detected) {
-            if (!pa_qahw_spdif_jack_get_config(spdif_jdata->jack_type, spdif_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
+            if (!pa_qahw_spdif_jack_get_config(spdif_jdata->active_port_type, spdif_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
+                if (new_port_config.active_jack != PA_QAHW_JACK_TYPE_INVALID) {
                     memcpy(&curr_spdif_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
                     pa_log_info("qahw jack type %d config update", spdif_jdata->jack_type);
                     event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
                     event_data.pa_qahw_jack_info = &new_port_config;
                     pa_hook_fire(&(spdif_jdata->event_hook), &event_data);
+                    spdif_jdata->active_port_type = new_port_config.active_jack;
+                }
             }
         }
     }
@@ -137,6 +141,7 @@ struct pa_qahw_jack_data* pa_qahw_spdif_jack_detection_enable(pa_qahw_jack_type_
 
     spdif_jdata->fd = sock_event_fd;
     spdif_jdata->jack_in_config = jack_in_config;
+    spdif_jdata->active_port_type = PA_QAHW_JACK_TYPE_INVALID;
 
     pa_hook_init(&(spdif_jdata->event_hook), NULL);
     jdata->event_hook = &(spdif_jdata->event_hook);
@@ -152,11 +157,13 @@ struct pa_qahw_jack_data* pa_qahw_spdif_jack_detection_enable(pa_qahw_jack_type_
     pa_hook_fire(&(spdif_jdata->event_hook), &event_data);
 
     /* Raise config update event */
-    pa_qahw_spdif_jack_get_config(spdif_jdata->jack_type, spdif_jdata->jack_in_config->jack_sys_path, &new_port_config);
-    event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
-    pa_log_info("qahw jack type %d config update", jdata->jack_type);
-    event_data.pa_qahw_jack_info = &new_port_config;
-    pa_hook_fire(&(spdif_jdata->event_hook), &event_data);
+    if (!pa_qahw_spdif_jack_get_config(spdif_jdata->active_port_type, spdif_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
+        event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
+        pa_log_info("qahw jack type %d config update", jdata->jack_type);
+        event_data.pa_qahw_jack_info = &new_port_config;
+        pa_hook_fire(&(spdif_jdata->event_hook), &event_data);
+        spdif_jdata->active_port_type = spdif_jdata->jack_type;
+    }
 
     spdif_jdata->io = m->core->mainloop->io_new(m->core->mainloop, sock_event_fd, PA_IO_EVENT_INPUT | PA_IO_EVENT_HANGUP, jack_io_callback, spdif_jdata);
 
