@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -72,7 +72,8 @@ int pa_qahw_sink_get_media_config(pa_qahw_sink_handle_t *handle, pa_sample_spec 
 static inline bool pa_qahw_sink_is_supported_type(char *sink_type) {
     pa_assert(sink_type);
 
-    if (pa_streq(sink_type, "ultra-low-latency") ||  pa_streq(sink_type, "low-latency") || pa_streq(sink_type, "pcm-offload") || pa_streq(sink_type, "primary"))
+    if (pa_streq(sink_type, "ultra-low-latency") ||  pa_streq(sink_type, "low-latency")
+        || pa_streq(sink_type, "offload") || pa_streq(sink_type, "primary"))
         return true;
 
     return false;
@@ -92,6 +93,7 @@ static inline bool pa_qahw_sink_is_supported_encoding(pa_encoding_t encoding) {
 
     switch (encoding) {
         case PA_ENCODING_PCM:
+        case PA_ENCODING_MPEG:
             break;
 
         default :
