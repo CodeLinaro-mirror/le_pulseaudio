@@ -1483,6 +1483,49 @@ void pa_sink_render_full(pa_sink *s, size_t length, pa_memchunk *result) {
     pa_sink_unref(s);
 }
 
+/* Called from IO thread context */
+bool pa_sink_render_one(pa_sink *s, pa_memchunk *result) {
+    pa_mix_info info;
+    pa_cvolume volume;
+    size_t length = 0;
+    unsigned n;
+
+    pa_sink_assert_ref(s);
+    pa_sink_assert_io_context(s);
+    pa_assert(result);
+
+    pa_assert(!s->thread_info.rewind_requested);
+    pa_assert(s->thread_info.rewind_nbytes == 0);
+
+    /* Can't do this if the sink is not running or has more than one stream */
+    if (!PA_SINK_IS_RUNNING(s->state) || pa_idxset_size(s->inputs) == 1)
+        return false;
+
+    pa_sink_ref(s);
+
+    n = fill_mix_info(s, &length, &info, 1);
+    if (n == 0) {
+        /* No data available */
+        return false;
+    }
+
+    *result = info.chunk;
+    pa_memblock_ref(result->memblock);
+
+    pa_sw_cvolume_multiply(&volume, &s->thread_info.soft_volume, &info.volume);
+
+    if (!pa_cvolume_is_norm(&volume)) {
+        pa_memchunk_make_writable(result, 0);
+        pa_volume_memchunk(result, &s->sample_spec, &volume);
+    }
+
+    inputs_drop(s, &info, n, result);
+
+    pa_sink_unref(s);
+
+    return true;
+}
+
 /* Called from main thread */
 int pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough, bool restore) {
     int ret = -1;

@@ -533,6 +533,10 @@ void pa_sink_render(pa_sink*s, size_t length, pa_memchunk *result);
 void pa_sink_render_full(pa_sink *s, size_t length, pa_memchunk *result);
 void pa_sink_render_into(pa_sink*s, pa_memchunk *target);
 void pa_sink_render_into_full(pa_sink *s, pa_memchunk *target);
+/* Special-case, expects only one connected sink-input, and doesn't break up
+ * the memblock. Expected to be used for sinks working with compressed or
+ * timestamped data. Returns true if a chunk is available, false if not. */
+bool pa_sink_render_one(pa_sink *s, pa_memchunk *result);
 
 void pa_sink_process_rewind(pa_sink *s, size_t nbytes);
 
