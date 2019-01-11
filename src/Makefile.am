@@ -40,6 +40,9 @@ endif
 if HAVE_QAHW
 qahwconfsetsdir=$(datadir)/pulseaudio/qahw/configs
 endif
+if HAVE_QAL
+qalconfsetsdir=$(datadir)/pulseaudio/qal/configs
+endif
 
 ###################################
 #     Compiler/linker flags       #
@@ -54,7 +57,9 @@ AM_CPPFLAGS = \
 	-DPA_SRCDIR=\"$(abs_srcdir)\" \
 	-DPA_BUILDDIR=\"$(abs_builddir)\" \
 	-DPULSE_LOCALEDIR=\"$(localedir)\" \
-	-DQAHW_CARD_DEFAULT_CONF_PATH=\"$(qahwconfsetsdir)\"
+	-DQAHW_CARD_DEFAULT_CONF_PATH=\"$(qahwconfsetsdir)\" \
+        -DQAL_CARD_DEFAULT_CONF_PATH=\"$(qalconfsetsdir)\"
+
 AM_CFLAGS = -std=gnu11 \
 	$(PTHREAD_CFLAGS)
 AM_CXXFLAGS = -std=c++11 \
@@ -1418,6 +1423,14 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/qcs405-amic-snd-card.conf
 endif
 
+if HAVE_QAL
+modlibexec_LTLIBRARIES += module-qal-card.la
+
+dist_qalconfsets_DATA = \
+      modules/qal/module-qal-card/configs/default.conf \
+      modules/qal/module-qal-card/configs/ipq6018-snd-card.conf
+endif
+
 if HAVE_QSTHW
 modlibexec_LTLIBRARIES += module-qsthw.la
 endif
@@ -1673,6 +1686,19 @@ module_qsthw_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) $(QSTHW_CFLAGS) -Werror -DP
 module_qsthw_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qsthw_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqtisoundtriggerhw
 endif
+
+if HAVE_QAL
+module_qal_card_la_SOURCES = \
+        modules/qal/module-qal-card/module-qal-card.c modules/qal/module-qal-card/qal-card.h \
+        modules/qal/module-qal-card/qal-sink.c modules/qal/module-qal-card/qal-sink.h \
+        modules/qal/module-qal-card/qal-source.c modules/qal/module-qal-card/qal-source.h \
+        modules/qal/module-qal-card/qal-utils.c modules/qal/module-qal-card/qal-utils.h \
+        modules/qal/module-qal-card/qal-config-parser.c modules/qal/module-qal-card/qal-config-parser.h
+module_qal_card_la_CFLAGS = $(QAL_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qal_card
+module_qal_card_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_qal_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqal
+endif
+
 
 # Pipes
 
