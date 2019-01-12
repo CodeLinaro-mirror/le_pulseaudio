@@ -97,7 +97,7 @@ START_TEST (timestamp_test) {
             fail_unless(r == 0);
 
             timestamp += duration;
-            index += to_write / sizeof(data[0]);
+            index += to_write;
         }
 
         /* Wait for write callback */
