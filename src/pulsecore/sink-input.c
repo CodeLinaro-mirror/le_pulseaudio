@@ -1024,6 +1024,7 @@ void pa_sink_input_peek(pa_sink_input *i, size_t slength /* in sink bytes */, pa
 #endif
                 rchunk.timestamp = PA_NSEC_INVALID;
                 rchunk.duration = PA_NSEC_INVALID;
+                rchunk.flags = PA_BUFFER_NOFLAGS;
 
 #ifdef SINK_INPUT_DEBUG
                 pa_log_debug("pushing %lu", (unsigned long) rchunk.length);

@@ -793,6 +793,21 @@ typedef enum pa_seek_mode {
 #define PA_SEEK_RELATIVE_END PA_SEEK_RELATIVE_END
 /** \endcond */
 
+/** Special buffer flags. */
+typedef enum pa_buffer_flags {
+    PA_BUFFER_NOFLAGS = 0x0000U,
+    /**< Value to use when no buffer flags are to be set. \since FIXME */
+
+    PA_BUFFER_DISCONT = 0x0001U,
+    /**< Flag to set when the current buffer is discontinous with respect to
+     * the last buffer sent. \since FIXME */
+} pa_buffer_flags_t;
+
+/** \cond fulldocs */
+#define PA_BUFFER_NOFLAGS PA_BUFFER_NOFLAGS
+#define PA_BUFFER_DISCONT PA_BUFFER_DISCONT
+/** \endcond */
+
 /** Special sink flags. */
 typedef enum pa_sink_flags {
     PA_SINK_NOFLAGS = 0x0000U,

@@ -530,7 +530,8 @@ int pa_stream_write_ts(
         int64_t offset           /**< Offset for seeking, must be 0 for upload streams, must be in multiples of the stream's sample spec frame size */,
         pa_seek_mode_t seek      /**< Seek mode, must be PA_SEEK_RELATIVE for upload streams */,
         pa_nsec_t timestamp      /**< Timestamp for the given buffer */,
-        pa_nsec_t duration       /**< Duration of the given buffer */);
+        pa_nsec_t duration       /**< Duration of the given buffer */,
+        pa_buffer_flags_t flags  /**< Flags to set on the buffer, if any */);
 
 /** Function does exactly the same as pa_stream_write() with the difference
  *  that free_cb_data is passed to free_cb instead of data. \since 6.0 */
@@ -555,7 +556,8 @@ int pa_stream_write_ext_free_ts(
         int64_t offset           /**< Offset for seeking, must be 0 for upload streams */,
         pa_seek_mode_t seek      /**< Seek mode, must be PA_SEEK_RELATIVE for upload streams */,
         pa_nsec_t timestamp      /**< Timestamp for the given buffer */,
-        pa_nsec_t duration       /**< Duration of the given buffer */);
+        pa_nsec_t duration       /**< Duration of the given buffer */,
+        pa_buffer_flags_t flags  /**< Flags to set on the buffer, if any */);
 
 /** Read the next fragment from the buffer (for recording streams).
  * If there is data at the current read index, \a data will point to

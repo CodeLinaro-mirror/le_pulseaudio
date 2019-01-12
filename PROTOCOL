@@ -432,6 +432,10 @@ clients to provide a per-buffer timestamp and duration. The former can be used
 by sinks to allow sinks to render a buffer at a specific timestamp. The latter
 will be used to provide bbuffer durations for compressed streams.
 
+Added the notion of per-buffer flags that are packed into the stream descriptor
+flags. We have reserved space for 8 flags for now, although the client API
+currently only exposes one (to signal discontinuities).
+
 #### If you just changed the protocol, read this
 ## module-tunnel depends on the sink/source/sink-input/source-input protocol
 ## internals, so if you changed these, you might have broken module-tunnel.

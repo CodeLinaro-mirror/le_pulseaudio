@@ -76,6 +76,7 @@ pa_memchunk* pa_memchunk_reset(pa_memchunk *c) {
 
     c->timestamp = PA_NSEC_INVALID;
     c->duration = PA_NSEC_INVALID;
+    c->flags = PA_BUFFER_NOFLAGS;
 
     return c;
 }
@@ -116,6 +117,7 @@ pa_memchunk* pa_memchunk_memcpy(pa_memchunk *dst, pa_memchunk *src) {
     /* FIXME: is this always correct? should we filter on a whole memblock? */
     dst->timestamp = src->timestamp;
     dst->duration = src->duration;
+    dst->flags = src->flags;
 
     return dst;
 }

@@ -82,6 +82,7 @@ void pa_mcalign_push(pa_mcalign *m, const pa_memchunk *c) {
 #endif
         m->leftover.timestamp = PA_NSEC_INVALID;
         m->leftover.duration = PA_NSEC_INVALID;
+        m->leftover.flags = PA_BUFFER_NOFLAGS;
 
         /* Try to merge */
         if (m->leftover.memblock == c->memblock &&
@@ -131,6 +132,7 @@ void pa_mcalign_push(pa_mcalign *m, const pa_memchunk *c) {
 #endif
                 m->current.timestamp = PA_NSEC_INVALID;
                 m->current.duration = PA_NSEC_INVALID;
+                m->current.flags = PA_BUFFER_NOFLAGS;
                 pa_memblock_ref(m->current.memblock);
             }
         }
@@ -190,6 +192,7 @@ int pa_mcalign_pop(pa_mcalign *m, pa_memchunk *c) {
 #endif
             m->leftover.timestamp = PA_NSEC_INVALID;
             m->leftover.duration = PA_NSEC_INVALID;
+            m->leftover.flags = PA_BUFFER_NOFLAGS;
         }
 
         /* Prepare the returned block */

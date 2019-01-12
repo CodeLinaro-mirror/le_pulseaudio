@@ -32,6 +32,7 @@ struct pa_memchunk {
     pa_memblock *memblock;
     size_t index, length;
     pa_nsec_t timestamp, duration;
+    pa_buffer_flags_t flags;
 };
 
 /* Make a memchunk writable, i.e. make sure that the caller may have
