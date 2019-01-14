@@ -30,6 +30,7 @@
 #include <netinet/in.h>
 #endif
 
+#include <pulse/timeval.h>
 #include <pulse/xmalloc.h>
 
 #include <pulsecore/idxset.h>
@@ -51,6 +52,7 @@
 #define PA_FLAG_SHMMASK     0xFF000000LU
 #define PA_FLAG_SEEKMASK    0x000000FFLU
 #define PA_FLAG_SHMWRITABLE 0x00800000LU
+#define PA_FLAG_HAVE_TIME   0x00000100LU
 
 /* The sequence descriptor header consists of 5 32bit integers: */
 enum {
@@ -69,6 +71,17 @@ enum {
     PA_PSTREAM_SHM_INDEX,
     PA_PSTREAM_SHM_LENGTH,
     PA_PSTREAM_SHM_MAX
+};
+
+/* If requested, we send two 64-bit time fields with each memblock,
+ * but keep them as 32-bit ints in the stream to avoid alignment
+ * overheads. */
+enum {
+    PA_PSTREAM_TIME_TIMESTAMP_HI,
+    PA_PSTREAM_TIME_TIMESTAMP_LO,
+    PA_PSTREAM_TIME_DURATION_HI,
+    PA_PSTREAM_TIME_DURATION_LO,
+    PA_PSTREAM_TIME_MAX
 };
 
 typedef uint32_t pa_pstream_descriptor[PA_PSTREAM_DESCRIPTOR_MAX];
@@ -113,9 +126,14 @@ struct pstream_read {
     pa_pstream_descriptor descriptor;
     pa_memblock *memblock;
     pa_packet *packet;
-    uint32_t shm_info[PA_PSTREAM_SHM_MAX];
+    struct {
+        uint32_t shm_info[PA_PSTREAM_SHM_MAX];
+        uint32_t time_info[PA_PSTREAM_TIME_MAX];
+    } extra_info PA_GCC_PACKED;
     void *data;
     size_t index;
+    size_t header_len;
+    bool read_time;
 };
 
 struct pa_pstream {
@@ -132,6 +150,12 @@ struct pa_pstream {
     bool dead;
 
     struct {
+        /* When sending audio data, minibuf is used to send:
+         *   - pstream descriptors
+         *   - shm info if SHM is enabled
+         *   - time info if timestamp/duration is provided
+         * If SHM is disabled and no timing information is sent, the descriptor
+         * field is used instead. */
         union {
             uint8_t minibuf[MINIBUF_SIZE];
             pa_pstream_descriptor descriptor;
@@ -139,7 +163,7 @@ struct pa_pstream {
         struct item_info* current;
         void *data;
         size_t index;
-        int minibuf_validsize;
+        size_t minibuf_validsize;
         pa_memchunk memchunk;
     } write;
 
@@ -178,6 +202,9 @@ struct pa_pstream {
     void *release_callback_userdata;
 
     pa_mempool *mempool;
+
+    /* Whether we should send timestamp and duration or not */
+    bool use_times;
 
 #ifdef HAVE_CREDS
     pa_cmsg_ancil_data read_ancil_data, *write_ancil_data;
@@ -469,6 +496,7 @@ void pa_pstream_send_packet(pa_pstream*p, pa_packet *packet, pa_cmsg_ancil_data 
 void pa_pstream_send_memblock(pa_pstream*p, uint32_t channel, int64_t offset, pa_seek_mode_t seek_mode, const pa_memchunk *chunk) {
     size_t length, idx;
     size_t bsm;
+    pa_nsec_t timestamp, duration;
 
     pa_assert(p);
     pa_assert(PA_REFCNT_VALUE(p) > 0);
@@ -483,6 +511,9 @@ void pa_pstream_send_memblock(pa_pstream*p, uint32_t channel, int64_t offset, pa
 
     bsm = pa_mempool_block_size_max(p->mempool);
 
+    timestamp = chunk->timestamp;
+    duration = chunk->duration;
+
     while (length > 0) {
         struct item_info *i;
         size_t n;
@@ -496,6 +527,9 @@ void pa_pstream_send_memblock(pa_pstream*p, uint32_t channel, int64_t offset, pa
         i->chunk.length = n;
         i->chunk.memblock = pa_memblock_ref(chunk->memblock);
 
+        i->chunk.timestamp = timestamp;
+        i->chunk.duration = duration;
+
         i->channel = channel;
         i->offset = offset;
         i->seek_mode = seek_mode;
@@ -507,6 +541,10 @@ void pa_pstream_send_memblock(pa_pstream*p, uint32_t channel, int64_t offset, pa
 
         idx += n;
         length -= n;
+
+        /* FIXME: how should we deal with broken up chunks? Setting to invalid for now */
+        timestamp = PA_NSEC_INVALID;
+        duration = PA_NSEC_INVALID;
     }
 
     p->mainloop->defer_enable(p->defer_event, 1);
@@ -629,6 +667,9 @@ static void prepare_next_write_item(pa_pstream *p) {
     } else {
         uint32_t flags;
         bool send_payload = true;
+        uint32_t payload_len = 0;
+        uint32_t *time_info = NULL;
+        size_t time_size = sizeof(uint32_t) * PA_PSTREAM_TIME_MAX;
 
         pa_assert(p->write.current->type == PA_PSTREAM_ITEM_MEMBLOCK);
         pa_assert(p->write.current->chunk.memblock);
@@ -688,7 +729,9 @@ static void prepare_next_write_item(pa_pstream *p) {
                     shm_info[PA_PSTREAM_SHM_INDEX] = htonl((uint32_t) (offset + p->write.current->chunk.index));
                     shm_info[PA_PSTREAM_SHM_LENGTH] = htonl((uint32_t) p->write.current->chunk.length);
 
-                    p->write.descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH] = htonl(shm_size);
+                    time_info = (uint32_t *) &shm_info[PA_PSTREAM_SHM_MAX];
+
+                    payload_len = shm_size;
                     p->write.minibuf_validsize = PA_PSTREAM_DESCRIPTOR_SIZE + shm_size;
                 }
             }
@@ -702,12 +745,35 @@ static void prepare_next_write_item(pa_pstream *p) {
         }
 
         if (send_payload) {
-            p->write.descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH] = htonl((uint32_t) p->write.current->chunk.length);
+            payload_len = p->write.current->chunk.length;
             p->write.memchunk = p->write.current->chunk;
             pa_memblock_ref(p->write.memchunk.memblock);
         }
 
+        /* See if we support sending the time on the protocol, and if we have something meaningful to send */
+        if (p->use_times &&
+            (p->write.current->chunk.timestamp != PA_NSEC_INVALID || p->write.current->chunk.duration != PA_NSEC_INVALID)) {
+
+            if (time_info == NULL) {
+                /* No SHM data, so we're right after the descriptors */
+                time_info = (uint32_t *) &p->write.minibuf[PA_PSTREAM_DESCRIPTOR_SIZE];
+                p->write.minibuf_validsize = PA_PSTREAM_DESCRIPTOR_SIZE + time_size;
+            } else {
+                /* We already set up the time_info offset after SHM data */
+                p->write.minibuf_validsize += time_size;
+                payload_len += time_size;
+            }
+
+            flags |= PA_FLAG_HAVE_TIME;
+
+            time_info[PA_PSTREAM_TIME_TIMESTAMP_HI] = htonl((uint32_t) (((uint64_t) p->write.current->chunk.timestamp) >> 32));
+            time_info[PA_PSTREAM_TIME_TIMESTAMP_LO] = htonl((uint32_t) ((uint64_t) p->write.current->chunk.timestamp));
+            time_info[PA_PSTREAM_TIME_DURATION_HI] = htonl((uint32_t) (((uint64_t) p->write.current->chunk.duration) >> 32));
+            time_info[PA_PSTREAM_TIME_DURATION_LO] = htonl((uint32_t) ((uint64_t) p->write.current->chunk.duration));
+        }
+
         p->write.descriptor[PA_PSTREAM_DESCRIPTOR_FLAGS] = htonl(flags);
+        p->write.descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH] = htonl(payload_len);
     }
 
 #ifdef HAVE_CREDS
@@ -734,6 +800,7 @@ static int do_write(pa_pstream *p) {
     void *d;
     size_t l;
     ssize_t r;
+    size_t header_len = PA_PSTREAM_DESCRIPTOR_SIZE;
     pa_memblock *release_memblock = NULL;
 
     pa_assert(p);
@@ -748,7 +815,7 @@ static int do_write(pa_pstream *p) {
         return 0;
     }
 
-    if (p->write.minibuf_validsize > 0) {
+    if (p->write.minibuf_validsize > p->write.index) {
         d = p->write.minibuf + p->write.index;
         l = p->write.minibuf_validsize - p->write.index;
     } else if (p->write.index < PA_PSTREAM_DESCRIPTOR_SIZE) {
@@ -764,8 +831,11 @@ static int do_write(pa_pstream *p) {
             release_memblock = p->write.memchunk.memblock;
         }
 
-        d = (uint8_t*) d + p->write.index - PA_PSTREAM_DESCRIPTOR_SIZE;
-        l = ntohl(p->write.descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH]) - (p->write.index - PA_PSTREAM_DESCRIPTOR_SIZE);
+        /* If we're here and minibuf_validsize is non-zero, we packed the descriptor and timestamps into the minibuf */
+        header_len = p->write.minibuf_validsize ? p->write.minibuf_validsize : PA_PSTREAM_DESCRIPTOR_SIZE;
+
+        d = (uint8_t*) d + p->write.index - header_len;
+        l = ntohl(p->write.descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH]) - (p->write.index - header_len);
     }
 
     pa_assert(l > 0);
@@ -795,7 +865,7 @@ static int do_write(pa_pstream *p) {
 
     p->write.index += (size_t) r;
 
-    if (p->write.index >= PA_PSTREAM_DESCRIPTOR_SIZE + ntohl(p->write.descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH])) {
+    if (p->write.index >= header_len + ntohl(p->write.descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH])) {
         pa_assert(p->write.current);
         item_free(p->write.current);
         p->write.current = NULL;
@@ -826,17 +896,30 @@ fail:
 static void memblock_complete(pa_pstream *p, struct pstream_read *re) {
     pa_memchunk chunk;
     int64_t offset;
+    uint32_t flags = ntohl(re->descriptor[PA_PSTREAM_DESCRIPTOR_FLAGS]);
 
     if (!p->receive_memblock_callback)
         return;
 
     chunk.memblock = re->memblock;
     chunk.index = 0;
-    chunk.length = re->index - PA_PSTREAM_DESCRIPTOR_SIZE;
+    chunk.length = re->index - re->header_len;
 
     offset = (int64_t) (
              (((uint64_t) ntohl(re->descriptor[PA_PSTREAM_DESCRIPTOR_OFFSET_HI])) << 32) |
              (((uint64_t) ntohl(re->descriptor[PA_PSTREAM_DESCRIPTOR_OFFSET_LO]))));
+
+    if ((flags & PA_FLAG_HAVE_TIME) != 0) {
+        chunk.timestamp = (int64_t) (
+                (((uint64_t) ntohl(re->extra_info.time_info[PA_PSTREAM_TIME_TIMESTAMP_HI])) << 32) |
+                (((uint64_t) ntohl(re->extra_info.time_info[PA_PSTREAM_TIME_TIMESTAMP_LO]))));
+        chunk.duration = (int64_t) (
+                (((uint64_t) ntohl(re->extra_info.time_info[PA_PSTREAM_TIME_DURATION_HI])) << 32) |
+                (((uint64_t) ntohl(re->extra_info.time_info[PA_PSTREAM_TIME_DURATION_LO]))));
+    } else {
+        chunk.timestamp = PA_NSEC_INVALID;
+        chunk.duration = PA_NSEC_INVALID;
+    }
 
     p->receive_memblock_callback(
         p,
@@ -855,9 +938,19 @@ static int do_read(pa_pstream *p, struct pstream_read *re) {
     pa_assert(p);
     pa_assert(PA_REFCNT_VALUE(p) > 0);
 
+    if (re->index == 0) {
+        /* To start with, we know the header has at least descriptors */
+        re->header_len = PA_PSTREAM_DESCRIPTOR_SIZE;
+    }
+
     if (re->index < PA_PSTREAM_DESCRIPTOR_SIZE) {
         d = (uint8_t*) re->descriptor + re->index;
         l = PA_PSTREAM_DESCRIPTOR_SIZE - re->index;
+    } else if (re->read_time) {
+        /* We have timestamps in the header before frame data */
+        re->read_time = false;
+        d = &re->extra_info.time_info;
+        l = sizeof(re->extra_info.time_info);
     } else {
         pa_assert(re->data || re->memblock);
 
@@ -868,8 +961,8 @@ static int do_read(pa_pstream *p, struct pstream_read *re) {
             release_memblock = re->memblock;
         }
 
-        d = (uint8_t*) d + re->index - PA_PSTREAM_DESCRIPTOR_SIZE;
-        l = ntohl(re->descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH]) - (re->index - PA_PSTREAM_DESCRIPTOR_SIZE);
+        d = (uint8_t*) d + re->index - re->header_len;
+        l = ntohl(re->descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH]) - (re->index - re->header_len);
     }
 
     if (re == &p->readsrb) {
@@ -967,21 +1060,37 @@ static int do_read(pa_pstream *p, struct pstream_read *re) {
             re->data = (void *) pa_packet_data(re->packet, &plen);
 
         } else {
+            bool time_in_header = false;
 
             if ((flags & PA_FLAG_SEEKMASK) > PA_SEEK_RELATIVE_END) {
                 pa_log_warn("Received memblock frame with invalid seek mode.");
                 return -1;
             }
 
-            if (((flags & PA_FLAG_SHMMASK) & PA_FLAG_SHMDATA) != 0) {
-
-                if (length != sizeof(re->shm_info)) {
+            /* Size checks */
+            if ((flags & PA_FLAG_HAVE_TIME) != 0 && (flags & PA_FLAG_SHMMASK) != 0) {
+                if (length != sizeof(re->extra_info)) {
+                    pa_log_warn("Received SHM + time memblock frame with invalid frame length.");
+                    return -1;
+                }
+            } else if ((flags & PA_FLAG_SHMMASK) != 0) {
+                if (length != sizeof(re->extra_info.shm_info)) {
                     pa_log_warn("Received SHM memblock frame with invalid frame length.");
                     return -1;
                 }
+            } else if ((flags & PA_FLAG_HAVE_TIME) != 0) {
+                if (length < sizeof(re->extra_info.time_info)) {
+                    pa_log_warn("Received time memblock frame with invalid frame length.");
+                    return -1;
+                }
+
+                time_in_header = true;
+            }
+
+            if (((flags & PA_FLAG_SHMMASK) & PA_FLAG_SHMDATA) != 0) {
 
                 /* Frame is a memblock frame referencing an SHM memblock */
-                re->data = re->shm_info;
+                re->data = &re->extra_info;
 
             } else if ((flags & PA_FLAG_SHMMASK) == 0) {
 
@@ -994,9 +1103,15 @@ static int do_read(pa_pstream *p, struct pstream_read *re) {
                 pa_log_warn("Received memblock frame with invalid flags value.");
                 return -1;
             }
+
+            if (time_in_header) {
+                /* Frame is a memblock frame containing timestamp/duration info at the start */
+                re->read_time = true;
+                re->header_len = PA_PSTREAM_DESCRIPTOR_SIZE + sizeof(re->extra_info.time_info);
+            }
         }
 
-    } else if (re->index >= ntohl(re->descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH]) + PA_PSTREAM_DESCRIPTOR_SIZE) {
+    } else if (re->index >= ntohl(re->descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH]) + re->header_len) {
         /* Frame complete */
 
         if (re->memblock) {
@@ -1018,7 +1133,7 @@ static int do_read(pa_pstream *p, struct pstream_read *re) {
         } else {
             pa_memblock *b = NULL;
             uint32_t flags = ntohl(re->descriptor[PA_PSTREAM_DESCRIPTOR_FLAGS]);
-            uint32_t shm_id = ntohl(re->shm_info[PA_PSTREAM_SHM_SHMID]);
+            uint32_t shm_id = ntohl(re->extra_info.shm_info[PA_PSTREAM_SHM_SHMID]);
             pa_mem_type_t type = (flags & PA_FLAG_SHMDATA_MEMFD_BLOCK) ?
                                  PA_MEM_TYPE_SHARED_MEMFD : PA_MEM_TYPE_SHARED_POSIX;
 
@@ -1033,10 +1148,10 @@ static int do_read(pa_pstream *p, struct pstream_read *re) {
 
             } else if (!(b = pa_memimport_get(p->import,
                                               type,
-                                              ntohl(re->shm_info[PA_PSTREAM_SHM_BLOCKID]),
+                                              ntohl(re->extra_info.shm_info[PA_PSTREAM_SHM_BLOCKID]),
                                               shm_id,
-                                              ntohl(re->shm_info[PA_PSTREAM_SHM_INDEX]),
-                                              ntohl(re->shm_info[PA_PSTREAM_SHM_LENGTH]),
+                                              ntohl(re->extra_info.shm_info[PA_PSTREAM_SHM_INDEX]),
+                                              ntohl(re->extra_info.shm_info[PA_PSTREAM_SHM_LENGTH]),
                                               !!(flags & PA_FLAG_SHMWRITABLE)))) {
 
                 if (pa_log_ratelimit(PA_LOG_DEBUG))
@@ -1049,11 +1164,23 @@ static int do_read(pa_pstream *p, struct pstream_read *re) {
 
                 chunk.memblock = b;
                 chunk.index = 0;
-                chunk.length = b ? pa_memblock_get_length(b) : ntohl(re->shm_info[PA_PSTREAM_SHM_LENGTH]);
+                chunk.length = b ? pa_memblock_get_length(b) : ntohl(re->extra_info.shm_info[PA_PSTREAM_SHM_LENGTH]);
 
                 offset = (int64_t) (
                         (((uint64_t) ntohl(re->descriptor[PA_PSTREAM_DESCRIPTOR_OFFSET_HI])) << 32) |
                         (((uint64_t) ntohl(re->descriptor[PA_PSTREAM_DESCRIPTOR_OFFSET_LO]))));
+
+                if ((flags & PA_FLAG_HAVE_TIME) != 0) {
+                    chunk.timestamp = (int64_t) (
+                            (((uint64_t) ntohl(re->extra_info.time_info[PA_PSTREAM_TIME_TIMESTAMP_HI])) << 32) |
+                            (((uint64_t) ntohl(re->extra_info.time_info[PA_PSTREAM_TIME_TIMESTAMP_LO]))));
+                    chunk.duration = (int64_t) (
+                            (((uint64_t) ntohl(re->extra_info.time_info[PA_PSTREAM_TIME_DURATION_HI])) << 32) |
+                            (((uint64_t) ntohl(re->extra_info.time_info[PA_PSTREAM_TIME_DURATION_LO]))));
+                } else {
+                    chunk.timestamp = PA_NSEC_INVALID;
+                    chunk.duration = PA_NSEC_INVALID;
+                }
 
                 p->receive_memblock_callback(
                         p,
@@ -1078,6 +1205,8 @@ frame_done:
     re->packet = NULL;
     re->index = 0;
     re->data = NULL;
+    re->read_time = false;
+    re->header_len = 0;
 
 #ifdef HAVE_CREDS
     /* FIXME: Close received ancillary data fds if the pstream's
@@ -1279,4 +1408,11 @@ void pa_pstream_set_srbchannel(pa_pstream *p, pa_srbchannel *srb) {
         check_srbpending(p);
     else
         do_write(p);
+}
+
+void pa_pstream_enable_stream_times(pa_pstream *p) {
+    pa_assert(p);
+    pa_assert(PA_REFCNT_VALUE(p) > 0);
+
+    p->use_times = true;
 }

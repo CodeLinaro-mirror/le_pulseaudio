@@ -518,6 +518,20 @@ int pa_stream_write(
         int64_t offset           /**< Offset for seeking, must be 0 for upload streams, must be in multiples of the stream's sample spec frame size */,
         pa_seek_mode_t seek      /**< Seek mode, must be PA_SEEK_RELATIVE for upload streams */);
 
+/** Same as pa_stream_write() but allows clients to provide a buffer timestamp
+ *  and duration, in nanoseconds. The timestamp must be in a time domain that
+ *  the audio device that is being played to understands. (FIXME: should we
+ *  specify a domain?) \since FIXME */
+int pa_stream_write_ts(
+        pa_stream *p             /**< The stream to use */,
+        const void *data         /**< The data to write */,
+        size_t nbytes            /**< The length of the data to write in bytes, must be in multiples of the stream's sample spec frame size */,
+        pa_free_cb_t free_cb     /**< A cleanup routine for the data or NULL to request an internal copy */,
+        int64_t offset           /**< Offset for seeking, must be 0 for upload streams, must be in multiples of the stream's sample spec frame size */,
+        pa_seek_mode_t seek      /**< Seek mode, must be PA_SEEK_RELATIVE for upload streams */,
+        pa_nsec_t timestamp      /**< Timestamp for the given buffer */,
+        pa_nsec_t duration       /**< Duration of the given buffer */);
+
 /** Function does exactly the same as pa_stream_write() with the difference
  *  that free_cb_data is passed to free_cb instead of data. \since 6.0 */
 int pa_stream_write_ext_free(
@@ -528,6 +542,20 @@ int pa_stream_write_ext_free(
         void *free_cb_data       /**< Argument passed to free_cb function */,
         int64_t offset           /**< Offset for seeking, must be 0 for upload streams */,
         pa_seek_mode_t seek      /**< Seek mode, must be PA_SEEK_RELATIVE for upload streams */);
+
+/** Does the same as pa_stream_write_ts(), with the additional ability to
+ * specify a function to free the stream data once it is done with.
+ * \since FIXME */
+int pa_stream_write_ext_free_ts(
+        pa_stream *p             /**< The stream to use */,
+        const void *data         /**< The data to write */,
+        size_t nbytes            /**< The length of the data to write in bytes */,
+        pa_free_cb_t free_cb     /**< A cleanup routine for the data or NULL to request an internal copy */,
+        void *free_cb_data       /**< Argument passed to free_cb function */,
+        int64_t offset           /**< Offset for seeking, must be 0 for upload streams */,
+        pa_seek_mode_t seek      /**< Seek mode, must be PA_SEEK_RELATIVE for upload streams */,
+        pa_nsec_t timestamp      /**< Timestamp for the given buffer */,
+        pa_nsec_t duration       /**< Duration of the given buffer */);
 
 /** Read the next fragment from the buffer (for recording streams).
  * If there is data at the current read index, \a data will point to

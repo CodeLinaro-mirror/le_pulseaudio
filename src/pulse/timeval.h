@@ -55,6 +55,9 @@ PA_C_DECL_BEGIN
 /** Biggest time in usec. \since 0.9.18 */
 #define PA_USEC_MAX ((pa_usec_t) -2)
 
+/** Invalid time in nsec. \since FIXME */
+#define PA_NSEC_INVALID ((pa_nsec_t) -1)
+
 struct timeval;
 
 /** Return the current wallclock timestamp, just like UNIX gettimeofday(). */

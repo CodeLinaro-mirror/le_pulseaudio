@@ -427,6 +427,11 @@ Added two values to the pa_encoding_t enum:
     PA_ENCODING_TRUEHD_IEC61937 := 7
     PA_ENCODING_DTSHD_IEC61937 := 8
 
+Added a 64-bit timestamp and duration to the stream metadata. This allows
+clients to provide a per-buffer timestamp and duration. The former can be used
+by sinks to allow sinks to render a buffer at a specific timestamp. The latter
+will be used to provide bbuffer durations for compressed streams.
+
 #### If you just changed the protocol, read this
 ## module-tunnel depends on the sink/source/sink-input/source-input protocol
 ## internals, so if you changed these, you might have broken module-tunnel.

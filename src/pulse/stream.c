@@ -1480,6 +1480,20 @@ int pa_stream_write_ext_free(
         int64_t offset,
         pa_seek_mode_t seek) {
 
+    return pa_stream_write_ext_free_ts(s, data, length, free_cb, free_cb_data, offset, seek, PA_NSEC_INVALID, PA_NSEC_INVALID);
+}
+
+int pa_stream_write_ext_free_ts(
+        pa_stream *s,
+        const void *data,
+        size_t length,
+        pa_free_cb_t free_cb,
+        void *free_cb_data,
+        int64_t offset,
+        pa_seek_mode_t seek,
+        pa_nsec_t timestamp,
+        pa_nsec_t duration) {
+
     pa_assert(s);
     pa_assert(PA_REFCNT_VALUE(s) >= 1);
     pa_assert(data);
@@ -1508,6 +1522,8 @@ int pa_stream_write_ext_free(
         chunk.memblock = s->write_memblock;
         chunk.index = (const char *) data - (const char *) s->write_data;
         chunk.length = length;
+        chunk.timestamp = timestamp;
+        chunk.duration = duration;
 
         s->write_memblock = NULL;
         s->write_data = NULL;
@@ -1544,6 +1560,15 @@ int pa_stream_write_ext_free(
                 d = pa_memblock_acquire(chunk.memblock);
                 memcpy(d, t_data, chunk.length);
                 pa_memblock_release(chunk.memblock);
+            }
+
+            if (chunk.length == length) {
+                chunk.timestamp = timestamp;
+                chunk.duration = duration;
+            } else {
+                /* Chunk was broken up, we can't have a meaningful timestamp/duration */
+                chunk.timestamp = PA_NSEC_INVALID;
+                chunk.duration = PA_NSEC_INVALID;
             }
 
             pa_pstream_send_memblock(s->context->pstream, s->channel, t_offset, t_seek, &chunk);
@@ -1613,7 +1638,20 @@ int pa_stream_write(
         int64_t offset,
         pa_seek_mode_t seek) {
 
-    return pa_stream_write_ext_free(s, data, length, free_cb, (void*) data, offset, seek);
+    return pa_stream_write_ts(s, data, length, free_cb, offset, seek, PA_NSEC_INVALID, PA_NSEC_INVALID);
+}
+
+int pa_stream_write_ts(
+        pa_stream *s,
+        const void *data,
+        size_t length,
+        pa_free_cb_t free_cb,
+        int64_t offset,
+        pa_seek_mode_t seek,
+        pa_nsec_t timestamp,
+        pa_nsec_t duration) {
+
+    return pa_stream_write_ext_free_ts(s, data, length, free_cb, (void*) data, offset, seek, timestamp, duration);
 }
 
 int pa_stream_peek(pa_stream *s, const void **data, size_t *length) {

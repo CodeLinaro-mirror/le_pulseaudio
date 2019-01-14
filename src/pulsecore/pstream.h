@@ -69,6 +69,8 @@ void pa_pstream_enable_memfd(pa_pstream *p);
 bool pa_pstream_get_shm(pa_pstream *p);
 bool pa_pstream_get_memfd(pa_pstream *p);
 
+void pa_pstream_enable_stream_times(pa_pstream *p);
+
 /* Enables shared ringbuffer channel. Note that the srbchannel is now owned by the pstream.
    Setting srb to NULL will free any existing srbchannel. */
 void pa_pstream_set_srbchannel(pa_pstream *p, pa_srbchannel *srb);
