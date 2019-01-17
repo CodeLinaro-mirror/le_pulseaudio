@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2006 Lennart Poettering
+  Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -32,14 +33,22 @@
 #include <pulsecore/modargs.h>
 #include <pulsecore/log.h>
 
+#define DEFAULT_TIMEOUT_MS 5000 /* 5 second timeout to suspend by default */
+
+#define INVALID_TIME ((uint32_t) -1)
+
 PA_MODULE_AUTHOR("Lennart Poettering");
 PA_MODULE_DESCRIPTION("When a sink/source is idle for too long, suspend it");
 PA_MODULE_VERSION(PACKAGE_VERSION);
 PA_MODULE_LOAD_ONCE(true);
-PA_MODULE_USAGE("timeout=<timeout>");
+PA_MODULE_USAGE(
+    "timeout=<timeout in seconds>"
+    "timeout_ms=<timeout in milliseconds>"
+    );
 
 static const char* const valid_modargs[] = {
     "timeout",
+    "timeout_ms",
     NULL,
 };
 
@@ -88,9 +97,9 @@ static void restart(struct device_info *d) {
     pa_core_rttime_restart(d->userdata->core, d->time_event, now + d->timeout);
 
     if (d->sink)
-        pa_log_debug("Sink %s becomes idle, timeout in %" PRIu64 " seconds.", d->sink->name, d->timeout / PA_USEC_PER_SEC);
+        pa_log_debug("Sink %s becomes idle, timeout in %" PRIu64 " ms.", d->sink->name, d->timeout / PA_USEC_PER_MSEC);
     if (d->source)
-        pa_log_debug("Source %s becomes idle, timeout in %" PRIu64 " seconds.", d->source->name, d->timeout / PA_USEC_PER_SEC);
+        pa_log_debug("Source %s becomes idle, timeout in %" PRIu64 " ms.", d->source->name, d->timeout / PA_USEC_PER_MSEC);
 }
 
 static void resume(struct device_info *d) {
@@ -409,7 +418,8 @@ static pa_hook_result_t device_state_changed_hook_cb(pa_core *c, pa_object *o, s
 int pa__init(pa_module*m) {
     pa_modargs *ma = NULL;
     struct userdata *u;
-    uint32_t timeout = 5;
+    uint32_t timeout = INVALID_TIME;
+    uint32_t timeout_ms = INVALID_TIME;
     uint32_t idx;
     pa_sink *sink;
     pa_source *source;
@@ -426,9 +436,24 @@ int pa__init(pa_module*m) {
         goto fail;
     }
 
+    if (pa_modargs_get_value_u32(ma, "timeout_ms", &timeout_ms) < 0) {
+        pa_log("Failed to parse timeout_ms value.");
+        goto fail;
+    }
+
+    if (timeout != INVALID_TIME && timeout_ms != INVALID_TIME) {
+        pa_log("Please specify only one of 'timeout' and 'timeout_ms'");
+        goto fail;
+    }
+
+    if (timeout != INVALID_TIME)
+        timeout_ms = timeout * PA_MSEC_PER_SEC;
+    else if (timeout_ms == INVALID_TIME)
+        timeout_ms = DEFAULT_TIMEOUT_MS;
+
     m->userdata = u = pa_xnew(struct userdata, 1);
     u->core = m->core;
-    u->timeout = timeout * PA_USEC_PER_SEC;
+    u->timeout = timeout_ms * PA_USEC_PER_MSEC;
     u->device_infos = pa_hashmap_new_full(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func, NULL, (pa_free_cb_t) device_info_free);
 
     PA_IDXSET_FOREACH(sink, m->core->sinks, idx)

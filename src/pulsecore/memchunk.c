@@ -26,6 +26,8 @@
 #include <string.h>
 #include <errno.h>
 
+#include <pulse/timeval.h>
+
 #include <pulsecore/macro.h>
 #include <pulsecore/core-util.h>
 
@@ -72,6 +74,9 @@ pa_memchunk* pa_memchunk_reset(pa_memchunk *c) {
 
     memset(c, 0, sizeof(*c));
 
+    c->timestamp = PA_NSEC_INVALID;
+    c->duration = PA_NSEC_INVALID;
+
     return c;
 }
 
@@ -107,6 +112,10 @@ pa_memchunk* pa_memchunk_memcpy(pa_memchunk *dst, pa_memchunk *src) {
 
     pa_memblock_release(dst->memblock);
     pa_memblock_release(src->memblock);
+
+    /* FIXME: is this always correct? should we filter on a whole memblock? */
+    dst->timestamp = src->timestamp;
+    dst->duration = src->duration;
 
     return dst;
 }

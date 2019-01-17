@@ -221,8 +221,10 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
 
     pa_sample_spec ss;
     pa_channel_map map;
+    pa_encoding_t encoding;
 
     char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
+    char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
 
     void *state;
     uint32_t i;
@@ -233,20 +235,14 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
 
     pa_log_debug("%s:", __func__);
 
-    if (config->encoding == PA_ENCODING_PCM) {
-        requested_format = pa_format_info_from_sample_spec(&config->ss, &config->map);
-        if (!requested_format) {
-            pa_log_error("%s: Invalid jack format", __func__);
-            goto exit;
-        }
-    } else {
-        requested_format = pa_format_info_new();
+    requested_format = pa_format_info_new();
+    requested_format->encoding = config->encoding;
+
+    if (config->encoding != PA_ENCODING_PCM) {
         pa_format_info_set_rate(requested_format, config->ss.rate);
     }
 
-    requested_format->encoding = config->encoding;
-
-    pa_log_info("%s: requested format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), requested_format));
+    pa_log_info("%s: requested source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &config->ss));
 
     /* check if any dynamic source is already created on same port */
     source_info = pa_qahw_card_is_dynamic_source_present_for_port(port->name, u);
@@ -258,21 +254,31 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
             goto exit;
         }
 
-        current_formats = pa_qahw_source_get_config(source_info->handle);
-        if (!current_formats || (pa_idxset_size(current_formats) != 1)) {  /* dynamic source should have single format */
-            pa_log_error("%s: pa_qahw_source_get_config failed", __func__);
-            goto exit;
+        /* For pcm get the media config as pcm source doesn't only add encoding in format*/
+        if (config->encoding == PA_ENCODING_PCM) {
+            rc = pa_qahw_source_get_media_config(source_info->handle, &ss, &map, &encoding);
+            if (rc) {
+                pa_log_error("%s: pa_qahw_source_get_media_config failed, error %d", __func__, rc);
+                goto exit;
+            }
+        } else {
+            current_formats = pa_qahw_source_get_config(source_info->handle);
+            if (!current_formats || (pa_idxset_size(current_formats) != 1)) {  /* dynamic source should have single format */
+                pa_log_error("%s: pa_qahw_source_get_config failed", __func__);
+                goto exit;
+            }
+
+            current_format = pa_idxset_first(current_formats, NULL);
+            encoding = current_format->encoding;
+
+            pa_log_info("%s: existing source format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), current_format));
+
+            pa_format_info_to_sample_spec(current_format, &ss, &map);
+
+            pa_idxset_free(current_formats, (pa_free_cb_t) pa_format_info_free);
         }
 
-        current_format = pa_idxset_first(current_formats, NULL);
-
-        pa_log_info("%s: existing source format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), current_format));
-
-        pa_format_info_to_sample_spec(current_format, &ss, &map);
-
-        pa_idxset_free(current_formats, (pa_free_cb_t) pa_format_info_free);
-
-        if (requested_format->encoding != current_format->encoding)
+        if (requested_format->encoding != encoding)
             reconfigure = true;
         else if ((requested_format->encoding == PA_ENCODING_PCM) && (!pa_sample_spec_equal(&config->ss, &ss)) && (!pa_channel_map_equal(&config->map, &map)))
             reconfigure = true;
@@ -474,8 +480,10 @@ static void pa_qahw_card_add_dynamic_sink(pa_device_port *port, pa_qahw_jack_out
 
     pa_sample_spec ss;
     pa_channel_map map;
+    pa_encoding_t encoding;
 
     char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
+    char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
 
     void *state;
     uint32_t i;
@@ -486,20 +494,14 @@ static void pa_qahw_card_add_dynamic_sink(pa_device_port *port, pa_qahw_jack_out
 
     pa_log_debug("%s:", __func__);
 
-    if (config->encoding == PA_ENCODING_PCM) {
-        requested_format = pa_format_info_from_sample_spec(&config->ss, &config->map);
-        if (!requested_format) {
-            pa_log_error("%s: Invalid jack format", __func__);
-            goto exit;
-        }
-    } else {
-        requested_format = pa_format_info_new();
+    requested_format = pa_format_info_new();
+    requested_format->encoding = config->encoding;
+
+    if (config->encoding != PA_ENCODING_PCM) {
         pa_format_info_set_rate(requested_format, config->ss.rate);
     }
 
-    requested_format->encoding = config->encoding;
-
-    pa_log_info("%s: requested format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), requested_format));
+    pa_log_info("%s: requested sink with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &config->ss));
 
     /* check if any dynamic sink is already created on same port */
     sink_info = pa_qahw_card_is_dynamic_sink_present_for_port(port->name, u);
@@ -511,21 +513,32 @@ static void pa_qahw_card_add_dynamic_sink(pa_device_port *port, pa_qahw_jack_out
             goto exit;
         }
 
-        current_formats = pa_qahw_sink_get_config(sink_info->handle);
-        if (!current_formats || (pa_idxset_size(current_formats) != 1)) {  /* dynamic sink should have single format */
-            pa_log_error("%s: pa_qahw_sink_get_config failed", __func__);
-            goto exit;
+        /* For pcm get the media config as pcm sink doesn't only add encoding in format*/
+        if (config->encoding == PA_ENCODING_PCM) {
+            rc = pa_qahw_sink_get_media_config(sink_info->handle, &ss, &map, &encoding);
+            if (rc) {
+                pa_log_error("%s: pa_qahw_sink_get_media_config failed, error %d", __func__, rc);
+                goto exit;
+            }
+        } else {
+            current_formats = pa_qahw_sink_get_config(sink_info->handle);
+            if (!current_formats || (pa_idxset_size(current_formats) != 1)) {  /* dynamic sink should have single format */
+                pa_log_error("%s: pa_qahw_sink_get_config failed", __func__);
+                goto exit;
+            }
+
+            current_format = pa_idxset_first(current_formats, NULL);
+            encoding = current_format->encoding;
+
+            pa_log_info("%s: existing sink format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), current_format));
+
+            pa_format_info_to_sample_spec(current_format, &ss, &map);
+
+            pa_idxset_free(current_formats, (pa_free_cb_t) pa_format_info_free);
+
         }
 
-        current_format = pa_idxset_first(current_formats, NULL);
-
-        pa_log_info("%s: existing sink format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), current_format));
-
-        pa_format_info_to_sample_spec(current_format, &ss, &map);
-
-        pa_idxset_free(current_formats, (pa_free_cb_t) pa_format_info_free);
-
-        if (requested_format->encoding != current_format->encoding)
+       if (requested_format->encoding != encoding)
             reconfigure = true;
         else if ((requested_format->encoding == PA_ENCODING_PCM) && (!pa_sample_spec_equal(&config->ss, &ss)) && (!pa_channel_map_equal(&config->map, &map)))
             reconfigure = true;

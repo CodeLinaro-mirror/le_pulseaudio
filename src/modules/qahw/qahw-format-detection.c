@@ -42,9 +42,25 @@ typedef struct {
     pa_qahw_jack_input_mode_t mode;
 } pa_qahw_jack_sys_node_config_t;
 
+int supported_pcm_sample_rates[] = {32000, 44100, 48000, 88200, 96000, 176400, 192000};
+
 /******* Function definitions ********/
+static bool is_pcm_sample_rate_valid(int rate) {
+    bool rc = false;
+    uint32_t i = 0;
+
+    for (i = 0; i < ARRAY_SIZE(supported_pcm_sample_rates); i++) {
+        if (rate == supported_pcm_sample_rates[i]) {
+            rc = true;
+            break;
+        }
+    }
+
+    return rc;
+}
+
 static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_config_t *sys_config, pa_qahw_jack_out_config *jack_config) {
-    int rc  = 0;
+    int rc = -1;
 
     pa_assert(sys_config);
     pa_assert(jack_config);
@@ -59,13 +75,11 @@ static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_
     pa_channel_map_init_auto(&(jack_config->map), 2, PA_CHANNEL_MAP_DEFAULT);
     jack_config->ss.channels = jack_config->map.channels;
 
-    if (sys_config->layout != 0 && sys_config->layout !=1) {
-        rc = -1;
+    if (sys_config->layout != 0 && sys_config->layout !=1)
         goto exit;
-    }
 
     if ((sys_config->mode == PA_QAHW_JACK_INPUT_MODE_COMPRESS) && (sys_config->layout == 0)) {
-        if (sys_config->sample_rate == 192000) {
+        if (sys_config->sample_rate == 192000 || sys_config->sample_rate == 176400) {
             jack_config->encoding = PA_ENCODING_UNKNOWN_4X_IEC61937; /* EAC3 */
 
             /* convert to transmission to media rate, as pa expects same
@@ -76,12 +90,12 @@ static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_
         }
     } else if (sys_config->mode == PA_QAHW_JACK_INPUT_MODE_COMPRESS && sys_config->layout == 1) {
         jack_config->encoding = PA_ENCODING_UNKNOWN_HBR_IEC61937; /* HBR */
-        pa_channel_map_init_auto(&(jack_config->map), 8, PA_CHANNEL_MAP_DEFAULT);
+        pa_qahw_util_channel_map_init(&(jack_config->map), 8);
         jack_config->ss.channels = jack_config->map.channels;
     } else if (sys_config->mode == PA_QAHW_JACK_INPUT_MODE_PCM) {
         jack_config->encoding = PA_ENCODING_PCM;
         if (sys_config->layout == 1) {
-            pa_channel_map_init_auto(&(jack_config->map), 8, PA_CHANNEL_MAP_DEFAULT);
+            pa_qahw_util_channel_map_init(&(jack_config->map), 8);
             jack_config->ss.channels = jack_config->map.channels;
             /* FIXME: get channel map from channel allocation and update map with correct channel count. For multichannel pcm transmission rate will be 8
                and 2 for other uscasese,
@@ -89,7 +103,27 @@ static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_
         }
     } else {
         pa_log_error("%s: not a valid jack configure mode %d", __func__, sys_config->mode);
-        rc = -1;
+        goto exit;
+    }
+
+    /* Check if sample rate is valid for corresponding encoding */
+    switch (jack_config->encoding) {
+        case PA_ENCODING_UNKNOWN_IEC61937:
+            if ((sys_config->sample_rate != 32000) && (sys_config->sample_rate != 44100) && (sys_config->sample_rate != 48000))
+                pa_log_error("%s: Unsupported sample rate %d for encoding %d", __func__, sys_config->sample_rate, jack_config->encoding);
+            break;
+        case PA_ENCODING_UNKNOWN_4X_IEC61937:
+        case PA_ENCODING_UNKNOWN_HBR_IEC61937:
+            if ((sys_config->sample_rate != 176400) && (sys_config->sample_rate != 192000))
+                pa_log_error("%s: Unsupported sample rate %d for encoding %d", __func__, sys_config->sample_rate, jack_config->encoding);
+            break;
+        case  PA_ENCODING_PCM:
+            if (!is_pcm_sample_rate_valid(sys_config->sample_rate))
+                pa_log_error("%s: Unsupported sample rate %d for encoding %d", __func__, sys_config->sample_rate, jack_config->encoding);
+            break;
+        default:
+            pa_log_error("%s: Unsupported encoding %d", __func__, jack_config->encoding);
+            break;
     }
 
 exit:
@@ -235,6 +269,8 @@ int pa_qahw_spdif_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sy
     int audio_rate_value = -1;
     int audio_format_value = -1;
     int audio_state_value = -1;
+
+    jack_config->active_jack = jack_type;
 
     if (sys_path.audio_state) {
         if ((audio_state_value = pa_qahw_format_detection_read_from_fd(sys_path.audio_state)) == -1) {

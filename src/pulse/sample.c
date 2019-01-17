@@ -90,6 +90,20 @@ size_t pa_usec_to_bytes(pa_usec_t t, const pa_sample_spec *spec) {
     return (size_t) (((t * spec->rate) / PA_USEC_PER_SEC)) * (size_table[spec->format] * spec->channels);
 }
 
+pa_nsec_t pa_bytes_to_nsec(uint64_t length, const pa_sample_spec *spec) {
+    pa_assert(spec);
+    pa_assert(pa_sample_spec_valid(spec));
+
+    return (((pa_nsec_t) (length / (size_table[spec->format] * spec->channels)) * PA_NSEC_PER_SEC) / spec->rate);
+}
+
+size_t pa_nsec_to_bytes(pa_nsec_t t, const pa_sample_spec *spec) {
+    pa_assert(spec);
+    pa_assert(pa_sample_spec_valid(spec));
+
+    return (size_t) (((t * spec->rate) / PA_NSEC_PER_SEC)) * (size_table[spec->format] * spec->channels);
+}
+
 pa_sample_spec* pa_sample_spec_init(pa_sample_spec *spec) {
     pa_assert(spec);
 

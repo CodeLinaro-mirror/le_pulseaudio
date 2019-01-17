@@ -259,6 +259,9 @@ typedef struct pa_sample_spec {
 /** Type for usec specifications (unsigned). Always 64 bit. */
 typedef uint64_t pa_usec_t;
 
+/** Type for nsec specifications (unsigned). Always 64 bit. */
+typedef uint64_t pa_nsec_t;
+
 /** Return the amount of bytes that constitute playback of one second of
  * audio, with the specified sample spec. */
 size_t pa_bytes_per_second(const pa_sample_spec *spec) PA_GCC_PURE;
@@ -283,6 +286,16 @@ pa_usec_t pa_bytes_to_usec(uint64_t length, const pa_sample_spec *spec) PA_GCC_P
  * return value will always be rounded down for non-integral
  * return values. \since 0.9 */
 size_t pa_usec_to_bytes(pa_usec_t t, const pa_sample_spec *spec) PA_GCC_PURE;
+
+/** Calculate the time the specified bytes take to play with the
+ * specified sample type. The return value will always be rounded
+ * down for non-integral return values. */
+pa_nsec_t pa_bytes_to_nsec(uint64_t length, const pa_sample_spec *spec) PA_GCC_PURE;
+
+/** Calculates the number of bytes that are required for the specified
+ * time. The return value will always be rounded down for non-integral
+ * return values. \since 0.9 */
+size_t pa_nsec_to_bytes(pa_nsec_t t, const pa_sample_spec *spec) PA_GCC_PURE;
 
 /** Initialize the specified sample spec and return a pointer to
  * it. The sample spec will have a defined state but

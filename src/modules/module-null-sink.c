@@ -55,7 +55,10 @@ PA_MODULE_USAGE(
         "channels=<number of channels> "
         "channel_map=<channel map> "
         "formats=<semi-colon separated sink formats> "
-        "dump=<path to file to dump to> ");
+        "dump=<path to file to dump to> "
+        "avoid_processing=<use stream original sample spec if possible?> "
+        "timestamp_mode=<whether we should respect client-provided timestamps or not> "
+);
 
 #define DEFAULT_SINK_NAME "null"
 #define BLOCK_USEC (PA_USEC_PER_SEC * 2)
@@ -71,10 +74,12 @@ struct userdata {
 
     pa_usec_t block_usec;
     pa_usec_t timestamp;
+    pa_usec_t next_buf_timestamp;
 
     pa_idxset *formats;
 
     int dump_fd;
+    bool timestamp_mode;
 };
 
 static const char* const valid_modargs[] = {
@@ -86,6 +91,8 @@ static const char* const valid_modargs[] = {
     "channel_map",
     "formats",
     "dump",
+    "avoid_processing",
+    "timestamp_mode",
     NULL
 };
 
@@ -140,18 +147,30 @@ static void sink_update_requested_latency_cb(pa_sink *s) {
         u->block_usec = s->thread_info.max_latency;
 
     nbytes = pa_usec_to_bytes(u->block_usec, &s->sample_spec);
-    pa_sink_set_max_rewind_within_thread(s, nbytes);
+    pa_sink_set_max_rewind_within_thread(s, u->timestamp_mode ? 0 : nbytes);
     pa_sink_set_max_request_within_thread(s, nbytes);
 }
 
 static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough) {
-    /* We don't need to do anything */
+    struct userdata *u;
+    size_t nbytes;
+
+    pa_sink_assert_ref(s);
+    pa_assert_se(u = s->userdata);
+
     s->sample_spec = *spec;
 
     if (map)
         s->channel_map = *map;
     else
         pa_channel_map_init_auto(&s->channel_map, spec->channels, PA_CHANNEL_MAP_DEFAULT);
+
+    if (u->block_usec == (pa_usec_t) -1)
+        u->block_usec = s->thread_info.max_latency;
+
+    nbytes = pa_usec_to_bytes(u->block_usec, &s->sample_spec);
+    pa_sink_set_max_rewind(s, u->timestamp_mode ? 0 : nbytes);
+    pa_sink_set_max_request(s, nbytes);
 
     return 0;
 }
@@ -239,9 +258,24 @@ static void process_render(struct userdata *u, pa_usec_t now) {
             pa_memblock_release(chunk.memblock);
         }
 
+        /* We don't really use timestamps, this is just for validation. We
+         * assume that if timestamps are provided, they start from 0 and
+         * verify that each buffer has the expected timestamp based on the
+         * duration of the previous buffer */
+        if (u->timestamp_mode) {
+            pa_assert(pa_memblock_is_silence(chunk.memblock) || chunk.duration == pa_bytes_to_nsec(chunk.length, &u->sink->sample_spec));
+            pa_assert(pa_memblock_is_silence(chunk.memblock) || chunk.timestamp == 0 || chunk.timestamp == u->next_buf_timestamp);
+
+            if (chunk.timestamp == 0)
+                u->next_buf_timestamp = 0;
+
+            u->next_buf_timestamp += chunk.duration;
+        }
+
         pa_memblock_unref(chunk.memblock);
 
-/*         pa_log_debug("Ate %lu bytes.", (unsigned long) chunk.length); */
+/*         pa_log_debug("Ate %lu bytes, %lu nsec at %lu.", (unsigned long) chunk.length,
+                (unsigned long) chunk.duration, (unsigned long) chunk.timestamp); */
         u->timestamp += pa_bytes_to_usec(chunk.length, &u->sink->sample_spec);
 
         ate += chunk.length;
@@ -310,6 +344,7 @@ int pa__init(pa_module*m) {
     pa_format_info *format;
     const char *formats, *dump_file;
     size_t nbytes;
+    bool avoid_processing;
 
     pa_assert(m);
 
@@ -320,6 +355,8 @@ int pa__init(pa_module*m) {
 
     ss = m->core->default_sample_spec;
     map = m->core->default_channel_map;
+    avoid_processing = m->core->avoid_processing;
+
     if (pa_modargs_get_sample_spec_and_channel_map(ma, &ss, &map, PA_CHANNEL_MAP_DEFAULT) < 0) {
         pa_log("Invalid sample format specification or channel map");
         goto fail;
@@ -341,6 +378,19 @@ int pa__init(pa_module*m) {
             pa_log_error("Could not open dump file: %s (%s)", dump_file, pa_cstrerror(errno));
             goto fail;
         }
+    }
+
+    if (pa_modargs_get_value_boolean(ma, "avoid_processing", &avoid_processing) < 0) {
+        pa_log("Failed to parse avoid_processing argument.");
+        pa_sink_new_data_done(&data);
+        goto fail;
+    }
+    data.avoid_processing = avoid_processing;
+
+    if (pa_modargs_get_value_boolean(ma, "timestamp_mode", &u->timestamp_mode) < 0) {
+        pa_log("Failed to parse timestamp_mode argument.");
+        pa_sink_new_data_done(&data);
+        goto fail;
     }
 
     pa_sink_new_data_init(&data);
@@ -400,7 +450,7 @@ int pa__init(pa_module*m) {
 
     u->block_usec = BLOCK_USEC;
     nbytes = pa_usec_to_bytes(u->block_usec, &u->sink->sample_spec);
-    pa_sink_set_max_rewind(u->sink, nbytes);
+    pa_sink_set_max_rewind(u->sink, u->timestamp_mode ? 0 : nbytes);
     pa_sink_set_max_request(u->sink, nbytes);
 
     if (!(u->thread = pa_thread_new("null-sink", thread_func, u))) {

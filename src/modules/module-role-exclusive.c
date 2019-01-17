@@ -131,6 +131,7 @@ static pa_hook_result_t sink_input_state_changed_cb(pa_core *core, pa_sink_input
             pa_sink_input_set_mute(i, false, false);
             pa_hashmap_remove(u->inputs_states, i);
         }
+        return PA_HOOK_OK;
     }
 
     if (PA_SINK_INPUT_IS_LINKED(i->state) && !(i->muted))
@@ -149,7 +150,7 @@ static pa_hook_result_t sink_input_mute_changed_cb(pa_core *core, pa_sink_input 
         }
     }
 
-    if (PA_SINK_INPUT_IS_LINKED(i->state) && !(i->muted))
+    if (PA_SINK_INPUT_IS_LINKED(i->state) && (i->state != PA_SINK_INPUT_CORKED) && !(i->muted))
         return process(u, i);
 
     return PA_HOOK_OK;

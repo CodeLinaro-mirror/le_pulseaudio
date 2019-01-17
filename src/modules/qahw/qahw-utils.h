@@ -47,4 +47,5 @@ bool pa_qahw_channel_map_to_qahw(pa_channel_map *pa_map, struct qahw_out_channel
 bool pa_qahw_channel_map_from_qahw(struct qahw_out_channel_map_param *qahw_map, pa_channel_map *pa_map);
 void pa_qahw_util_channel_allocation_to_pa_channel_map(pa_channel_map *m, uint32_t channel_allocation);
 void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qahw_jack_in_config *jack_in_config);
+pa_channel_map* pa_qahw_util_channel_map_init(pa_channel_map *m, unsigned channels);
 #endif

@@ -719,7 +719,6 @@ static bool on_left(pa_channel_position_t p) {
         p == PA_CHANNEL_POSITION_FRONT_LEFT ||
         p == PA_CHANNEL_POSITION_REAR_LEFT ||
         p == PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER ||
-        p == PA_CHANNEL_POSITION_REAR_LEFT_OF_CENTER ||
         p == PA_CHANNEL_POSITION_SIDE_LEFT ||
         p == PA_CHANNEL_POSITION_FRONT_LEFT_WIDE ||
         p == PA_CHANNEL_POSITION_TOP_FRONT_LEFT ||
@@ -733,7 +732,6 @@ static bool on_right(pa_channel_position_t p) {
         p == PA_CHANNEL_POSITION_FRONT_RIGHT ||
         p == PA_CHANNEL_POSITION_REAR_RIGHT ||
         p == PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER ||
-        p == PA_CHANNEL_POSITION_REAR_RIGHT_OF_CENTER ||
         p == PA_CHANNEL_POSITION_SIDE_RIGHT ||
         p == PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE ||
         p == PA_CHANNEL_POSITION_TOP_FRONT_RIGHT ||
@@ -775,8 +773,6 @@ static bool on_rear(pa_channel_position_t p) {
         p == PA_CHANNEL_POSITION_REAR_LEFT ||
         p == PA_CHANNEL_POSITION_REAR_RIGHT ||
         p == PA_CHANNEL_POSITION_REAR_CENTER ||
-        p == PA_CHANNEL_POSITION_REAR_LEFT_OF_CENTER ||
-        p == PA_CHANNEL_POSITION_REAR_RIGHT_OF_CENTER ||
         p == PA_CHANNEL_POSITION_TOP_REAR_LEFT ||
         p == PA_CHANNEL_POSITION_TOP_REAR_RIGHT ||
         p == PA_CHANNEL_POSITION_TOP_REAR_CENTER;
@@ -926,6 +922,8 @@ static void setup_remap(const pa_resampler *r, pa_remap_t *m, bool *lfe_remixed)
          * The algorithm works basically like this:
          *
          * 1) Connect all channels with matching names.
+         *    This also includes fixing confusion between "5.1" and
+         *    "5.1 (Side)" layouts, done by mpv.
          *
          * 2) Mono Handling:
          *    S:Mono: See setup_oc_mono_map().
@@ -1015,6 +1013,26 @@ static void setup_remap(const pa_resampler *r, pa_remap_t *m, bool *lfe_remixed)
 
                     oc_connected = true;
                     ic_connected[ic] = true;
+                }
+            }
+
+            if (!oc_connected) {
+                /* Maybe it is due to 5.1 rear/side confustion? */
+                for (ic = 0; ic < n_ic; ic++) {
+                    pa_channel_position_t a = r->i_cm.map[ic];
+                    if (ic_connected[ic])
+                        continue;
+
+                    if ((a == PA_CHANNEL_POSITION_REAR_LEFT && b == PA_CHANNEL_POSITION_SIDE_LEFT) ||
+                        (a == PA_CHANNEL_POSITION_SIDE_LEFT && b == PA_CHANNEL_POSITION_REAR_LEFT) ||
+                        (a == PA_CHANNEL_POSITION_REAR_RIGHT && b == PA_CHANNEL_POSITION_SIDE_RIGHT) ||
+                        (a == PA_CHANNEL_POSITION_SIDE_RIGHT && b == PA_CHANNEL_POSITION_REAR_RIGHT)) {
+
+                        m->map_table_f[oc][ic] = 1.0f;
+
+                        oc_connected = true;
+                        ic_connected[ic] = true;
+                    }
                 }
             }
 

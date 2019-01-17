@@ -301,9 +301,10 @@ TESTS_norun = \
 TESTS_daemon = \
 		connect-stress \
 		extended-test \
+		interpol-test \
 		passthrough-test \
 		reconfigure-test \
-		interpol-test \
+		timestamp-test \
 		sync-playback
 
 if !OS_IS_WIN32
@@ -496,6 +497,11 @@ reconfigure_test_SOURCES = tests/reconfigure-test.c
 reconfigure_test_LDADD = $(AM_LDADD) libpulse.la libpulsecommon-@PA_MAJORMINOR@.la libtest-util.la
 reconfigure_test_CFLAGS = $(AM_CFLAGS) $(LIBCHECK_CFLAGS)
 reconfigure_test_LDFLAGS = $(AM_LDFLAGS) $(BINLDFLAGS) $(LIBCHECK_LIBS)
+
+timestamp_test_SOURCES = tests/timestamp-test.c
+timestamp_test_LDADD = $(AM_LDADD) libpulse.la libpulsecommon-@PA_MAJORMINOR@.la libtest-util.la
+timestamp_test_CFLAGS = $(AM_CFLAGS) $(LIBCHECK_CFLAGS)
+timestamp_test_LDFLAGS = $(AM_LDFLAGS) $(BINLDFLAGS) $(LIBCHECK_LIBS)
 
 strlist_test_SOURCES = tests/strlist-test.c
 strlist_test_CFLAGS = $(AM_CFLAGS) $(LIBCHECK_CFLAGS)
@@ -1403,6 +1409,7 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/qcs405-wsa-snd-card.conf \
       modules/qahw/configs/qcs405-csra1-snd-card.conf \
       modules/qahw/configs/qcs405-csra6-snd-card.conf \
+      modules/qahw/configs/qcs405-csra8-snd-card.conf \
       modules/qahw/configs/qcs405-amic-snd-card.conf
 endif
 

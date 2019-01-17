@@ -25,10 +25,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <pulse/utf8.h>
-#include <pulse/xmalloc.h>
-#include <pulse/util.h>
 #include <pulse/internal.h>
+#include <pulse/utf8.h>
+#include <pulse/util.h>
+#include <pulse/timeval.h>
+#include <pulse/xmalloc.h>
 
 #include <pulsecore/core-format.h>
 #include <pulsecore/mix.h>
@@ -981,6 +982,13 @@ void pa_sink_input_peek(pa_sink_input *i, size_t slength /* in sink bytes */, pa
             } else {
                 pa_memchunk rchunk;
                 pa_resampler_run(i->thread_info.resampler, &wchunk, &rchunk);
+
+                /* FIXME: is there any way to ascertain that the complete buffer was processed by resampling and conversion? */
+#ifdef SINK_INPUT_DEBUG
+                pa_log_debug("Invaliding timestamps due to resampling");
+#endif
+                rchunk.timestamp = PA_NSEC_INVALID;
+                rchunk.duration = PA_NSEC_INVALID;
 
 #ifdef SINK_INPUT_DEBUG
                 pa_log_debug("pushing %lu", (unsigned long) rchunk.length);
