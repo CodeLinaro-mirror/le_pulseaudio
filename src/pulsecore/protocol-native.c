@@ -1508,17 +1508,21 @@ static bool handle_input_underrun(playback_stream *s, bool force) {
     send_drain = s->drain_request && (force || pa_sink_input_safe_to_remove(s->sink_input) || pa_sink_input_is_compressed(s->sink_input));
 
     if (send_drain) {
-         s->drain_request = false;
          if (!pa_sink_input_is_compressed(s->sink_input)) {
+             s->drain_request = false;
              pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
              pa_log_debug("Drain acknowledged of '%s'", pa_strnull(pa_proplist_gets(s->sink_input->proplist, PA_PROP_MEDIA_NAME)));
          } else {
              /* Now trigger a drain on the (compressed) sink as well */
              if (pa_sink_drain(s->sink_input->sink) < 0) {
+                 s->drain_request = false;
                  pa_log_warn("Unable to drain sink");
                  /* We're not going to get an ack from the sink, tell the
                   * client to not wait */
                  pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
+             } else {
+                 /* s->drain_request is still true, and will get cleared on
+                  * completion of the drain */
              }
          }
     } else if (!s->is_underrun) {
@@ -1731,6 +1735,11 @@ static void sink_input_drain_complete_cb(pa_sink_input *i)
     pa_sink_input_assert_ref(i);
     s = PLAYBACK_STREAM(i->userdata);
     playback_stream_assert_ref(s);
+
+    /* This can happen if a sink was in the middle of a drain, a sink-input
+     * went away, and a new one came in */
+    if (!s->drain_request)
+        return;
 
     pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
     pa_log_debug("Drain acknowledged of '%s'", pa_strnull(pa_proplist_gets(s->sink_input->proplist, PA_PROP_MEDIA_NAME)));
