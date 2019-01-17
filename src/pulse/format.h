@@ -65,6 +65,9 @@ typedef enum pa_encoding {
     PA_ENCODING_MPEG,
     /**< MPEG-1 or MPEG-2 (Part 3, not AAC) data. \since: FIXME */
 
+    PA_ENCODING_AAC,
+    /**< MPEG-2 or MPEG-4 AAC data. \since: FIXME */
+
     PA_ENCODING_MAX,
     /**< Valid encoding types must be less than this value */
 
@@ -83,6 +86,7 @@ typedef enum pa_encoding {
 #define PA_ENCODING_TRUEHD_IEC61937 PA_ENCODING_TRUEHD_IEC61937
 #define PA_ENCODING_DTSHD_IEC61937 PA_ENCODING_DTSHD_IEC61937
 #define PA_ENCODING_MPEG PA_ENCODING_MPEG
+#define PA_ENCODING_AAC PA_ENCODING_AAC
 #define PA_ENCODING_MAX PA_ENCODING_MAX
 #define PA_ENCODING_INVALID PA_ENCODING_INVALID
 /** \endcond */

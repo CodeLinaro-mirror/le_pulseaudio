@@ -138,6 +138,7 @@ int pa_format_info_to_sample_spec_fake(const pa_format_info *f, pa_sample_spec *
             return -PA_ERR_INVALID;
 
         case PA_ENCODING_MPEG:
+        case PA_ENCODING_AAC:
             /* Fake a frame size of 1 byte for compressed data */
             ss->format = PA_SAMPLE_U8;
             break;
@@ -159,7 +160,8 @@ int pa_format_info_to_sample_spec_fake(const pa_format_info *f, pa_sample_spec *
              * sample spec's channel count. */
             pa_channel_map_init_auto(map, 8, PA_CHANNEL_MAP_ALSA);
         }
-    } else if (f->encoding == PA_ENCODING_MPEG) {
+    } else if (f->encoding == PA_ENCODING_MPEG ||
+               f->encoding == PA_ENCODING_AAC) {
         /* Fake a frame size of 1 byte for compressed data */
         ss->channels = 1;
         if (map)

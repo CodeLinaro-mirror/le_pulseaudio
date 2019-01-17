@@ -50,6 +50,7 @@ static const char* const _encoding_str_table[]= {
     [PA_ENCODING_TRUEHD_IEC61937] = "truehd-iec61937",
     [PA_ENCODING_DTSHD_IEC61937] = "dtshd-iec61937",
     [PA_ENCODING_MPEG] = "mpeg",
+    [PA_ENCODING_AAC] = "aac",
     [PA_ENCODING_ANY] = "any",
 };
 
@@ -129,6 +130,7 @@ int pa_format_info_is_passthrough(const pa_format_info *f) {
 int pa_format_info_is_compressed(const pa_format_info *f) {
     switch (f->encoding) {
         case PA_ENCODING_MPEG:
+        case PA_ENCODING_AAC:
             return true;
 
         default:
