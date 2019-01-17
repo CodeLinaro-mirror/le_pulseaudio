@@ -27,7 +27,9 @@
 
 #include "qahw-utils.h"
 
-typedef struct{
+#define PA_QAHW_SINK_PROP_FORMAT_STREAM_FORMAT "stream-format"
+
+typedef struct {
     pa_channel_position_t pa_channel_map_position;
     uint32_t qahw_channel_map_position;
 } pa_qahw_util_pa_qahw_channel_map;
@@ -42,6 +44,16 @@ typedef struct {
     audio_devices_t qahw_device;
     char *qahw_device_name;
 } pa_qahw_util_port_to_qahw_device_mapping;
+
+typedef struct {
+    audio_format_t stream_format; /* raw (default), adts */
+} pa_qahw_util_aac_compress_metadata;
+
+typedef union {
+    pa_qahw_util_aac_compress_metadata aac;
+} pa_qahw_util_compress_metadata;
+
+pa_qahw_util_compress_metadata compress_metadata;
 
 pa_qahw_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_QAHW_JACK_TYPE_WIRED_HEADSET, (char*)"headset" },
@@ -139,6 +151,12 @@ audio_format_t pa_qahw_util_get_qahw_format_from_pa_encoding(pa_encoding_t pa_fo
             break;
         case PA_ENCODING_MPEG:
             qahw_format = AUDIO_FORMAT_MP3;
+            break;
+        case PA_ENCODING_AAC:
+            if (compress_metadata.aac.stream_format == AUDIO_FORMAT_AAC_ADTS)
+                qahw_format = AUDIO_FORMAT_AAC_ADTS_HE_V2;
+            else
+                qahw_format = AUDIO_FORMAT_AAC_HE_V2;
             break;
         default:
             pa_log_error("PA format encoding not supported in QAHW\n");
@@ -243,6 +261,9 @@ pa_encoding_t pa_qahw_util_get_pa_encoding_from_qahw_format(audio_format_t qahw_
             break;
         case AUDIO_FORMAT_MP3:
             pa_format = PA_ENCODING_MPEG;
+            break;
+        case AUDIO_FORMAT_AAC_HE_V2:
+            pa_format = PA_ENCODING_AAC;
             break;
         default:
             pa_log_debug("QAHW format not supported\n");
@@ -853,4 +874,37 @@ pa_channel_map* pa_qahw_util_channel_map_init(pa_channel_map *m, unsigned channe
         default:
             return NULL;
     }
+}
+
+int pa_qahw_util_set_qahw_metadata_from_pa_format(const pa_format_info *format) {
+    int rc = 0;
+    char *stream_format;
+
+    pa_assert(format);
+
+    switch (format->encoding) {
+        case PA_ENCODING_AAC:
+            rc = pa_format_info_get_prop_string(format,
+                 PA_QAHW_SINK_PROP_FORMAT_STREAM_FORMAT, &stream_format);
+            if (rc) {
+                pa_log_error("%s: Failed to obtain AAC stream format", __func__);
+            } else {
+               if (pa_streq(stream_format, "adts")) {
+                   pa_log_debug("%s: adts format", __func__);
+                   compress_metadata.aac.stream_format = AUDIO_FORMAT_AAC_ADTS;
+               } else {
+                   pa_log_debug("%s: raw format", __func__);
+                   compress_metadata.aac.stream_format = AUDIO_FORMAT_AAC;
+               }
+
+               pa_xfree(stream_format);
+            }
+
+            break;
+        case PA_ENCODING_MPEG:
+        default:
+           break;
+    }
+
+    return rc;
 }

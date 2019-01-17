@@ -474,6 +474,12 @@ static bool pa_qahw_sink_set_format_cb(pa_sink *s, const pa_format_info *format)
             goto exit;
         }
 
+        rc = pa_qahw_util_set_qahw_metadata_from_pa_format(format);
+        if (rc) {
+            pa_log_error("%s: Failed to set metadata from format", __func__);
+            goto exit;
+        }
+
         encoding = format->encoding;
         pa_log_info("%s: sample spec %s", __func__,
               pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
