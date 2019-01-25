@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -54,6 +54,10 @@
 
 //#define SOURCE_DUMP_ENABLED
 
+typedef enum {
+    PA_QAHW_SOURCE_READ_EVENT_DONE = PA_SOURCE_MESSAGE_MAX + 1,
+} qahw_read_event_t;
+
 typedef struct {
     qahw_stream_handle_t *in_handle;
     audio_io_handle_t handle;
@@ -69,6 +73,8 @@ typedef struct {
     size_t source_buffer_size;
     audio_source_t source_type;
     uint32_t source_latency_us;
+    pa_thread *qahw_read_thread;
+    pa_atomic_t stopped;
 } qahw_source_data;
 
 typedef struct {
@@ -103,6 +109,8 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t
 static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                             audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata, audio_source_t source_type);
 static int close_qahw_source(qahw_source_data *qahw_sdata);
+static int stop_qahw_source(qahw_source_data *qahw_sdata);
+static void pa_qahw_source_read_thread_func(void *userdata);
 
 static const uint32_t supported_source_rates[] =
                           {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
@@ -171,17 +179,33 @@ static void pa_qahw_source_fill_info(qahw_source_data *qahw_sdata, pa_encoding_t
     qahw_sdata->handle = source_iohandle;
 }
 
-static int pa_qahw_source_start(qahw_source_data *sdata) {
+static int pa_qahw_source_start(pa_qahw_source_data *sdata) {
+
+    pa_assert(sdata);
+    pa_assert(sdata->qahw_sdata);
+
+    pa_atomic_store(&sdata->qahw_sdata->stopped, 0);
+    if (!(sdata->qahw_sdata->qahw_read_thread = pa_thread_new(sdata->pa_sdata->source->name, pa_qahw_source_read_thread_func, sdata))) {
+        pa_log_error("%s: qahw_read_thread creation failed", __func__);
+    }
+
     return 0;
 }
 
-static int pa_qahw_source_standby(qahw_source_data *sdata) {
+static int pa_qahw_source_standby(pa_qahw_source_data *sdata) {
+    qahw_source_data *qahw_sdata;
+
     pa_assert(sdata);
-    pa_assert(sdata->in_handle);
+
+    qahw_sdata = sdata->qahw_sdata;
+
+    pa_assert(qahw_sdata);
+    pa_assert(qahw_sdata->in_handle);
 
     pa_log_info("%s", __func__);
 
-   qahw_in_standby(sdata->in_handle);
+    stop_qahw_source(sdata->qahw_sdata);
+    qahw_in_standby(qahw_sdata->in_handle);
 
     return 0;
 }
@@ -220,9 +244,9 @@ static int pa_qahw_source_set_state_in_io_thread_cb(pa_source *s, pa_source_stat
     pa_log_debug("New state is: %d", new_state);
 
     if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(s->thread_info.state))
-        r = pa_qahw_source_start(source_data->qahw_sdata);
+        r = pa_qahw_source_start(source_data);
     else if (new_state == PA_SOURCE_SUSPENDED)
-        r = pa_qahw_source_standby(source_data->qahw_sdata);
+        r = pa_qahw_source_standby(source_data);
 
     return r;
 }
@@ -237,6 +261,15 @@ static int pa_qahw_source_process_msg(pa_msgobject *o, int code, void *data, int
         case PA_SOURCE_MESSAGE_GET_LATENCY: {
             *((pa_usec_t*) data) = 0;
             return 0;
+        }
+        case PA_QAHW_SOURCE_READ_EVENT_DONE: {
+#ifdef SOURCE_DUMP_ENABLED
+             pa_log_debug("%s: chunk length %d chunk index %d ", __func__, chunk->length, chunk->index);
+#endif
+
+             pa_source_post(source_data->pa_sdata->source, chunk);
+             pa_memblock_unref(chunk->memblock);
+             return 0;
         }
 
         default:
@@ -320,27 +353,27 @@ exit:
 }
 
 int pa_qahw_source_get_media_config(pa_qahw_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
-        pa_qahw_source_data *sdata = (pa_qahw_source_data *)handle;
-        pa_format_info *f;
+    pa_qahw_source_data *sdata = (pa_qahw_source_data *)handle;
+    pa_format_info *f;
 
-        uint32_t i;
-        int ret = -1;
+    uint32_t i;
+    int ret = -1;
 
-        pa_assert(sdata);
-        pa_assert(sdata->pa_sdata);
-        pa_assert(sdata->pa_sdata->source);
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->source);
 
-        *ss = sdata->pa_sdata->source->sample_spec;
-        *map = sdata->pa_sdata->source->channel_map;
+    *ss = sdata->pa_sdata->source->sample_spec;
+    *map = sdata->pa_sdata->source->channel_map;
 
-        PA_IDXSET_FOREACH(f, sdata->pa_sdata->formats, i) {
-            /* currently a source supports single format */
-            *encoding = f->encoding;
-            ret = 0;
-            break;
-        }
+    PA_IDXSET_FOREACH(f, sdata->pa_sdata->formats, i) {
+        /* currently a source supports single format */
+        *encoding = f->encoding;
+        ret = 0;
+        break;
+    }
 
-        return ret;
+    return ret;
 }
 
 static pa_idxset* pa_qahw_source_get_formats(pa_source *s) {
@@ -352,56 +385,70 @@ static pa_idxset* pa_qahw_source_get_formats(pa_source *s) {
     return pa_idxset_copy(sdata->pa_sdata->formats, (pa_copy_func_t) pa_format_info_copy);
 }
 
-static void pa_qahw_source_thread_func(void *userdata) {
+static void pa_qahw_source_read_thread_func(void *userdata) {
     pa_qahw_source_data *source_data = (pa_qahw_source_data *)userdata;
     pa_source_data *pa_sdata = source_data->pa_sdata;
     qahw_source_data *qahw_sdata = source_data->qahw_sdata;
+
+    pa_log_debug("Source Qahw Read Thread starting up");
+
+    for (;;) {
+        pa_memchunk chunk;
+        int ret = 0;
+        qahw_in_buffer_t in_buf;
+        void *data;
+
+
+        memset(&in_buf, 0, sizeof(qahw_in_buffer_t));
+
+        chunk.memblock = pa_memblock_new(pa_sdata->source->core->mempool, (size_t) qahw_sdata->source_buffer_size);
+        data = pa_memblock_acquire(chunk.memblock);
+        chunk.length = pa_memblock_get_length(chunk.memblock);
+        chunk.index = 0;
+
+        in_buf.buffer = data;
+        in_buf.bytes = chunk.length;
+
+        if (!pa_atomic_load(&qahw_sdata->stopped)) {
+            if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) <= 0) {
+                pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %lldms",
+                        ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
+                pa_msleep(pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
+                ret = in_buf.bytes;
+            }
+        } else {
+            pa_memblock_release(chunk.memblock);
+            pa_memblock_unref(chunk.memblock);
+            goto finish;
+        }
+
+        chunk.length = ret;
+#ifdef SOURCE_DUMP_ENABLED
+        if ((ret = write(qahw_sdata->write_fd, in_buf.buffer, ret)) < 0)
+            pa_log_error("write to fd failed %d", ret);
+#endif
+        pa_memblock_release(chunk.memblock);
+        pa_asyncmsgq_post(pa_sdata->thread_mq.inq, PA_MSGOBJECT(pa_sdata->source), PA_QAHW_SOURCE_READ_EVENT_DONE, NULL, 0, &chunk,NULL);
+    }
+
+
+finish:
+    pa_log_debug("Source QAHW Read Thread shutting down");
+}
+
+static void pa_qahw_source_thread_func(void *userdata) {
+    pa_qahw_source_data *source_data = (pa_qahw_source_data *)userdata;
+    pa_source_data *pa_sdata = source_data->pa_sdata;
 
     pa_log_debug("Source IO Thread starting up");
 
     pa_thread_mq_install(&pa_sdata->thread_mq);
 
     for (;;) {
-        int ret;
-        bool wait = true;
-
-        if (PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
-            pa_memchunk chunk;
-            void *data;
-            qahw_in_buffer_t in_buf;
-
-            memset(&in_buf, 0, sizeof(qahw_in_buffer_t));
-
-            chunk.memblock = pa_memblock_new(pa_sdata->source->core->mempool, (size_t) qahw_sdata->source_buffer_size);
-            data = pa_memblock_acquire(chunk.memblock);
-            chunk.length = pa_memblock_get_length(chunk.memblock);
-            chunk.index = 0;
-
-            in_buf.buffer = data;
-            in_buf.bytes = chunk.length;
-
-            if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) <= 0) {
-                pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %lldms", ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
-                pa_msleep(pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
-                ret = in_buf.bytes;
-            }
-
-            chunk.length = ret;
-#ifdef SOURCE_DUMP_ENABLED
-            pa_log_error(" chunk length %d chunk index %d in_buf.bytes %d ",chunk.length, chunk.index, ret);
-            if ((ret = write(qahw_sdata->write_fd, in_buf.buffer, ret)) < 0)
-                    pa_log_error("write to fd failed %d", ret);
-#endif
-            /* FIXME: don't post if read fails */
-            pa_memblock_release(chunk.memblock);
-            pa_source_post(pa_sdata->source, &chunk);
-            pa_memblock_unref(chunk.memblock);
-
-            wait = false;
-        }
+        int ret = 0;
 
         /* nothing to do. Let's sleep */
-        if ((ret = pa_rtpoll_run(pa_sdata->rtpoll, wait)) < 0)
+        if ((ret = pa_rtpoll_run(pa_sdata->rtpoll, true)) < 0)
             goto fail;
 
         if (ret == 0)
@@ -675,21 +722,26 @@ static int free_pa_source(pa_source_data *pa_sdata) {
     pa_assert(pa_sdata->thread);
     pa_assert(pa_sdata->rtpoll);
 
-    pa_log_debug("closing pa source %p", pa_sdata->source);
+    pa_log_debug("closing pa source %p state %d", pa_sdata->source, pa_sdata->source->state);
 
-    pa_source_unlink(pa_sdata->source);
+    if (pa_sdata->source)
+        pa_source_unlink(pa_sdata->source);
 
-    pa_asyncmsgq_send(pa_sdata->thread_mq.inq, NULL, PA_MESSAGE_SHUTDOWN, NULL, 0, NULL);
-    pa_thread_free(pa_sdata->thread);
+    if (pa_sdata->thread) {
+        pa_asyncmsgq_send(pa_sdata->thread_mq.inq, NULL, PA_MESSAGE_SHUTDOWN, NULL, 0, NULL);
+        pa_thread_free(pa_sdata->thread);
+    }
 
-    pa_source_unref(pa_sdata->source);
+    pa_thread_mq_done(&pa_sdata->thread_mq);
+
+    if (pa_sdata->source)
+        pa_source_unref(pa_sdata->source);
 
     if (pa_sdata->formats)
         pa_idxset_free(pa_sdata->formats, (pa_free_cb_t) pa_format_info_free);
 
-    pa_thread_mq_done(&pa_sdata->thread_mq);
-
-    pa_rtpoll_free(pa_sdata->rtpoll);
+    if (pa_sdata->rtpoll)
+        pa_rtpoll_free(pa_sdata->rtpoll);
 
     pa_xfree(pa_sdata);
 
@@ -803,12 +855,30 @@ exit:
     return rc;
 }
 
+static int stop_qahw_source(qahw_source_data *qahw_sdata) {
+    int rc;
+
+    pa_assert(qahw_sdata);
+
+    pa_atomic_store(&qahw_sdata->stopped, 1);
+    rc = qahw_in_stop(qahw_sdata->in_handle);
+
+    if (qahw_sdata->qahw_read_thread) {
+        pa_thread_free(qahw_sdata->qahw_read_thread);
+        qahw_sdata->qahw_read_thread = NULL;
+    }
+
+    return rc;
+}
+
 void pa_qahw_source_close(pa_qahw_source_handle_t *handle) {
     pa_qahw_source_data *sdata = (pa_qahw_source_data *)handle;
 
     pa_assert(sdata);
     pa_assert(sdata->qahw_sdata);
     pa_assert(sdata->pa_sdata);
+
+    stop_qahw_source(sdata->qahw_sdata);
 
     pa_qahw_source_extn_free(sdata->source_extn_handle);
     free_pa_source(sdata->pa_sdata);

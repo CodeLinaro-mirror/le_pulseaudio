@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -109,22 +109,30 @@ static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_
     /* Check if sample rate is valid for corresponding encoding */
     switch (jack_config->encoding) {
         case PA_ENCODING_UNKNOWN_IEC61937:
-            if ((sys_config->sample_rate != 32000) && (sys_config->sample_rate != 44100) && (sys_config->sample_rate != 48000))
+            if ((sys_config->sample_rate != 32000) && (sys_config->sample_rate != 44100) && (sys_config->sample_rate != 48000)) {
                 pa_log_error("%s: Unsupported sample rate %d for encoding %d", __func__, sys_config->sample_rate, jack_config->encoding);
+                goto exit;
+            }
             break;
         case PA_ENCODING_UNKNOWN_4X_IEC61937:
         case PA_ENCODING_UNKNOWN_HBR_IEC61937:
-            if ((sys_config->sample_rate != 176400) && (sys_config->sample_rate != 192000))
+            if ((sys_config->sample_rate != 176400) && (sys_config->sample_rate != 192000)) {
                 pa_log_error("%s: Unsupported sample rate %d for encoding %d", __func__, sys_config->sample_rate, jack_config->encoding);
+                goto exit;
+            }
             break;
         case  PA_ENCODING_PCM:
-            if (!is_pcm_sample_rate_valid(sys_config->sample_rate))
+            if (!is_pcm_sample_rate_valid(sys_config->sample_rate)) {
                 pa_log_error("%s: Unsupported sample rate %d for encoding %d", __func__, sys_config->sample_rate, jack_config->encoding);
+                goto exit;
+            }
             break;
         default:
             pa_log_error("%s: Unsupported encoding %d", __func__, jack_config->encoding);
-            break;
+            goto exit;
     }
+
+    rc = 0;
 
 exit:
     return rc;
@@ -233,19 +241,23 @@ int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys
 
     /* Assign current active jack and based on current configs */
     if (arc_enable_value) {
-        pa_log_debug("%s: HDMI audio interface SPDIF ARC", __func__);
-        jack_config->active_jack = PA_QAHW_JACK_TYPE_HDMI_ARC;
+        if ((jack_type != PA_QAHW_JACK_TYPE_HDMI_ARC) || (arc_audio_state_value == 2)) {
+            pa_log_debug("%s: HDMI audio interface SPDIF ARC", __func__);
+            jack_config->active_jack = PA_QAHW_JACK_TYPE_HDMI_ARC;
 
-        new_config.sample_rate = arc_audio_rate_value;
-        new_config.channels = DEFAULT_NUM_CHANNELS;
-        new_config.mode = arc_audio_format_value;
+            new_config.sample_rate = arc_audio_rate_value;
+            new_config.channels = DEFAULT_NUM_CHANNELS;
+            new_config.mode = arc_audio_format_value;
+        }
     } else if (audio_state_value && (audio_layout_value == 0) && audio_format_value) {
-        pa_log_debug("%s: HDMI audio interface SPDIF ARC", __func__);
-        jack_config->active_jack = PA_QAHW_JACK_TYPE_HDMI_ARC;
+        if ((jack_type != PA_QAHW_JACK_TYPE_HDMI_ARC) || (arc_audio_state_value == 2)) {
+            pa_log_debug("%s: HDMI audio interface SPDIF ARC", __func__);
+            jack_config->active_jack = PA_QAHW_JACK_TYPE_HDMI_ARC;
 
-        new_config.channels = (uint32_t)audio_channel_value;
-        new_config.mode = audio_format_value;
-        new_config.sample_rate = audio_rate_value;
+            new_config.channels = (uint32_t)audio_channel_value;
+            new_config.mode = audio_format_value;
+            new_config.sample_rate = audio_rate_value;
+        }
     } else if (audio_state_value) {
         pa_log_debug("%s: HDMI audio interface MI2S", __func__);
         jack_config->active_jack = PA_QAHW_JACK_TYPE_HDMI_IN;

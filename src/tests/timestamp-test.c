@@ -93,11 +93,12 @@ START_TEST (timestamp_test) {
         int r;
 
         while (pa_stream_writable_size(s) > 0 && index < nsamples) {
-            r = pa_stream_write_ts(s, &data[index], to_write, nop_free_cb, 0, PA_SEEK_ABSOLUTE, timestamp, duration);
+            r = pa_stream_write_ts(s, &data[index], to_write, nop_free_cb, index, PA_SEEK_ABSOLUTE, timestamp, duration,
+                                   PA_BUFFER_NOFLAGS);
             fail_unless(r == 0);
 
             timestamp += duration;
-            index += to_write / sizeof(data[0]);
+            index += to_write;
         }
 
         /* Wait for write callback */

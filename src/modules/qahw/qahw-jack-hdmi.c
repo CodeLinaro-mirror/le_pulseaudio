@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -36,6 +36,8 @@
 #define EP92EVT_LINK_ON0_DISCONNECTED_UEVENT "EP92EVT_LINK_ON0=DISCONNECTED"
 #define EP92EVT_AUDIO_MEDIA_CONFIG_CHANGE_UEVENT "EP92EVT_AUDIO=MEDIA_CONFIG_CHANGE"
 #define SEC_SPDIF_TX_MEDIA_CONFIG_CHANGE_UEVENT "SEC_SPDIF_TX=MEDIA_CONFIG_CHANGE"
+#define EP92EVT_ARC_ENABLE_UEVENT "EP92EVT_ARC_EN=ON"
+#define EP92EVT_ARC_DISABLE_UEVENT "EP92EVT_ARC_EN=OFF"
 
 typedef struct {
     int fd;
@@ -109,7 +111,7 @@ static void pa_qahw_hdmi_jack_raise_event(pa_qahw_jack_type_t jack_port_type, pa
         event_data.event = event;
         event_data.jack_type = jack_port_type;
         event_data.pa_qahw_jack_info = port_config;
-        pa_qahw_hdmi_jack_log_event(event, hdmi_jdata->port_type);
+        pa_qahw_hdmi_jack_log_event(event, jack_port_type);
         pa_hook_fire(&(hdmi_jdata->event_hook), &event_data);
     } else {
         if (all_linked_ports) {
@@ -189,7 +191,7 @@ static void check_hdmi_connection(pa_qahw_hdmi_jack_data_t *hdmi_jdata) {
         hdmi_jdata->active_port_type = hdmi_jdata->port_type;
 
         /* Check current hdmi jack config */
-        if (!pa_qahw_hdmi_jack_get_config(hdmi_jdata->port_type, hdmi_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
+        if (!pa_qahw_hdmi_jack_get_config(hdmi_jdata->active_port_type, hdmi_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
             if (new_port_config.active_jack != PA_QAHW_JACK_TYPE_INVALID) {
                 memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
 
@@ -265,6 +267,14 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
                 audio_state_changed = true;
                 j += strlen(SEC_SPDIF_TX_MEDIA_CONFIG_CHANGE_UEVENT);
                 continue;
+            } else if (pa_strneq(&buffer[j], EP92EVT_ARC_ENABLE_UEVENT, strlen(EP92EVT_ARC_ENABLE_UEVENT))) {
+                audio_state_changed = true;
+                j += strlen(EP92EVT_ARC_ENABLE_UEVENT);
+                continue;
+            } else if (pa_strneq(&buffer[j], EP92EVT_ARC_DISABLE_UEVENT, strlen(EP92EVT_ARC_DISABLE_UEVENT))) {
+                audio_state_changed = true;
+                j += strlen(EP92EVT_ARC_DISABLE_UEVENT);
+                continue;
             }
             j++;
         }
@@ -287,7 +297,7 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
             hdmi_jdata->active_port_type = hdmi_jdata->port_type;
 
             /* Check current hdmi jack config */
-            if (!pa_qahw_hdmi_jack_get_config(hdmi_jdata->port_type, hdmi_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
+            if (!pa_qahw_hdmi_jack_get_config(hdmi_jdata->active_port_type, hdmi_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
                 if (new_port_config.active_jack != PA_QAHW_JACK_TYPE_INVALID) {
                     memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
 
@@ -321,36 +331,34 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
             /* Reset current jack out config */
             memset(&curr_hdmi_jack_config, 0, sizeof(pa_qahw_jack_out_config));
         } else if ((audio_state_changed) && (hdmi_jdata->jack_plugin_status == PA_QAHW_JACK_AVAILABLE) &&
-                   (!pa_qahw_hdmi_jack_get_config(hdmi_jdata->port_type, hdmi_jdata->jack_in_config->jack_sys_path, &new_port_config))) {
+                   (!pa_qahw_hdmi_jack_get_config(hdmi_jdata->active_port_type, hdmi_jdata->jack_in_config->jack_sys_path, &new_port_config))) {
             if (new_port_config.active_jack != PA_QAHW_JACK_TYPE_INVALID) {
-                if (memcmp(&new_port_config, &curr_hdmi_jack_config, sizeof(pa_qahw_jack_out_config))) {
-                    /* If primary port is same as new active jack */
-                    if (hdmi_jdata->port_type == new_port_config.active_jack) {
-                        /* This situation might happen when linked ports are supported */
-                        if ((hdmi_jdata->jack_in_config->linked_ports) && (hdmi_jdata->port_status == PA_QAHW_JACK_UNAVAILABLE)) {
-                            /* Raise PA_QAHW_JACK_UNAVAILABLE for current active linked port */
-                            pa_qahw_hdmi_jack_raise_event(hdmi_jdata->active_port_type, PA_QAHW_JACK_UNAVAILABLE, NULL, hdmi_jdata, false);
+                /* If primary port is same as new active jack */
+                if (hdmi_jdata->port_type == new_port_config.active_jack) {
+                    /* This situation might happen when linked ports are supported */
+                    if ((hdmi_jdata->jack_in_config->linked_ports) && (hdmi_jdata->port_status == PA_QAHW_JACK_UNAVAILABLE)) {
+                        /* Raise PA_QAHW_JACK_UNAVAILABLE for current active linked port */
+                        pa_qahw_hdmi_jack_raise_event(hdmi_jdata->active_port_type, PA_QAHW_JACK_UNAVAILABLE, NULL, hdmi_jdata, false);
 
-                            /* Raise PA_QAHW_JACK_AVAILABLE for active  port */
-                            pa_qahw_hdmi_jack_raise_event(hdmi_jdata->port_type, PA_QAHW_JACK_AVAILABLE, NULL, hdmi_jdata, false);
-                            hdmi_jdata->active_port_type = hdmi_jdata->port_type;
-                        }
-                    } else if (hdmi_jdata->jack_in_config->linked_ports) {
-                        if (hdmi_jdata->active_port_type != new_port_config.active_jack) {
-                            /* If current active port is not same as new active jack */
-                            /* Raise PA_QAHW_JACK_UNAVAILABLE for current active port */
-                            pa_qahw_hdmi_jack_raise_event(hdmi_jdata->active_port_type, PA_QAHW_JACK_UNAVAILABLE, NULL, hdmi_jdata, false);
-
-                            /* Raise PA_QAHW_JACK_AVAILABLE for new active jack */
-                            pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_AVAILABLE, NULL, hdmi_jdata, false);
-                            hdmi_jdata->active_port_type = new_port_config.active_jack;
-                        }
+                        /* Raise PA_QAHW_JACK_AVAILABLE for active  port */
+                        pa_qahw_hdmi_jack_raise_event(hdmi_jdata->port_type, PA_QAHW_JACK_AVAILABLE, NULL, hdmi_jdata, false);
+                        hdmi_jdata->active_port_type = hdmi_jdata->port_type;
                     }
+                } else if (hdmi_jdata->jack_in_config->linked_ports) {
+                    if (hdmi_jdata->active_port_type != new_port_config.active_jack) {
+                        /* If current active port is not same as new active jack */
+                        /* Raise PA_QAHW_JACK_UNAVAILABLE for current active port */
+                        pa_qahw_hdmi_jack_raise_event(hdmi_jdata->active_port_type, PA_QAHW_JACK_UNAVAILABLE, NULL, hdmi_jdata, false);
 
-                    /* Raise PA_QAHW_JACK_CONFIG_UPDATE event for active jack */
-                    memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
-                    pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
+                        /* Raise PA_QAHW_JACK_AVAILABLE for new active jack */
+                        pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_AVAILABLE, NULL, hdmi_jdata, false);
+                        hdmi_jdata->active_port_type = new_port_config.active_jack;
+                    }
                 }
+
+                /* Raise PA_QAHW_JACK_CONFIG_UPDATE event for active jack */
+                memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
+                pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
             }
         }
     }
@@ -381,6 +389,7 @@ struct pa_qahw_jack_data* pa_qahw_hdmi_jack_detection_enable(pa_qahw_jack_type_t
 
     hdmi_jdata->fd = sock_event_fd;
     hdmi_jdata->jack_in_config = jack_in_config;
+    hdmi_jdata->active_port_type = PA_QAHW_JACK_TYPE_INVALID;
 
     pa_hook_init(&(hdmi_jdata->event_hook), NULL);
     jdata->event_hook = &(hdmi_jdata->event_hook);

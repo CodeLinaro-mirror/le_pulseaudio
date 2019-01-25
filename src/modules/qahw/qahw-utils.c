@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -137,6 +137,9 @@ audio_format_t pa_qahw_util_get_qahw_format_from_pa_encoding(pa_encoding_t pa_fo
         case PA_ENCODING_UNKNOWN_HBR_IEC61937:
             qahw_format = AUDIO_FORMAT_IEC61937;
             break;
+        case PA_ENCODING_MPEG:
+            qahw_format = AUDIO_FORMAT_MP3;
+            break;
         default:
             pa_log_error("PA format encoding not supported in QAHW\n");
             break;
@@ -237,6 +240,9 @@ pa_encoding_t pa_qahw_util_get_pa_encoding_from_qahw_format(audio_format_t qahw_
             break;
         case AUDIO_FORMAT_DOLBY_TRUEHD:
             pa_format = PA_ENCODING_TRUEHD_IEC61937;
+            break;
+        case AUDIO_FORMAT_MP3:
+            pa_format = PA_ENCODING_MPEG;
             break;
         default:
             pa_log_debug("QAHW format not supported\n");

@@ -44,15 +44,25 @@
 
 #include "pstream.h"
 
-/* We piggyback information if audio data blocks are stored in SHM on the seek mode */
-#define PA_FLAG_SHMDATA     0x80000000LU
-#define PA_FLAG_SHMDATA_MEMFD_BLOCK         0x20000000LU
-#define PA_FLAG_SHMRELEASE  0x40000000LU
-#define PA_FLAG_SHMREVOKE   0xC0000000LU
-#define PA_FLAG_SHMMASK     0xFF000000LU
-#define PA_FLAG_SEEKMASK    0x000000FFLU
-#define PA_FLAG_SHMWRITABLE 0x00800000LU
-#define PA_FLAG_HAVE_TIME   0x00000100LU
+/* Space for various per-message flags is allocated as follows
+ * (32-bits, numbered 0 for the lowest and 31 for the highest):
+ *
+ *   bit 0-7    seek mode for the buffer offset (see pa_seek_mode_t)
+ *   bit 8      does the packet include a buffer timestamp/duration
+ *   bit 12-19  buffer flags (see pa_buffer_flags_t)
+ *   bit 23     is the SHM block writable
+ *   bit 24-31  SHM-related flags
+ */
+#define PA_FLAG_SHMDATA                 0x80000000LU
+#define PA_FLAG_SHMDATA_MEMFD_BLOCK     0x20000000LU
+#define PA_FLAG_SHMRELEASE              0x40000000LU
+#define PA_FLAG_SHMREVOKE               0xC0000000LU
+#define PA_FLAG_SHMMASK                 0xFF000000LU
+#define PA_FLAG_SEEKMASK                0x000000FFLU
+#define PA_FLAG_SHMWRITABLE             0x00800000LU
+#define PA_FLAG_HAVE_TIME               0x00000100LU
+#define PA_FLAG_BUFFERMASK              0x000FF000LU /* For buffer flags */
+#define PA_FLAG_BUFFERSHIFT             12
 
 /* The sequence descriptor header consists of 5 32bit integers: */
 enum {
@@ -497,6 +507,7 @@ void pa_pstream_send_memblock(pa_pstream*p, uint32_t channel, int64_t offset, pa
     size_t length, idx;
     size_t bsm;
     pa_nsec_t timestamp, duration;
+    pa_buffer_flags_t flags;
 
     pa_assert(p);
     pa_assert(PA_REFCNT_VALUE(p) > 0);
@@ -513,6 +524,7 @@ void pa_pstream_send_memblock(pa_pstream*p, uint32_t channel, int64_t offset, pa
 
     timestamp = chunk->timestamp;
     duration = chunk->duration;
+    flags = chunk->flags;
 
     while (length > 0) {
         struct item_info *i;
@@ -529,6 +541,7 @@ void pa_pstream_send_memblock(pa_pstream*p, uint32_t channel, int64_t offset, pa
 
         i->chunk.timestamp = timestamp;
         i->chunk.duration = duration;
+        i->chunk.flags = flags;
 
         i->channel = channel;
         i->offset = offset;
@@ -545,6 +558,7 @@ void pa_pstream_send_memblock(pa_pstream*p, uint32_t channel, int64_t offset, pa
         /* FIXME: how should we deal with broken up chunks? Setting to invalid for now */
         timestamp = PA_NSEC_INVALID;
         duration = PA_NSEC_INVALID;
+        flags = PA_BUFFER_NOFLAGS;
     }
 
     p->mainloop->defer_enable(p->defer_event, 1);
@@ -772,6 +786,10 @@ static void prepare_next_write_item(pa_pstream *p) {
             time_info[PA_PSTREAM_TIME_DURATION_LO] = htonl((uint32_t) ((uint64_t) p->write.current->chunk.duration));
         }
 
+        /* Copy over any buffer flags */
+        if (p->write.current->chunk.flags != PA_BUFFER_NOFLAGS)
+            flags |= (p->write.current->chunk.flags << PA_FLAG_BUFFERSHIFT) & PA_FLAG_BUFFERMASK;
+
         p->write.descriptor[PA_PSTREAM_DESCRIPTOR_FLAGS] = htonl(flags);
         p->write.descriptor[PA_PSTREAM_DESCRIPTOR_LENGTH] = htonl(payload_len);
     }
@@ -920,6 +938,9 @@ static void memblock_complete(pa_pstream *p, struct pstream_read *re) {
         chunk.timestamp = PA_NSEC_INVALID;
         chunk.duration = PA_NSEC_INVALID;
     }
+
+    /* Retrieve buffer flags, if any */
+    chunk.flags = (flags >> PA_FLAG_BUFFERSHIFT) & (PA_FLAG_BUFFERMASK >> PA_FLAG_BUFFERSHIFT);
 
     p->receive_memblock_callback(
         p,
@@ -1181,6 +1202,9 @@ static int do_read(pa_pstream *p, struct pstream_read *re) {
                     chunk.timestamp = PA_NSEC_INVALID;
                     chunk.duration = PA_NSEC_INVALID;
                 }
+
+                /* Retrieve buffer flags, if any */
+                chunk.flags = (flags >> PA_FLAG_BUFFERSHIFT) & (PA_FLAG_BUFFERMASK >> PA_FLAG_BUFFERSHIFT);
 
                 p->receive_memblock_callback(
                         p,

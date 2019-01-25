@@ -279,7 +279,8 @@ void pa_test_context_destroy_stream(pa_test_context *ctx, pa_stream *s) {
     r = pa_stream_disconnect(s);
     pa_assert(r == 0);
 
-    pa_threaded_mainloop_wait(ctx->mainloop);
+    while (PA_STREAM_IS_GOOD(pa_stream_get_state(s)))
+        pa_threaded_mainloop_wait(ctx->mainloop);
     pa_assert(pa_stream_get_state(s) == PA_STREAM_TERMINATED);
 
     pa_stream_unref(s);

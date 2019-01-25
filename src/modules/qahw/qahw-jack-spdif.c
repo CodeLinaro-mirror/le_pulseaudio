@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -102,13 +102,11 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
 
         if (audio_change_detected) {
             if (!pa_qahw_spdif_jack_get_config(spdif_jdata->jack_type, spdif_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
-                if (memcmp(&new_port_config, &curr_spdif_jack_config, sizeof(pa_qahw_jack_out_config))) {
                     memcpy(&curr_spdif_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
                     pa_log_info("qahw jack type %d config update", spdif_jdata->jack_type);
                     event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
                     event_data.pa_qahw_jack_info = &new_port_config;
                     pa_hook_fire(&(spdif_jdata->event_hook), &event_data);
-                }
             }
         }
     }

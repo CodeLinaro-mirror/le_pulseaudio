@@ -520,6 +520,7 @@ int pa_memblockq_peek(pa_memblockq* bq, pa_memchunk *chunk) {
         chunk->index = 0;
         chunk->timestamp = PA_NSEC_INVALID;
         chunk->duration = PA_NSEC_INVALID;
+        chunk->flags = PA_BUFFER_NOFLAGS;
 
         return 0;
     }
@@ -540,6 +541,7 @@ int pa_memblockq_peek(pa_memblockq* bq, pa_memchunk *chunk) {
 #endif
         chunk->timestamp = PA_NSEC_INVALID;
         chunk->duration = PA_NSEC_INVALID;
+        chunk->flags = PA_BUFFER_NOFLAGS;
     }
 
     return 0;
@@ -618,6 +620,7 @@ int pa_memblockq_peek_fixed_size(pa_memblockq *bq, size_t block_size, pa_memchun
     rchunk.length = block_size;
     rchunk.timestamp = PA_NSEC_INVALID;
     rchunk.duration = PA_NSEC_INVALID;
+    rchunk.flags = PA_BUFFER_NOFLAGS;
 
     *chunk = rchunk;
     return 0;
