@@ -674,6 +674,7 @@ static void pa_qahw_sink_thread_func(void *userdata) {
     bool wait;
     int rc;
     bool running;
+    size_t sink_buffer_size = qahw_sdata->sink_buffer_size;
 
     if ((pa_sdata->sink->core->realtime_scheduling)) {
         pa_log_info("%s:: Making io thread for %s as realtime with prio %d", __func__, pa_qahw_sink_get_name_from_flags(qahw_sdata->flags), pa_sdata->sink->core->realtime_priority);
@@ -697,16 +698,22 @@ static void pa_qahw_sink_thread_func(void *userdata) {
         if (running && !pa_atomic_load(&qahw_sdata->wait_for_write_ready)) {
             /* Check if we need to resend previous buffer */
             if (!out_buf.buffer) {
-                pa_sink_render(pa_sdata->sink, qahw_sdata->sink_buffer_size, &chunk);
-                /* Handle no data scenario for compressed streams */
-                if (qahw_sdata->compressed && pa_memblock_is_silence(chunk.memblock)) {
-                    pa_log_debug("Got silence, avoid writing the block");
-                    goto poll;
+                if (qahw_sdata->compressed) {
+                    pa_sink_render(pa_sdata->sink, qahw_sdata->sink_buffer_size, &chunk);
+                    /* Handle no data scenario for compressed streams */
+                    if (pa_memblock_is_silence(chunk.memblock)) {
+                        pa_log_debug("Got silence, avoid writing the block");
+                        goto poll;
+                    }
+                } else {
+                    pa_sink_render_full(pa_sdata->sink, qahw_sdata->sink_buffer_size, &chunk);
+                    pa_assert(chunk.length == qahw_sdata->sink_buffer_size);
                 }
 
                 data = pa_memblock_acquire(chunk.memblock);
                 out_buf.buffer = (char*)data + chunk.index;
                 out_buf.bytes = chunk.length;
+                sink_buffer_size = chunk.length;
                 if (qahw_sdata->compressed) {
                     if (chunk.duration == PA_NSEC_INVALID)
                         pa_log_warn("%s: Did not get duration in compressed mode", __func__);
@@ -715,7 +722,7 @@ static void pa_qahw_sink_thread_func(void *userdata) {
                 }
             } else {
                 /* Update buffer offset and size based on last write size*/
-                out_buf.buffer = (char *)out_buf.buffer + qahw_sdata->sink_buffer_size - out_buf.bytes;
+                out_buf.buffer = (char *)out_buf.buffer + sink_buffer_size - out_buf.bytes;
             }
 
             if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
