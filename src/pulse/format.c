@@ -123,6 +123,9 @@ int pa_format_info_is_passthrough(const pa_format_info *f) {
         case PA_ENCODING_DTS_IEC61937:
         case PA_ENCODING_MPEG2_AAC_IEC61937:
         case PA_ENCODING_TRUEHD_IEC61937:
+        case PA_ENCODING_UNKNOWN_IEC61937:
+        case PA_ENCODING_UNKNOWN_4X_IEC61937:
+        case PA_ENCODING_UNKNOWN_HBR_IEC61937:
             return true;
 
         default:
