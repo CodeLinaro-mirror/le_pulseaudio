@@ -96,6 +96,8 @@ typedef struct {
     bool compressed;
     pa_qahw_sink_state_t state;
     pa_usec_t timestamp;
+
+    int32_t buffer_duration;
 } qahw_sink_data;
 
 typedef struct {
@@ -126,9 +128,9 @@ static pa_qahw_sink_module_data *mdata = NULL;
 static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                              audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
 static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                            audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
+                            audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata, int32_t buffer_duration);
 static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                          audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
+                          audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata, int32_t buffer_duration);
 static int close_qahw_sink(pa_qahw_sink_data *sdata);
 static int free_pa_sink(pa_qahw_sink_data *sdata);
 static int pa_qahw_sink_pause(pa_qahw_sink_data *sdata, bool pause);
@@ -198,7 +200,9 @@ static int pa_qahw_out_cb(qahw_stream_callback_event_t event, void *param, void 
 }
 
 static int pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                                audio_output_flags_t flags, int sink_id) {
+                                audio_output_flags_t flags, int sink_id, int32_t buffer_duration) {
+    qahw_sdata->buffer_duration = buffer_duration;
+
     if (encoding == PA_ENCODING_PCM)
         qahw_sdata->config.format = pa_qahw_util_get_qahw_format_from_pa_sample(ss->format);
     else
@@ -625,7 +629,7 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chan
         if (rc) {
             pa_log_error("%s: could note create qahw sink with requested conf, error %d, restoring old conf", __func__, rc);
             rc = open_qahw_sink(qahw_sdata->module_handle, encoding, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map, qahw_sdata->devices,
-                                   qahw_sdata->flags, qahw_sdata->handle, sdata);
+                                   qahw_sdata->flags, qahw_sdata->handle, sdata, qahw_sdata->buffer_duration);
             if (rc)
                 pa_log_info("%s: restoring of qahw sink with old config failed, error %d", __func__, rc);
 
@@ -806,7 +810,7 @@ done:
 }
 
 static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                          audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata) {
+                          audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata, int32_t buffer_duration) {
     int rc = 0;
     qahw_sink_data *qahw_sdata;
     qahw_param_payload payload;
@@ -827,13 +831,16 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
         goto exit;
     }
 
-    if (pa_qahw_sink_fill_info(qahw_sdata, encoding, ss, map, devices, flags, sink_id)) {
+    if (pa_qahw_sink_fill_info(qahw_sdata, encoding, ss, map, devices, flags, sink_id, buffer_duration)) {
         rc = -1;
         goto exit;
     }
 
     pa_log_debug("opening sink with configuration flag = 0x%x, encoding %d, format %d, sample_rate %d, channel_mask 0x%x device %d",
                  qahw_sdata->flags, encoding, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask, qahw_sdata->devices);
+
+    if (buffer_duration > 0)
+        qahw_sdata->config.offload_info.duration_us = buffer_duration * 1000;
 
     rc = qahw_open_output_stream(module_handle, qahw_sdata->handle, qahw_sdata->devices, qahw_sdata->flags, &qahw_sdata->config,
             &qahw_sdata->out_handle, qahw_sdata->device_url);
@@ -937,7 +944,7 @@ static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t 
         goto exit;
     }
 
-    rc = open_qahw_sink(module_handle, encoding, ss, map, devices, flags, sink_id, sdata);
+    rc = open_qahw_sink(module_handle, encoding, ss, map, devices, flags, sink_id, sdata, sdata->qahw_sdata->buffer_duration);
     if (rc) {
         pa_log_error("open_qahw_sink failed during recreation, error %d", rc);
     }
@@ -964,12 +971,12 @@ static int free_qahw_sink(pa_qahw_sink_data *sdata) {
 }
 
 static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                            audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata) {
+                            audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata, int32_t buffer_duration) {
    int rc;
 
    sdata->qahw_sdata = pa_xnew0(qahw_sink_data, 1);
 
-   rc = open_qahw_sink(module_handle, encoding, ss, map, devices, flags, sink_id, sdata);
+   rc = open_qahw_sink(module_handle, encoding, ss, map, devices, flags, sink_id, sdata, buffer_duration);
    if (rc) {
        pa_log_error("open_qahw_sink failed, error %d", rc);
        pa_xfree(sdata->qahw_sdata);
@@ -1279,7 +1286,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
         goto exit;
     }
 
-    rc = create_qahw_sink(module_handle, sink->default_encoding, &sink->default_spec, &sink->default_map, port_device_data->device, sink->flags, sink->id, sdata);
+    rc = create_qahw_sink(module_handle, sink->default_encoding, &sink->default_spec, &sink->default_map, port_device_data->device, sink->flags, sink->id, sdata, sink->buffer_duration);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could create open qahw sink, error %d", rc);
         pa_qahw_sink_free_common_resources(sdata);

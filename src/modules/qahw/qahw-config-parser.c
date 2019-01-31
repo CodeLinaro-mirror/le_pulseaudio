@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -854,6 +854,41 @@ static int pa_qahw_config_parse_source_type(pa_config_parser_state *state) {
     if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
         source->source_type = pa_qahw_source_name_to_enum((const char *)state->rvalue);
         pa_log_debug("%s: adding source type %d to %s", __func__, source->source_type, source->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_buffer_duration(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_source_config *source = NULL;
+    pa_qahw_sink_config *sink = NULL;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        if (pa_atoi(state->rvalue, &source->buffer_duration) < 0) {
+            pa_log_debug("%s: invalid buffer duration", __func__);
+            goto exit;
+        }
+
+        pa_log_debug("%s: adding buffer duration %d to %s", __func__, source->buffer_duration, source->name);
+    } else if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        if (pa_atoi(state->rvalue, &sink->buffer_duration) < 0) {
+            pa_log_debug("%s: invalid buffer duration", __func__);
+            goto exit;
+        }
+
+        pa_log_debug("%s: adding buffer duration %d to %s", __func__, sink->buffer_duration, sink->name);
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
@@ -1788,6 +1823,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "sample-formats",              pa_qahw_config_parse_sample_formats,                      NULL, NULL },
         { "channel-maps",                pa_qahw_config_parse_channel_maps,                        NULL, NULL },
         { "source-type",                 pa_qahw_config_parse_source_type,                         NULL, NULL },
+        { "buffer-duration",             pa_qahw_config_parse_buffer_duration,                    NULL, NULL },
 
          /* [Loopback...] */
         { "in-port-names",               pa_qahw_config_parse_port_names,                          NULL, NULL },
