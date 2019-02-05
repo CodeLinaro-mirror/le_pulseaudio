@@ -295,6 +295,14 @@ static pa_qahw_jack_out_config *pa_qahw_loopback_read_port_configuration(char *p
             }
 
             break;
+        case PA_QAHW_JACK_TYPE_SPDIF:
+            if (pa_qahw_spdif_jack_get_config(jack_type, jack_in_config->jack_sys_path, jack_config)) {
+                pa_log_error("%s: error in reading spdif port config", __func__);
+                pa_xfree(jack_config);
+                jack_config = NULL;
+            }
+
+            break;
         default:
             pa_log_error("Unsupported jack type");
             pa_xfree(jack_config);
@@ -304,7 +312,9 @@ static pa_qahw_jack_out_config *pa_qahw_loopback_read_port_configuration(char *p
 
     /* FIXME: ensure whether this check is needed */
     /* suppose loopback is requested for hdmi-in but active jack is hdmi-arc */
-    if (jack_type != jack_config->active_jack) {
+    /* this case occurs only when secondary ports are supported */
+    if ((jack_type != jack_config->active_jack) && (config_port->linked_ports)) {
+        pa_log_error("%s: Active jack is not the requested jack", __func__);
         pa_xfree(jack_config);
         jack_config = NULL;
     }
@@ -393,6 +403,7 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
 
                 pa_xfree(jack_config);
             } else {
+                pa_log_error("%s: %s port read failure", __func__, port_name);
                 return -1;
             }
         } else {
