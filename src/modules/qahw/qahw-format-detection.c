@@ -174,7 +174,7 @@ static int pa_qahw_format_detection_get_num_channels(int infoframe_channels) {
     return DEFAULT_NUM_CHANNELS;
 }
 
-static bool pa_qahw_format_detection_get_value_from_path(const char* path, int *node_value) {
+bool pa_qahw_format_detection_get_value_from_path(const char* path, int *node_value) {
     bool rc = true;
     int value = -1;
 
