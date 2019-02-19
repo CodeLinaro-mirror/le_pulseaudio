@@ -1061,6 +1061,38 @@ static int pa_qahw_config_parse_avoid_processing(pa_config_parser_state *state) 
     return ret;
 }
 
+static int pa_qahw_config_parse_proplist(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+
+    pa_proplist *props;
+    int ret = 0;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    props = pa_proplist_from_string(state->rvalue);
+    if (!props) {
+        pa_log_error("Could not parse proplist string: %s", state->rvalue);
+        return -1;
+    }
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        sink->proplist = props;
+        pa_log_debug("%s: proplist %s for sink %s", __func__, state->rvalue, sink->name);
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        source->proplist = props;
+        pa_log_debug("%s: proplist %s for source %s", __func__, state->rvalue, source->name);
+    }  else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        ret = -1;
+    }
+
+    return ret;
+}
+
 static void pa_qahw_config_free_sink(pa_qahw_sink_config *sink) {
     pa_assert(sink);
 
@@ -1080,6 +1112,9 @@ static void pa_qahw_config_free_sink(pa_qahw_sink_config *sink) {
 
     if (sink->port_conf_string)
         pa_xstrfreev(sink->port_conf_string);
+
+    if (sink->proplist)
+        pa_proplist_free(sink->proplist);
 
     pa_xfree(sink);
 } /* end sink parsing related functions */
@@ -1103,6 +1138,9 @@ static void pa_qahw_config_free_source(pa_qahw_source_config *source) {
 
     if (source->port_conf_string)
         pa_xstrfreev(source->port_conf_string);
+
+    if (source->proplist)
+        pa_proplist_free(source->proplist);
 
     pa_xfree(source);
 } /* end source parsing related functions */
@@ -1758,10 +1796,10 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
 
         { "use-hw-volume",               pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
 
-        { "avoid-processing",            pa_qahw_config_parse_avoid_processing,                    NULL, NULL },
-
         /* common between sink and source*/
         { "type",                        pa_qahw_config_parse_type,                                NULL, NULL },
+        { "avoid-processing",            pa_qahw_config_parse_avoid_processing,                    NULL, NULL },
+        { "properties",                  pa_qahw_config_parse_proplist,                            NULL, NULL },
 
         /* common between sink and source*/
         { "flags",                       pa_qahw_config_parse_flags,                               NULL, NULL },

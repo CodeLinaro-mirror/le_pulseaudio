@@ -997,7 +997,8 @@ static int pa_qahw_sink_alloc_common_resources(pa_qahw_sink_data *sdata) {
 }
 
 static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, bool use_hw_volume,
-                          uint32_t alternate_sample_rate, bool avoid_processing, pa_card *card, pa_hashmap *ports, const char *driver, pa_qahw_sink_data *sdata) {
+                          uint32_t alternate_sample_rate, bool avoid_processing, pa_card *card, pa_hashmap *ports, const char *driver, pa_qahw_sink_data *sdata,
+                          pa_proplist *proplist) {
     pa_sink_new_data new_data;
     pa_sink_data *pa_sdata;
     pa_device_port *port;
@@ -1050,6 +1051,9 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
 
     new_data.avoid_processing = avoid_processing;
+
+    if (proplist)
+        pa_proplist_update(new_data.proplist, PA_UPDATE_REPLACE, proplist);
 
     pa_sdata->sink = pa_sink_new(m->core, &new_data, PA_SINK_HARDWARE | PA_SINK_LATENCY );
     pa_sink_new_data_done(&new_data);
@@ -1289,7 +1293,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     }
 
     rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &sink->default_spec, &sink->default_map, sink->use_hw_volume,
-                        sink->alternate_sample_rate, sink->avoid_processing, card, ports, driver, sdata);
+                        sink->alternate_sample_rate, sink->avoid_processing, card, ports, driver, sdata, sink->proplist);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", sink->name, rc);
         free_qahw_sink(sdata);
