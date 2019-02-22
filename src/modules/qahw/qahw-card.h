@@ -62,6 +62,7 @@ typedef struct {
     bool format_detection;
     char *port_type;
     char **linked_ports;
+    char *primary_port_name;
 
     char *state_node_path;
     char *sample_format_node_path;
