@@ -89,6 +89,7 @@ typedef struct {
 
     pa_atomic_t wait_for_write_ready;
     pa_atomic_t wait_for_drain_ready;
+    pa_atomic_t restart_in_progress;
     int write_fd;
 
     pa_encoding_t encoding;
@@ -130,6 +131,7 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
                           audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
 static int close_qahw_sink(pa_qahw_sink_data *sdata);
 static int free_pa_sink(pa_qahw_sink_data *sdata);
+static int pa_qahw_sink_pause(pa_qahw_sink_data *sdata, bool pause);
 
 static const uint32_t supported_sink_rates[] =
                           {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
@@ -295,8 +297,15 @@ static uint64_t pa_qahw_sink_get_latency(pa_qahw_sink_data *sdata) {
     return (uint64_t)latency;
 }
 
-static int pa_qahw_sink_start(qahw_sink_data *qahw_sdata) {
-    return 0;
+static int pa_qahw_sink_start(pa_qahw_sink_data *sdata, pa_sink_state_t new_state) {
+    int r = 0;
+
+    pa_assert(sdata);
+    /* Required to resume paused compressed streams in case new state is RUNNING */
+    if (new_state == PA_SINK_RUNNING)
+        r = pa_qahw_sink_pause(sdata, false);
+
+    return r;
 }
 
 static int pa_qahw_sink_standby(qahw_sink_data *qahw_sdata) {
@@ -306,10 +315,19 @@ static int pa_qahw_sink_standby(qahw_sink_data *qahw_sdata) {
 
     pa_log_info("%s",__func__);
 
+    if (qahw_sdata->compressed && (qahw_sdata->state == STATE_PAUSED)) {
+        /* Resume is expected if state is paused for compressed streams */
+        pa_log_debug("%s: Avoid standby for compress playback in pause state", __func__);
+        return 0;
+    }
+
     qahw_out_standby(qahw_sdata->out_handle);
-    qahw_sdata->bytes_written = 0;
     pa_atomic_store(&qahw_sdata->wait_for_write_ready, 0);
     qahw_sdata->state = STATE_IDLE;
+
+    /* Reset bytes written only for offload playback since AHAL does not reset in standby */
+    if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
+        qahw_sdata->bytes_written = 0;
 
     return 0;
 }
@@ -331,7 +349,7 @@ static int pa_qahw_sink_pause(pa_qahw_sink_data *sdata, bool pause) {
         return 0;
     }
 
-    pa_log_info("%s: %s compress playback",__func__, pause ? "pause" : "resume");
+    pa_log_info("%s: %s compress playback", __func__, pause ? "pause" : "resume");
     if (pause && (qahw_sdata->state == STATE_PLAYING)) {
         rc = qahw_out_pause(qahw_sdata->out_handle);
         if (!rc)
@@ -413,10 +431,10 @@ static int pa_qahw_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t ne
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)(s->userdata);
     int r = 0;
 
-    pa_log_debug("Sink new state is: %d", new_state);
+    pa_log_debug("Sink current state is: %d, new state is: %d", s->thread_info.state, new_state);
 
     if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(s->thread_info.state))
-        r = pa_qahw_sink_start(sdata->qahw_sdata);
+        r = pa_qahw_sink_start(sdata, new_state);
     else if (new_state == PA_SINK_SUSPENDED)
         r = pa_qahw_sink_standby(sdata->qahw_sdata);
     else if (PA_SINK_IS_RUNNING(new_state) && (s->thread_info.state == PA_SINK_IDLE))
@@ -695,7 +713,7 @@ static void pa_qahw_sink_thread_func(void *userdata) {
         running = (!qahw_sdata->compressed && PA_SINK_IS_OPENED(pa_sdata->sink->thread_info.state)) ||
                    PA_SINK_IS_RUNNING(pa_sdata->sink->thread_info.state);
 
-        if (running && !pa_atomic_load(&qahw_sdata->wait_for_write_ready)) {
+        if (running && !pa_atomic_load(&qahw_sdata->wait_for_write_ready) && !pa_atomic_load(&qahw_sdata->restart_in_progress)) {
             /* Check if we need to resend previous buffer */
             if (!out_buf.buffer) {
                 if (qahw_sdata->compressed) {
@@ -905,6 +923,13 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
 static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                               audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata) {
     int rc;
+    qahw_sink_data *qahw_sdata;
+
+    pa_assert(sdata->qahw_sdata);
+
+    pa_log_info("%s", __func__);
+    qahw_sdata = sdata->qahw_sdata;
+    pa_atomic_store(&qahw_sdata->restart_in_progress, 1);
 
     rc = close_qahw_sink(sdata);
     if (rc) {
@@ -918,6 +943,7 @@ static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t 
     }
 
 exit:
+    pa_atomic_store(&qahw_sdata->restart_in_progress, 0);
     return rc;
 }
 
