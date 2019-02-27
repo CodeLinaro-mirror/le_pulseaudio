@@ -59,9 +59,7 @@ struct userdata {
     struct group **groups;
     bool global:1;
     pa_hook_slot
-        *sink_input_put_slot,
-        *sink_input_state_changed_slot,
-        *sink_input_mute_changed_slot;
+        *sink_input_put_slot;
 };
 
 static void process_on_sink(struct userdata *u, pa_sink *s, pa_sink_input *i, struct group *g){
@@ -130,26 +128,6 @@ static pa_hook_result_t sink_input_put_cb(pa_core *core, pa_sink_input *i, struc
         return PA_HOOK_OK;
 
     return process(u, i);
-}
-
-static pa_hook_result_t sink_input_state_changed_cb(pa_core *core, pa_sink_input *i, struct userdata *u) {
-    pa_core_assert_ref(core);
-    pa_sink_input_assert_ref(i);
-
-    if (PA_SINK_INPUT_IS_LINKED(i->state) && !(i->muted))
-        return process(u, i);
-
-    return PA_HOOK_OK;
-}
-
-static pa_hook_result_t sink_input_mute_changed_cb(pa_core *core, pa_sink_input *i, struct userdata *u) {
-    pa_core_assert_ref(core);
-    pa_sink_input_assert_ref(i);
-
-    if (PA_SINK_INPUT_IS_LINKED(i->state) && !(i->muted))
-        return process(u, i);
-
-    return PA_HOOK_OK;
 }
 
 static int parse_group_roles(const char *roles_in_group, pa_idxset *role_set) {
@@ -283,8 +261,6 @@ int pa__init(pa_module *m) {
     u->global = global;
 
     u->sink_input_put_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_PUT], PA_HOOK_LATE, (pa_hook_cb_t) sink_input_put_cb, u);
-    u->sink_input_state_changed_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_STATE_CHANGED], PA_HOOK_LATE, (pa_hook_cb_t) sink_input_state_changed_cb, u);
-    u->sink_input_mute_changed_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_MUTE_CHANGED], PA_HOOK_LATE, (pa_hook_cb_t) sink_input_mute_changed_cb, u);
     pa_modargs_free(ma);
     return 0;
 
@@ -319,9 +295,5 @@ void pa__done(pa_module *m) {
 
     if (u->sink_input_put_slot)
         pa_hook_slot_free(u->sink_input_put_slot);
-    if (u->sink_input_state_changed_slot)
-        pa_hook_slot_free(u->sink_input_state_changed_slot);
-    if (u->sink_input_mute_changed_slot)
-        pa_hook_slot_free(u->sink_input_mute_changed_slot);
     pa_xfree(u);
 }
