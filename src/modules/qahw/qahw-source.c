@@ -401,6 +401,13 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
     pa_source_data *pa_sdata = source_data->pa_sdata;
     qahw_source_data *qahw_sdata = source_data->qahw_sdata;
 
+    if ((pa_sdata->source->core->realtime_scheduling)) {
+        pa_log_info("%s:: Making read thread for %s as realtime with prio %d", __func__,
+                    pa_qahw_source_get_name_from_flags(qahw_sdata->flags),
+                    pa_sdata->source->core->realtime_priority);
+        pa_make_realtime(pa_sdata->source->core->realtime_priority);
+    }
+
     pa_log_debug("Source Qahw Read Thread starting up");
 
     for (;;) {
@@ -450,6 +457,14 @@ finish:
 static void pa_qahw_source_thread_func(void *userdata) {
     pa_qahw_source_data *source_data = (pa_qahw_source_data *)userdata;
     pa_source_data *pa_sdata = source_data->pa_sdata;
+    qahw_source_data *qahw_sdata = source_data->qahw_sdata;
+
+    if ((pa_sdata->source->core->realtime_scheduling)) {
+        pa_log_info("%s:: Making io thread for %s as realtime with prio %d", __func__,
+                    pa_qahw_source_get_name_from_flags(qahw_sdata->flags),
+                    pa_sdata->source->core->realtime_priority);
+        pa_make_realtime(pa_sdata->source->core->realtime_priority);
+    }
 
     pa_log_debug("Source IO Thread starting up");
 

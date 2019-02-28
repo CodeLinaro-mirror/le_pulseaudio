@@ -98,6 +98,7 @@ typedef struct {
     pa_usec_t timestamp;
 
     int32_t buffer_duration;
+    pa_atomic_t set_rt_prio_for_out_cb;
 } qahw_sink_data;
 
 typedef struct {
@@ -166,6 +167,11 @@ static int pa_qahw_out_cb(qahw_stream_callback_event_t event, void *param, void 
     pa_assert(sdata->pa_sdata);
     pa_assert(sdata->qahw_sdata);
     pa_assert(sdata->fdsem);
+
+    if (pa_atomic_load(&sdata->qahw_sdata->set_rt_prio_for_out_cb) && sdata->pa_sdata->sink->core->realtime_scheduling) {
+        pa_make_realtime(sdata->pa_sdata->sink->core->realtime_priority);
+        pa_atomic_store(&sdata->qahw_sdata->set_rt_prio_for_out_cb, 0);
+    }
 
     switch (event) {
         case QAHW_STREAM_CBK_EVENT_WRITE_READY:
@@ -332,6 +338,9 @@ static int pa_qahw_sink_standby(qahw_sink_data *qahw_sdata) {
     /* Reset bytes written only for offload playback since AHAL does not reset in standby */
     if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
         qahw_sdata->bytes_written = 0;
+
+    if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_FAST)
+        pa_atomic_store(&qahw_sdata->set_rt_prio_for_out_cb, 1);
 
     return 0;
 }
@@ -864,6 +873,9 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
 
     if (flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
         qahw_out_set_callback(qahw_sdata->out_handle, pa_qahw_out_cb, sdata);
+
+    if (flags & AUDIO_OUTPUT_FLAG_FAST)
+        pa_atomic_store(&qahw_sdata->set_rt_prio_for_out_cb, 1);
 
     /*FIXME: Add DSP latency */
     qahw_sdata->sink_latency_us = pa_bytes_to_usec(qahw_sdata->sink_buffer_size, ss);
