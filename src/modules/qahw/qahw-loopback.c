@@ -388,7 +388,6 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
         return -1;
     }
 
-
     if (cfg->config_mask == PA_QAHW_LOOPBACK_PORT_CONFIG_AUTO) {
         /* if port supports format detection then get it from jack else read the default config from conf */
         if (config_port->format_detection) {
@@ -475,6 +474,46 @@ static const char *pa_qahw_loopback_get_loopback_event_string(pa_qahw_loopback_e
         default:
             return NULL;
     }
+}
+
+static pa_qahw_jack_type_t pa_qahw_loopback_get_valid_jack_type(pa_qahw_jack_type_t src_jack_type, const char *port_name,
+                                                                                    pa_card *card, pa_hashmap *loopbacks) {
+    pa_qahw_card_port_config *config_port = NULL;
+    pa_qahw_loopback_config *loopback_config = NULL;
+    pa_device_port *p = NULL;
+    pa_qahw_jack_type_t jack_type = PA_QAHW_JACK_TYPE_INVALID;
+
+    pa_assert(card);
+    pa_assert(loopbacks);
+
+    p = pa_hashmap_get(card->ports, port_name);
+    if (!p)
+        goto exit;
+
+    loopback_config = pa_hashmap_first(loopbacks);
+    if (p->direction == PA_DIRECTION_INPUT)
+        config_port = pa_hashmap_get(loopback_config->in_ports, port_name);
+
+    if (!config_port) {
+        pa_log_error("%s: unsupported port %s", __func__, port_name);
+        goto exit;
+    }
+
+    if (config_port->port_type) {
+        if (pa_streq(config_port->port_type, "secondary")) {
+            /* Get primary jack */
+            pa_log_info("%s: primary port for %s is %s", __func__, port_name, config_port->primary_port_name);
+            jack_type = pa_qahw_util_get_jack_type_from_port_name(config_port->primary_port_name);
+        } else {
+            jack_type = src_jack_type;
+        }
+    } else {
+        /* If port-type not mentioned, means port is primary */
+        jack_type = src_jack_type;
+    }
+
+exit:
+    return jack_type;
 }
 
 static pa_qahw_loopback_event_t pa_qahw_loopback_restart_loopback_session(struct pa_qahw_loopback_session_data *ses_data) {
@@ -726,6 +765,7 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
 
     struct audio_port_config sink_gain_config;
     int loopback_gain_in_millibels;
+    pa_qahw_jack_type_t jack_type = PA_QAHW_JACK_TYPE_INVALID;
 
     pa_qahw_effect_callback_config cb;
     pa_qahw_loopback_callback_data *pdata;
@@ -885,8 +925,15 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
     if (status == 0)
         pa_log_debug("Callback registered successfully\n");
 
-    ses_data->jack_handle = pa_qahw_jack_register_event_callback(ses_data->src_jack_type, pa_qahw_loopback_jack_callback,
-                                                                       pa_qahw_loopback_mdata->m, NULL, (void *)ses_data);
+    /* Check whether the jack is secondary jack before registering for event */
+    /* If secondary jack, then register event for its primary jack */
+    jack_type = pa_qahw_loopback_get_valid_jack_type(ses_data->src_jack_type, ses_data->src_port,
+                                                                           u->card, u->loopbacks);
+
+    if (jack_type != PA_QAHW_JACK_TYPE_INVALID)
+        ses_data->jack_handle = pa_qahw_jack_register_event_callback(jack_type, pa_qahw_loopback_jack_callback,
+                                                             pa_qahw_loopback_mdata->m, NULL, (void *)ses_data);
+
     if (ses_data->jack_handle)
         pa_log_info("Register jack event callback successful\n");
     else

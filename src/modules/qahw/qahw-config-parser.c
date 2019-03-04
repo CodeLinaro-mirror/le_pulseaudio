@@ -1511,6 +1511,29 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_port_primary_port_name(pa_config_parser_state *state) {
+    pa_qahw_config_data *config_data = state->userdata;
+    pa_qahw_card_port_config *port;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        port->primary_port_name = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: adding primary port name %s to %s", __func__, port->primary_port_name, port->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
 static int pa_qahw_config_parse_port_linked_ports_list(pa_config_parser_state *state) {
     pa_qahw_config_data *config_data = state->userdata;
     pa_qahw_card_port_config *port;
@@ -1705,6 +1728,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "format-detection",            pa_qahw_config_parse_port_format_detection,               NULL, NULL },
         { "port-type",                   pa_qahw_config_parse_port_type,                           NULL, NULL },
         { "linked-ports",                pa_qahw_config_parse_port_linked_ports_list,              NULL, NULL },
+        { "primary-port-name",           pa_qahw_config_parse_port_primary_port_name,              NULL, NULL },
         { "state-node-path",             pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "sample-format-node-path",     pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "sample-rate-node-path",       pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
@@ -1734,7 +1758,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
 
         { "use-hw-volume",               pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
 
-        { "avoid-processing",     pa_qahw_config_parse_avoid_processing,                    NULL, NULL },
+        { "avoid-processing",            pa_qahw_config_parse_avoid_processing,                    NULL, NULL },
 
         /* common between sink and source*/
         { "type",                        pa_qahw_config_parse_type,                                NULL, NULL },
