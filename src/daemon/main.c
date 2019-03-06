@@ -1140,6 +1140,9 @@ int main(int argc, char *argv[]) {
     sd_notify(0, "READY=1");
 #endif
 
+    if (conf->realtime_scheduling && conf->use_realtime_for_main_thread)
+        pa_make_realtime(conf->realtime_priority);
+
     retval = 0;
     if (pa_mainloop_run(mainloop, &retval) < 0)
         goto finish;
