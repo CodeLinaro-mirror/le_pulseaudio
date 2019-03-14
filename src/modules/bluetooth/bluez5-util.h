@@ -100,7 +100,6 @@ struct pa_bluetooth_device {
     pa_bluetooth_adapter *adapter;
 
     bool properties_received;
-    bool tried_to_link_with_adapter;
     bool valid;
     bool autodetect_mtu;
 

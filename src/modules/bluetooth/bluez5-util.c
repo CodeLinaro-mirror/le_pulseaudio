@@ -964,6 +964,15 @@ static void parse_interfaces_and_properties(pa_bluetooth_discovery *y, DBusMessa
             if (!a->valid)
                 return;
 
+            /* Associate Adapter to any known devices with its adapter path as current added adapter*/
+            PA_HASHMAP_FOREACH(d, y->devices, state) {
+                if (d->properties_received) {
+                    if (d->adapter_path && (strcmp(d->adapter_path, a->path) == 0)) {
+                        device_set_adapter(d, a);
+                    }
+                }
+            }
+
             register_endpoint(y, path, A2DP_SOURCE_ENDPOINT, PA_BLUETOOTH_UUID_A2DP_SOURCE);
             register_endpoint(y, path, A2DP_SINK_ENDPOINT, PA_BLUETOOTH_UUID_A2DP_SINK);
 
@@ -981,26 +990,23 @@ static void parse_interfaces_and_properties(pa_bluetooth_discovery *y, DBusMessa
 
             parse_device_properties(d, &iface_i);
 
+            /* Associate the device to a adapter on our list to make it valid */
+            if (d->properties_received) {
+                if (d->adapter_path){
+                    device_set_adapter(d, pa_hashmap_get(d->discovery->adapters, d->adapter_path));
+                    if (!d->adapter)
+                        pa_log("Device %s points to a nonexistent adapter %s.", d->path, d->adapter_path);
+                    if (!d->adapter->valid)
+                        pa_log("Device %s points to an invalid adapter %s.", d->path, d->adapter_path);
+                }
+            }
+
         } else
             pa_log_debug("Unknown interface %s found, skipping", interface);
 
         dbus_message_iter_next(&element_i);
     }
 
-    PA_HASHMAP_FOREACH(d, y->devices, state) {
-        if (d->properties_received && !d->tried_to_link_with_adapter) {
-            if (d->adapter_path) {
-                device_set_adapter(d, pa_hashmap_get(d->discovery->adapters, d->adapter_path));
-
-                if (!d->adapter)
-                    pa_log("Device %s points to a nonexistent adapter %s.", d->path, d->adapter_path);
-                else if (!d->adapter->valid)
-                    pa_log("Device %s points to an invalid adapter %s.", d->path, d->adapter_path);
-            }
-
-            d->tried_to_link_with_adapter = true;
-        }
-    }
 
     return;
 }
