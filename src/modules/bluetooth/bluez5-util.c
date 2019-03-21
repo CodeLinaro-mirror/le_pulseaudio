@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2008-2013 João Paulo Rechi Vita
+  Copyright (c) 2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as
@@ -996,7 +997,7 @@ static void parse_interfaces_and_properties(pa_bluetooth_discovery *y, DBusMessa
                     device_set_adapter(d, pa_hashmap_get(d->discovery->adapters, d->adapter_path));
                     if (!d->adapter)
                         pa_log("Device %s points to a nonexistent adapter %s.", d->path, d->adapter_path);
-                    if (!d->adapter->valid)
+                    else if (!d->adapter->valid)
                         pa_log("Device %s points to an invalid adapter %s.", d->path, d->adapter_path);
                 }
             }
