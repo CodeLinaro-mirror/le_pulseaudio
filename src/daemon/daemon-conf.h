@@ -77,6 +77,7 @@ typedef struct pa_daemon_conf {
         log_time,
         flat_volumes,
         lock_memory,
+        use_realtime_for_main_thread,
         deferred_volume;
     pa_server_type_t local_server_type;
     int exit_idle_time,

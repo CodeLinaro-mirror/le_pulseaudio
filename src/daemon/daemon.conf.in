@@ -39,6 +39,8 @@ ifelse(@HAVE_DBUS@, 1, [dnl
 ; realtime-scheduling = yes
 ; realtime-priority = 5
 
+  use-realtime-for-main-thread = yes
+
 ; exit-idle-time = 20
 ; scache-idle-time = 20
 
