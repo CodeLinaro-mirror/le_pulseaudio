@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -189,6 +189,7 @@ pa_dbus_arg_info effect_get_version_args[] = {
 pa_dbus_arg_info effect_command_args[] = {
     {"command", "u", "in"},
     {"command_size", "u", "in"},
+    {"reply_size", "u", "in"},
     {"command_data", "ay", "in"},
     {"data", "ay", "out"},
 };
@@ -596,7 +597,7 @@ static void pa_qahw_effect_command(DBusConnection *conn,
         return;
     }
 
-    if (!pa_streq(dbus_message_get_signature(msg), "uuay")) {
+    if (!pa_streq(dbus_message_get_signature(msg), "uuuay")) {
         pa_log_error("Invalid signature for effect_command.\n");
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Invalid signature for effect_command.");
         dbus_error_free(&error);
@@ -618,6 +619,8 @@ static void pa_qahw_effect_command(DBusConnection *conn,
     dbus_message_iter_next(&arg_i);
     dbus_message_iter_get_basic(&arg_i, &cmd_size);
     dbus_message_iter_next(&arg_i);
+    dbus_message_iter_get_basic(&arg_i, &reply_size);
+    dbus_message_iter_next(&arg_i);
     dbus_message_iter_recurse(&arg_i, &array_i);
     dbus_message_iter_get_fixed_array(&array_i, &cmd_data, &n_elements);
 
@@ -625,7 +628,12 @@ static void pa_qahw_effect_command(DBusConnection *conn,
         case QAHW_EFFECT_CMD_INIT:
         case QAHW_EFFECT_CMD_SET_CONFIG:
         case QAHW_EFFECT_CMD_SET_PARAM:
-            reply_size = sizeof(int32_t);
+        case QAHW_EFFECT_CMD_RESET:
+        case QAHW_EFFECT_CMD_SET_DEVICE:
+        case QAHW_EFFECT_CMD_SET_AUDIO_MODE:
+        case QAHW_EFFECT_CMD_SET_VOLUME:
+        case QAHW_EFFECT_CMD_GET_CONFIG:
+        case QAHW_EFFECT_CMD_GET_PARAM:
             break;
         case QAHW_EFFECT_CMD_OFFLOAD:
             reply_size = sizeof(uint32_t);
@@ -640,8 +648,6 @@ static void pa_qahw_effect_command(DBusConnection *conn,
             free(offload_cmd);
             goto done;
         case QAHW_EFFECT_CMD_ENABLE:
-            reply_size = sizeof(int32_t);
-
             if (endpoint->type == PA_QAHW_EFFECT_TYPE_LOOPBACK) {
                 cb = pa_qahw_get_callback_data(ses_data->common->callbacks, ses_data->endpoint_name);
 
@@ -668,7 +674,6 @@ static void pa_qahw_effect_command(DBusConnection *conn,
             }
             break;
         case QAHW_EFFECT_CMD_DISABLE:
-            reply_size = sizeof(int32_t);
             if (endpoint->type == PA_QAHW_EFFECT_TYPE_LOOPBACK) {
                 cb = pa_qahw_get_callback_data(ses_data->common->callbacks, ses_data->endpoint_name);
 
@@ -691,18 +696,6 @@ static void pa_qahw_effect_command(DBusConnection *conn,
                     }
                 }
             }
-            break;
-        case QAHW_EFFECT_CMD_RESET:
-        case QAHW_EFFECT_CMD_SET_DEVICE:
-        case QAHW_EFFECT_CMD_SET_AUDIO_MODE:
-        case QAHW_EFFECT_CMD_SET_VOLUME:
-            reply_size = 0;
-            break;
-        case QAHW_EFFECT_CMD_GET_CONFIG:
-            reply_size = sizeof(qahw_effect_config_t);
-            break;
-        case QAHW_EFFECT_CMD_GET_PARAM:
-            reply_size = sizeof(qahw_effect_param_t) + sizeof(uint32_t) + sizeof(uint16_t);
             break;
         default:
             pa_log_error("Invalid command \n");
