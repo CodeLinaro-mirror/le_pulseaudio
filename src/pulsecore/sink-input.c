@@ -1018,13 +1018,11 @@ void pa_sink_input_peek(pa_sink_input *i, size_t slength /* in sink bytes */, pa
                 pa_memchunk rchunk;
                 pa_resampler_run(i->thread_info.resampler, &wchunk, &rchunk);
 
-                /* FIXME: is there any way to ascertain that the complete buffer was processed by resampling and conversion? */
 #ifdef SINK_INPUT_DEBUG
+                if ((wchunk.timestamp != PA_NSEC_INVALID || wchunk.duration != PA_NSEC_INVALID || wchunk.flags != PA_BUFFER_NOFLAGS) &&
+                    (rchunk.timestamp == PA_NSEC_INVALID || rchunk.duration == PA_NSEC_INVALID || rchunk.flags == PA_BUFFER_NOFLAGS))
                 pa_log_debug("Invaliding timestamps due to resampling");
 #endif
-                rchunk.timestamp = PA_NSEC_INVALID;
-                rchunk.duration = PA_NSEC_INVALID;
-                rchunk.flags = PA_BUFFER_NOFLAGS;
 
 #ifdef SINK_INPUT_DEBUG
                 pa_log_debug("pushing %lu", (unsigned long) rchunk.length);
