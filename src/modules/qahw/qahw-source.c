@@ -629,7 +629,7 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t
 
 static int create_pa_source(pa_module *m, char *source_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map,
                             uint32_t alternate_sample_rate, bool avoid_processing, pa_card *card, pa_hashmap *ports, const char *driver,
-                            pa_qahw_source_data *source_data) {
+                            pa_qahw_source_data *source_data, pa_proplist *proplist) {
     pa_source_new_data new_data;
     pa_source_data *pa_sdata = NULL;
 
@@ -681,6 +681,9 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
 
     new_data.avoid_processing = avoid_processing;
+
+    if (proplist)
+        pa_proplist_update(new_data.proplist, PA_UPDATE_REPLACE, proplist);
 
     pa_sdata->source = pa_source_new(m->core, &new_data, PA_SOURCE_HARDWARE);
     if (!pa_sdata->source) {
@@ -858,7 +861,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     }
 
     rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate,
-                          source->avoid_processing, card, ports, driver, sdata);
+                          source->avoid_processing, card, ports, driver, sdata, source->proplist);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", source->name, rc);
         free_qahw_source(sdata->qahw_sdata);
