@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -445,8 +445,8 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
                 return -1;
             }
 
-            pa_log_info("%s: No port %s using config %s", __func__, port_name,
-                          pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
+            pa_log_info("%s: port %s using config %s", __func__, port_name,
+                       pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
 
             num_channels = map.channels;
             sample_format =  ss.format;
