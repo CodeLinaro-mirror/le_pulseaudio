@@ -1425,6 +1425,7 @@ endif
 
 if HAVE_QAL
 modlibexec_LTLIBRARIES += module-qal-card.la
+modlibexec_LTLIBRARIES += module-qal-voiceui-card.la
 
 dist_qalconfsets_DATA = \
       modules/qal/module-qal-card/configs/default.conf \
@@ -1697,6 +1698,11 @@ module_qal_card_la_SOURCES = \
 module_qal_card_la_CFLAGS = $(QAL_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qal_card
 module_qal_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qal_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqal
+
+module_qal_voiceui_card_la_SOURCES = modules/qal/module-qal-voiceui-card/module-qal-voiceui-card.c
+module_qal_voiceui_card_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) $(QAL_CFLAGS) -Werror -DPA_MODULE_NAME=module_qal_voiceui_card
+module_qal_voiceui_card_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_qal_voiceui_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqal
 endif
 
 
