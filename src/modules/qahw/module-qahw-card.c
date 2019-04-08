@@ -599,7 +599,8 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
     u  = (struct userdata *)prv_data;
 
     event = event_data->event;
-    if ((event != PA_QAHW_JACK_AVAILABLE) && (event != PA_QAHW_JACK_UNAVAILABLE) && (event != PA_QAHW_JACK_CONFIG_UPDATE)) {
+    if ((event != PA_QAHW_JACK_AVAILABLE) && (event != PA_QAHW_JACK_UNAVAILABLE) && (event != PA_QAHW_JACK_CONFIG_UPDATE) &&
+                                                                                    (event != PA_QAHW_JACK_NO_VALID_STREAM)) {
         pa_log_error("%s: unsupport qahw jack event %d",__func__, event);
         return PA_HOOK_CANCEL;
     }
@@ -641,6 +642,12 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
                     jack_info->jack_curr_config = *((pa_qahw_jack_out_config *)event_data->pa_qahw_jack_info);
 
                     pa_qahw_card_add_dynamic_sink(port, (pa_qahw_jack_out_config *)event_data->pa_qahw_jack_info, u);
+                }
+            } else if ((event == PA_QAHW_JACK_NO_VALID_STREAM) && (port->available == PA_AVAILABLE_YES)) {
+                if (port->direction == PA_DIRECTION_INPUT) {
+                    pa_qahw_card_remove_dynamic_source(port, u);
+                } else if (port->direction == PA_DIRECTION_OUTPUT) {
+                    pa_qahw_card_remove_dynamic_sink(port, u);
                 }
             } else {
                 pa_log_error("unsupported event %d", event);
