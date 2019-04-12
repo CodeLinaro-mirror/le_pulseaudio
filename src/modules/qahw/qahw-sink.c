@@ -139,6 +139,51 @@ static int pa_qahw_sink_pause(pa_qahw_sink_data *sdata, bool pause);
 static const uint32_t supported_sink_rates[] =
                           {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
 
+static pa_sample_format_t pa_qahw_sink_find_nearest_supported_pa_format(pa_sample_format_t format) {
+    pa_sample_format_t format1;
+
+    switch(format) {
+        case PA_SAMPLE_S16LE:
+        case PA_SAMPLE_U8:
+        case PA_SAMPLE_ALAW:
+        case PA_SAMPLE_S16BE:
+            format1 = PA_SAMPLE_S16LE;
+            break;
+        case PA_SAMPLE_S24LE:
+        case PA_SAMPLE_S24BE:
+        case PA_SAMPLE_S24_32LE:
+        case PA_SAMPLE_S24_32BE:
+            format1 = PA_SAMPLE_S24LE;
+            break;
+        case PA_SAMPLE_S32LE:
+        case PA_SAMPLE_FLOAT32LE:
+        case PA_SAMPLE_S32BE:
+            format1 = PA_SAMPLE_S32LE;
+            break;
+        default:
+            format1 = PA_SAMPLE_S16LE;
+            pa_log_error(" unsupport format %d hence defaulting to %d",format, format1);
+    }
+    return format1;
+
+}
+
+static uint32_t pa_qahw_sink_find_nearest_supported_sample_rate(uint32_t sample_rate) {
+    uint32_t i;
+    uint32_t nearest_rate = PA_DEFAULT_SINK_RATE;
+
+    for (i = 0; i < ARRAY_SIZE(supported_sink_rates) ; i++) {
+        if (sample_rate == supported_sink_rates[i]) {
+            nearest_rate = sample_rate;
+            break;
+        } else if (sample_rate > supported_sink_rates[i]) {
+            nearest_rate = supported_sink_rates[i];
+        }
+    }
+
+    return nearest_rate;
+}
+
 static const char *pa_qahw_sink_get_name_from_flags(audio_output_flags_t flags) {
     const char *name = NULL;
 
@@ -602,6 +647,7 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chan
 
     char channel_map_buf[PA_CHANNEL_MAP_SNPRINT_MAX];
     pa_channel_map new_map;
+    pa_sample_spec tmp_spec;
 
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
 
@@ -609,6 +655,7 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chan
 
     pa_assert(s);
     pa_assert(s->userdata);
+    pa_assert(spec);
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
     pa_assert(sdata->qahw_sdata);
@@ -617,10 +664,11 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chan
 
     pa_sdata = sdata->pa_sdata;
     qahw_sdata = sdata->qahw_sdata;
+    tmp_spec = *spec;
 
     if (!PA_SOURCE_IS_OPENED(s->state)) {
         pa_log_info("%s: old sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &pa_sdata->sink->sample_spec));
-        pa_log_info("%s: requested sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), spec));
+        pa_log_info("%s: requested sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &tmp_spec));
 
         if (map) {
             pa_log_info("%s:old channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), &pa_sdata->sink->channel_map));
@@ -628,13 +676,21 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chan
 
             new_map = *map;
         } else {
-            pa_channel_map_init_auto(&new_map, spec->channels, PA_CHANNEL_MAP_DEFAULT);
+            pa_channel_map_init_auto(&new_map, tmp_spec.channels, PA_CHANNEL_MAP_DEFAULT);
         }
 
         qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port));
 
+        /* find nearest suitable format */
+        tmp_spec.format = pa_qahw_sink_find_nearest_supported_pa_format(spec->format);
+
+        /* find nearest suitable rate */
+        tmp_spec.rate =  pa_qahw_sink_find_nearest_supported_sample_rate(spec->rate);
+
+        pa_log_info("%s: trying to reconfigure qahw with sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &tmp_spec));
+
         /* first try to open with new conf if it fails then restore session with old conf */
-        rc = restart_qahw_sink(qahw_sdata->module_handle, encoding, spec, &new_map, qahw_sdata->devices, qahw_sdata->flags, qahw_sdata->handle, sdata);
+        rc = restart_qahw_sink(qahw_sdata->module_handle, encoding, &tmp_spec, &new_map, qahw_sdata->devices, qahw_sdata->flags, qahw_sdata->handle, sdata);
         if (rc) {
             pa_log_error("%s: could note create qahw sink with requested conf, error %d, restoring old conf", __func__, rc);
             rc = open_qahw_sink(qahw_sdata->module_handle, encoding, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map, qahw_sdata->devices,
@@ -645,7 +701,7 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chan
             goto exit;
         }
 
-        pa_sdata->sink->sample_spec = *spec;
+        pa_sdata->sink->sample_spec = tmp_spec;
         pa_sdata->sink->channel_map = new_map;
 
         pa_qahw_sink_extn_sink_handle_update(sdata->sink_extn_handle, qahw_sdata->out_handle);
