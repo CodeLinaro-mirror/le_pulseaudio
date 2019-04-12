@@ -88,6 +88,44 @@ static int poll_data_event_init(pa_qahw_jack_type_t jack_type) {
     return soc;
 }
 
+static bool is_hdmi_config_update_event_valid(pa_qahw_jack_out_config new_port_config, pa_qahw_hdmi_jack_data_t *hdmi_jdata) {
+    bool status = false;
+    bool config_change = false;
+    const char *path = NULL;
+    int arc_audio_state_value = -1;
+    int audio_state_value = -1;
+
+    /* Always return true if there is device switch */
+    if (new_port_config.active_jack != curr_hdmi_jack_config.active_jack)
+        return true;
+
+    /* Always return true if arc audio state is EOS */
+    if (new_port_config.active_jack == PA_QAHW_JACK_TYPE_HDMI_ARC) {
+        path = hdmi_jdata->jack_in_config->jack_sys_path.arc_audio_state;
+        pa_qahw_format_detection_get_value_from_path(path, &arc_audio_state_value);
+        if (arc_audio_state_value == 2) {
+            pa_log_info("%s: SPDIF interface audio state valid", __func__);
+            return true;
+        }
+    }
+
+    /* Check whether there is any difference in detected configs */
+    if ((new_port_config.encoding != curr_hdmi_jack_config.encoding) ||
+         memcmp(&(new_port_config.ss), &(curr_hdmi_jack_config.ss), sizeof(pa_sample_spec)) ||
+         memcmp(&(new_port_config.map), &(curr_hdmi_jack_config.map), sizeof(pa_channel_map)))
+        config_change = true;
+
+    /* Check whether HDMI audio state is valid */
+    path = hdmi_jdata->jack_in_config->jack_sys_path.audio_state;
+    if (pa_qahw_format_detection_get_value_from_path(path, &audio_state_value) && (audio_state_value != -1))
+        status = (audio_state_value == 0) ? false : true;
+
+    if ((status == true) && (config_change == false))
+        status = false;
+
+    return status;
+}
+
 static bool is_hdmi_no_stream_event_valid(pa_qahw_hdmi_jack_data_t *hdmi_jdata) {
     bool status = false;
     const char *path = NULL;
@@ -109,8 +147,10 @@ static bool is_hdmi_no_stream_event_valid(pa_qahw_hdmi_jack_data_t *hdmi_jdata) 
             status = (audio_state_value == 0) ? true : false;
     }
 
-    if (status)
+    if (status) {
         hdmi_jdata->active_valid_port_type = PA_QAHW_JACK_TYPE_INVALID;
+        memset(&curr_hdmi_jack_config, 0, sizeof(pa_qahw_jack_out_config));
+    }
 
     return status;
 }
@@ -218,7 +258,7 @@ static void check_hdmi_arc_state(pa_qahw_hdmi_jack_data_t *hdmi_jdata) {
 
 static void check_hdmi_connection(pa_qahw_hdmi_jack_data_t *hdmi_jdata) {
     const char *path = NULL;
-    static pa_qahw_jack_out_config new_port_config;
+    pa_qahw_jack_out_config new_port_config;
 
     int hdmi_plugin_value;
 
@@ -448,15 +488,17 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
                         hdmi_jdata->active_valid_port_type = hdmi_jdata->active_port_type;
                     }
                 }
-
-                memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
                 /* Check whether the audio_state is valid *
                  * If true raise PA_QAHW_JACK_NO_VALID_STREAM for active port *
                  * else raise PA_QAHW_JACK_CONFIG_UPDATE event for active port */
-                if (is_hdmi_no_stream_event_valid(hdmi_jdata))
+                if (is_hdmi_no_stream_event_valid(hdmi_jdata)) {
                     pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_NO_VALID_STREAM, NULL, hdmi_jdata, false);
-                else
-                    pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
+                } else {
+                    if (is_hdmi_config_update_event_valid(new_port_config, hdmi_jdata))
+                        pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
+                }
+
+                memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
             }
         } else if (hdmi_jdata->jack_plugin_status != PA_QAHW_JACK_AVAILABLE) {
             /* This situation can arrive when linkon_0 state is unset */
