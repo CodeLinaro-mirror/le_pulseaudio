@@ -1460,6 +1460,7 @@ static pa_memchunk *convert_from_work_format(pa_resampler *r, pa_memchunk *input
 
 void pa_resampler_run(pa_resampler *r, const pa_memchunk *in, pa_memchunk *out) {
     pa_memchunk *buf;
+    bool invalidate_timestamp = false, invalidate_duration = false;
 
     pa_assert(r);
     pa_assert(in);
@@ -1467,6 +1468,12 @@ void pa_resampler_run(pa_resampler *r, const pa_memchunk *in, pa_memchunk *out) 
     pa_assert(in->length);
     pa_assert(in->memblock);
     pa_assert(in->length % r->i_fz == 0);
+
+    if (*r->have_leftover) {
+        /* We're going to add data to the beginning -- invalidate the timestamp and duration */
+        invalidate_timestamp = true;
+        invalidate_duration = true;
+    }
 
     buf = (pa_memchunk*) in;
     buf = convert_to_work_format(r, buf);
@@ -1494,6 +1501,20 @@ void pa_resampler_run(pa_resampler *r, const pa_memchunk *in, pa_memchunk *out) 
             pa_memchunk_reset(buf);
     } else
         pa_memchunk_reset(out);
+
+    if (*r->have_leftover) {
+        /* The output is truncated relative to the input -- invalidate the duration */
+        invalidate_duration = true;
+    }
+
+    if (!invalidate_timestamp)
+        out->timestamp = in->timestamp;
+    if (!invalidate_duration)
+        out->duration = in->duration;
+    if (!invalidate_timestamp && !invalidate_duration) {
+        /* We know nothing of the semantics of the flags, so only copy if we didn't change the length */
+        out->flags = in->flags;
+    }
 }
 
 /*** copy (noop) implementation ***/

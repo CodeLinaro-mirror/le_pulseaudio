@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -865,6 +865,41 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_buffer_duration(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_source_config *source = NULL;
+    pa_qahw_sink_config *sink = NULL;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        if (pa_atoi(state->rvalue, &source->buffer_duration) < 0) {
+            pa_log_debug("%s: invalid buffer duration", __func__);
+            goto exit;
+        }
+
+        pa_log_debug("%s: adding buffer duration %d to %s", __func__, source->buffer_duration, source->name);
+    } else if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        if (pa_atoi(state->rvalue, &sink->buffer_duration) < 0) {
+            pa_log_debug("%s: invalid buffer duration", __func__);
+            goto exit;
+        }
+
+        pa_log_debug("%s: adding buffer duration %d to %s", __func__, sink->buffer_duration, sink->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
 static int pa_qahw_config_parse_port_sys_path(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_card_port_config *port = NULL;
@@ -1511,6 +1546,29 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_port_primary_port_name(pa_config_parser_state *state) {
+    pa_qahw_config_data *config_data = state->userdata;
+    pa_qahw_card_port_config *port;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        port->primary_port_name = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: adding primary port name %s to %s", __func__, port->primary_port_name, port->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
 static int pa_qahw_config_parse_port_linked_ports_list(pa_config_parser_state *state) {
     pa_qahw_config_data *config_data = state->userdata;
     pa_qahw_card_port_config *port;
@@ -1705,6 +1763,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "format-detection",            pa_qahw_config_parse_port_format_detection,               NULL, NULL },
         { "port-type",                   pa_qahw_config_parse_port_type,                           NULL, NULL },
         { "linked-ports",                pa_qahw_config_parse_port_linked_ports_list,              NULL, NULL },
+        { "primary-port-name",           pa_qahw_config_parse_port_primary_port_name,              NULL, NULL },
         { "state-node-path",             pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "sample-format-node-path",     pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "sample-rate-node-path",       pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
@@ -1734,7 +1793,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
 
         { "use-hw-volume",               pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
 
-        { "avoid-processing",     pa_qahw_config_parse_avoid_processing,                    NULL, NULL },
+        { "avoid-processing",            pa_qahw_config_parse_avoid_processing,                    NULL, NULL },
 
         /* common between sink and source*/
         { "type",                        pa_qahw_config_parse_type,                                NULL, NULL },
@@ -1764,6 +1823,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "sample-formats",              pa_qahw_config_parse_sample_formats,                      NULL, NULL },
         { "channel-maps",                pa_qahw_config_parse_channel_maps,                        NULL, NULL },
         { "source-type",                 pa_qahw_config_parse_source_type,                         NULL, NULL },
+        { "buffer-duration",             pa_qahw_config_parse_buffer_duration,                    NULL, NULL },
 
          /* [Loopback...] */
         { "in-port-names",               pa_qahw_config_parse_port_names,                          NULL, NULL },

@@ -174,7 +174,7 @@ static int pa_qahw_format_detection_get_num_channels(int infoframe_channels) {
     return DEFAULT_NUM_CHANNELS;
 }
 
-static bool pa_qahw_format_detection_get_value_from_path(const char* path, int *node_value) {
+bool pa_qahw_format_detection_get_value_from_path(const char* path, int *node_value) {
     bool rc = true;
     int value = -1;
 
@@ -305,13 +305,12 @@ int pa_qahw_spdif_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sy
         }
     }
 
-    if ((jack_type != PA_QAHW_JACK_TYPE_SPDIF) || (audio_state_value == 2)) {
+    if ((jack_type != PA_QAHW_JACK_TYPE_SPDIF) || (audio_state_value == 2))
         jack_config->active_jack = PA_QAHW_JACK_TYPE_SPDIF;
 
-        new_config.mode = (uint32_t)audio_format_value;
-        new_config.sample_rate = (uint32_t)audio_rate_value;
-        new_config.channels = (uint32_t)DEFAULT_NUM_CHANNELS;
-    }
+    new_config.mode = (uint32_t)audio_format_value;
+    new_config.sample_rate = (uint32_t)audio_rate_value;
+    new_config.channels = (uint32_t)DEFAULT_NUM_CHANNELS;
 
     rc = pa_qahw_format_detection_config_to_jack_config(&new_config, jack_config);
 

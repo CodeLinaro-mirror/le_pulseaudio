@@ -96,6 +96,7 @@ static const pa_daemon_conf default_conf = {
     .disable_shm = false,
     .disable_memfd = false,
     .lock_memory = false,
+    .use_realtime_for_main_thread = false,
     .deferred_volume = true,
     .default_n_fragments = 4,
     .default_fragment_size_msec = 25,
@@ -532,6 +533,8 @@ int pa_daemon_conf_load(pa_daemon_conf *c, const char *filename) {
         { "enable-memfd",               pa_config_parse_not_bool, &c->disable_memfd, NULL },
         { "flat-volumes",               pa_config_parse_bool,     &c->flat_volumes, NULL },
         { "lock-memory",                pa_config_parse_bool,     &c->lock_memory, NULL },
+        { "use-realtime-for-main-thread",
+                                        pa_config_parse_bool,     &c->use_realtime_for_main_thread, NULL },
         { "enable-deferred-volume",     pa_config_parse_bool,     &c->deferred_volume, NULL },
         { "exit-idle-time",             pa_config_parse_int,      &c->exit_idle_time, NULL },
         { "scache-idle-time",           pa_config_parse_int,      &c->scache_idle_time, NULL },
@@ -745,6 +748,7 @@ char *pa_daemon_conf_dump(pa_daemon_conf *c) {
     pa_strbuf_printf(s, "enable-shm = %s\n", pa_yes_no(!c->disable_shm));
     pa_strbuf_printf(s, "flat-volumes = %s\n", pa_yes_no(c->flat_volumes));
     pa_strbuf_printf(s, "lock-memory = %s\n", pa_yes_no(c->lock_memory));
+    pa_strbuf_printf(s, "use-realtime-for-main-thread = %s\n", pa_yes_no(c->use_realtime_for_main_thread));
     pa_strbuf_printf(s, "exit-idle-time = %i\n", c->exit_idle_time);
     pa_strbuf_printf(s, "scache-idle-time = %i\n", c->scache_idle_time);
     pa_strbuf_printf(s, "dl-search-path = %s\n", pa_strempty(c->dl_search_path));
