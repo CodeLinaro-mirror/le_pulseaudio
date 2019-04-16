@@ -3,6 +3,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright (c) 2019 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -1215,9 +1216,11 @@ void pa_sink_render(pa_sink*s, size_t length, pa_memchunk *result) {
     pa_assert(s->thread_info.rewind_nbytes == 0);
 
     if (s->thread_info.state == PA_SINK_SUSPENDED) {
-        result->memblock = pa_memblock_ref(s->silence.memblock);
-        result->index = s->silence.index;
-        result->length = PA_MIN(s->silence.length, length);
+        *result = s->silence;
+        pa_memblock_ref(result->memblock);
+
+        if (result->length > length)
+            result->length = length;
         return;
     }
 
@@ -1242,9 +1245,6 @@ void pa_sink_render(pa_sink*s, size_t length, pa_memchunk *result) {
         if (result->length > length)
             result->length = length;
 
-        result->timestamp = PA_NSEC_INVALID;
-        result->duration = PA_NSEC_INVALID;
-
     } else if (n == 1) {
         pa_cvolume volume;
 
@@ -1267,17 +1267,17 @@ void pa_sink_render(pa_sink*s, size_t length, pa_memchunk *result) {
 
         if (s->thread_info.soft_muted || pa_cvolume_is_muted(&volume)) {
             pa_memblock_unref(result->memblock);
-            pa_silence_memchunk_get(&s->core->silence_cache,
-                                    s->core->mempool,
-                                    result,
-                                    &s->sample_spec,
-                                    result->length);
+            *result = s->silence;
+            pa_memblock_ref(result->memblock);
+            if (result->length > length)
+                result->length = length;
         } else if (!pa_cvolume_is_norm(&volume)) {
             pa_memchunk_make_writable(result, 0);
             pa_volume_memchunk(result, &s->sample_spec, &volume);
         }
     } else {
         void *ptr;
+        pa_memchunk_reset(result);
         result->memblock = pa_memblock_new(s->core->mempool, length);
 
         ptr = pa_memblock_acquire(result->memblock);
@@ -1293,8 +1293,7 @@ void pa_sink_render(pa_sink*s, size_t length, pa_memchunk *result) {
 #ifdef SINK_DEBUG
         pa_log_debug("Invalidting timestamps after mixing");
 #endif
-        result->timestamp = PA_NSEC_INVALID;
-        result->duration = PA_NSEC_INVALID;
+        /* Timestamps already marked invalid via pa_memchunk_reset above */
     }
 
     inputs_drop(s, info, n, result);
