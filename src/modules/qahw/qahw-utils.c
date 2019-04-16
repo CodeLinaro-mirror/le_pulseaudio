@@ -80,6 +80,7 @@ pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
     { (char *)"linein",          AUDIO_DEVICE_IN_LINE,              (char *)"AUDIO_DEVICE_IN_LINE" },
     { (char *)"bta2dp-in" ,      AUDIO_DEVICE_IN_BLUETOOTH_A2DP,    (char *)"AUDIO_DEVICE_IN_BLUETOOTH_A2DP"},
     { (char *)"hdmi-arc",        AUDIO_DEVICE_IN_HDMI_ARC,          (char *)"AUDIO_DEVICE_IN_HDMI_ARC" },
+    { (char *)"builtin-mic-ec-ref-loopback", AUDIO_DEVICE_IN_BUILTIN_MIC | AUDIO_DEVICE_IN_LOOPBACK, (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC_AND_EC_REF_LOOPBACK" },
 };
 
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {
@@ -911,4 +912,32 @@ int pa_qahw_util_set_qahw_metadata_from_pa_format(const pa_format_info *format) 
     }
 
     return rc;
+}
+
+audio_channel_mask_t pa_qahw_util_in_mask_from_count(uint32_t channel_count)
+{
+    audio_channel_mask_t channel_mask = AUDIO_CHANNEL_INVALID;
+
+    switch(channel_count) {
+    case 10:
+        channel_mask = AUDIO_CHANNEL_INDEX_MASK_10;
+        break;
+    case 11:
+        channel_mask = AUDIO_CHANNEL_INDEX_MASK_11;
+        break;
+    case 12:
+        channel_mask = AUDIO_CHANNEL_INDEX_MASK_12;
+        break;
+    case 13:
+        channel_mask = AUDIO_CHANNEL_INDEX_MASK_13;
+        break;
+    case 14:
+        channel_mask = AUDIO_CHANNEL_INDEX_MASK_14;
+        break;
+    default:
+        pa_log_error("%s: Invalid channel count %d", __func__, channel_count);
+        break;
+    }
+
+    return channel_mask;
 }

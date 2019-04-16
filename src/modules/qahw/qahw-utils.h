@@ -49,4 +49,5 @@ void pa_qahw_util_channel_allocation_to_pa_channel_map(pa_channel_map *m, uint32
 void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qahw_jack_in_config *jack_in_config);
 pa_channel_map* pa_qahw_util_channel_map_init(pa_channel_map *m, unsigned channels);
 int pa_qahw_util_set_qahw_metadata_from_pa_format(const pa_format_info *format);
+audio_channel_mask_t pa_qahw_util_in_mask_from_count(uint32_t channel_count);
 #endif
