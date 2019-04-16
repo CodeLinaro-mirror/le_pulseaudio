@@ -51,6 +51,7 @@
 #define PA_DEFAULT_SOURCE_FORMAT PA_SAMPLE_S16LE
 #define PA_DEFAULT_SOURCE_RATE 48000
 #define PA_DEFAULT_SOURCE_CHANNELS 2
+#define AUDIO_IN_VALID_CH_COUNT_FOR_CH_MASK 8
 
 //#define SOURCE_DUMP_ENABLED
 
@@ -117,6 +118,52 @@ static void pa_qahw_source_read_thread_func(void *userdata);
 static const uint32_t supported_source_rates[] =
                           {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
 
+static pa_sample_format_t pa_qahw_source_find_nearest_supported_pa_format(pa_sample_format_t format) {
+    pa_sample_format_t format1;
+
+    switch(format) {
+        case PA_SAMPLE_S16LE:
+        case PA_SAMPLE_U8:
+        case PA_SAMPLE_ALAW:
+        case PA_SAMPLE_S16BE:
+            format1 = PA_SAMPLE_S16LE;
+            break;
+        case PA_SAMPLE_S24LE:
+        case PA_SAMPLE_S24BE:
+        case PA_SAMPLE_S24_32LE:
+        case PA_SAMPLE_S24_32BE:
+            format1 = PA_SAMPLE_S24LE;
+            break;
+        case PA_SAMPLE_S32LE:
+        case PA_SAMPLE_FLOAT32LE:
+        case PA_SAMPLE_S32BE:
+            format1 = PA_SAMPLE_S32LE;
+            break;
+        default:
+            format1 = PA_SAMPLE_S16LE;
+            pa_log_error(" unsupport format %d hence defaulting to %d",format, format1);
+            break;
+    }
+
+    return format1;
+}
+
+static uint32_t pa_qahw_source_find_nearest_supported_sample_rate(uint32_t sample_rate) {
+    uint32_t i;
+    uint32_t nearest_rate = PA_DEFAULT_SOURCE_RATE;
+
+    for (i = 0; i < ARRAY_SIZE(supported_source_rates) ; i++) {
+        if (sample_rate == supported_source_rates[i]) {
+            nearest_rate = sample_rate;
+            break;
+        } else if (sample_rate > supported_source_rates[i]) {
+            nearest_rate = supported_source_rates[i];
+        }
+    }
+
+    return nearest_rate;
+}
+
 audio_source_t pa_qahw_source_name_to_enum(const char *source_name) {
     uint32_t count;
     audio_source_t source_type = AUDIO_SOURCE_DEFAULT;
@@ -175,7 +222,15 @@ static void pa_qahw_source_fill_info(qahw_source_data *qahw_sdata, pa_encoding_t
         ss->rate = ss->rate * 4;
 
     qahw_sdata->config.sample_rate = ss->rate;
-    qahw_sdata->config.channel_mask = audio_channel_in_mask_from_count(ss->channels);
+
+    /* default input channel mask is defined only till channel count 8 in audio.h. If it exceeds 8,
+       then INVALID mask is returned. Add a pa_qahw_util function to derive channel mask if count exceeds 8.
+     */
+    if (ss->channels > AUDIO_IN_VALID_CH_COUNT_FOR_CH_MASK) {
+        qahw_sdata->config.channel_mask = pa_qahw_util_in_mask_from_count(ss->channels);
+    } else {
+        qahw_sdata->config.channel_mask = audio_channel_in_mask_from_count(ss->channels);
+    }
 
     /* DIRECT PCM uses offload structure */
     if (flags & QAHW_INPUT_FLAG_COMPRESS) {
@@ -300,6 +355,7 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_
 
     char channel_map_buf[PA_CHANNEL_MAP_SNPRINT_MAX];
     pa_channel_map new_map;
+    pa_sample_spec tmp_spec;
 
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
 
@@ -310,15 +366,17 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
     pa_assert(sdata->qahw_sdata);
+    pa_assert(spec);
 
     pa_log_info("%s", __func__);
 
     pa_sdata = sdata->pa_sdata;
     qahw_sdata = sdata->qahw_sdata;
+    tmp_spec = *spec;
 
     if (!PA_SOURCE_IS_OPENED(s->state)) {
         pa_log_info("%s: old sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &pa_sdata->source->sample_spec));
-        pa_log_info("%s: requested sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), spec));
+        pa_log_info("%s: requested sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &tmp_spec));
 
         if (sdata->pa_sdata->formats) {
             PA_IDXSET_FOREACH(format, sdata->pa_sdata->formats, i) {
@@ -327,18 +385,25 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_
             }
         }
 
-       if (map) {
+        if (map) {
             pa_log_info("%s:old channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), &pa_sdata->source->channel_map));
             pa_log_info("%s:requested channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), map));
 
             new_map = *map;
-       } else {
-            pa_channel_map_init_auto(&new_map, spec->channels, PA_CHANNEL_MAP_DEFAULT);
+        } else {
+            pa_channel_map_init_auto(&new_map, tmp_spec.channels, PA_CHANNEL_MAP_DEFAULT);
         }
 
         qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->source->active_port));
+        /* find nearest suitable format */
+        tmp_spec.format = pa_qahw_source_find_nearest_supported_pa_format(spec->format);
 
-        rc = restart_qahw_source(qahw_sdata->module_handle, encoding, spec, &new_map, qahw_sdata->devices, qahw_sdata->flags,
+        /* find nearest suitable rate */
+        tmp_spec.rate = pa_qahw_source_find_nearest_supported_sample_rate(spec->rate);
+
+        pa_log_info("%s: trying to reconfigure qahw with sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &tmp_spec));
+
+        rc = restart_qahw_source(qahw_sdata->module_handle, encoding, &tmp_spec, &new_map, qahw_sdata->devices, qahw_sdata->flags,
                 qahw_sdata->handle, qahw_sdata);
         if (rc) {
             pa_log_error("%s: could not create qahw source with requested conf, error %d, restoring old conf", __func__, rc);
@@ -350,7 +415,7 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_
             goto exit;
         }
 
-        pa_sdata->source->sample_spec = *spec;
+        pa_sdata->source->sample_spec = tmp_spec;
         pa_sdata->source->channel_map = new_map;
 
         pa_qahw_source_extn_source_handle_update(sdata->source_extn_handle, qahw_sdata->in_handle);
@@ -515,7 +580,7 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
     pa_xfree(file_name);
 #endif
 
-    pa_log_debug("opening source with configuration flag = 0x%x, encoding %d,format %d, sample_rate %d, channel_mask 0x%x device %d",
+    pa_log_debug("opening source with configuration flag = 0x%x, encoding %d,format %d, sample_rate %d, channel_mask 0x%x device 0x%x",
                  qahw_sdata->flags, encoding, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask, qahw_sdata->devices);
 
     if (buffer_duration > 0)
