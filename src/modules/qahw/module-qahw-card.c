@@ -385,6 +385,48 @@ static void pa_qahw_card_suspend_source_for_port(const char *port_name, struct u
     }
 }
 
+static void pa_qahw_card_set_source_param(pa_device_port *port, struct userdata *u, const char *jack_param) {
+    int status = -1;
+    pa_qahw_card_source_info *source_info = NULL;
+
+    pa_assert(port);
+    pa_assert(jack_param);
+
+    pa_log_debug("%s:", __func__);
+
+    /* check if any dynamic source is already created on same port */
+    source_info = pa_qahw_card_is_dynamic_source_present_for_port(port->name, u);
+
+    if (source_info) {
+        if (source_info->force_suspended == false)
+            status = pa_qahw_source_set_param(source_info->handle, jack_param);
+    }
+
+    if (status)
+        pa_log_error("%s: failed to set param %s", __func__, jack_param);
+}
+
+static void pa_qahw_card_set_sink_param(pa_device_port *port, struct userdata *u, const char *jack_param) {
+    int status = -1;
+    pa_qahw_card_sink_info *sink_info = NULL;
+
+    pa_assert(port);
+    pa_assert(jack_param);
+
+    pa_log_debug("%s:", __func__);
+
+    /* check if any dynamic sink is already created on same port */
+    sink_info = pa_qahw_card_is_dynamic_sink_present_for_port(port->name, u);
+
+    if (sink_info) {
+        if (sink_info->force_suspended == false)
+            status = pa_qahw_sink_set_param(sink_info->handle, jack_param);
+    }
+
+    if (status)
+        pa_log_error("%s: failed to set param %s", __func__, jack_param);
+}
+
 static void pa_qahw_loopback_callback(const char *port_name, pa_qahw_loopback_event_t event, void *prv_data) {
     struct userdata *u = NULL;
     pa_qahw_card_jack_info *jack_info = NULL;
@@ -592,6 +634,7 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
     struct userdata *u;
     pa_qahw_jack_event_t event;
     pa_qahw_card_jack_info *jack_info;
+    const char *jack_param = NULL;
 
     pa_assert(event_data);
     pa_assert(prv_data);
@@ -600,7 +643,7 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
 
     event = event_data->event;
     if ((event != PA_QAHW_JACK_AVAILABLE) && (event != PA_QAHW_JACK_UNAVAILABLE) && (event != PA_QAHW_JACK_CONFIG_UPDATE) &&
-                                                                                    (event != PA_QAHW_JACK_NO_VALID_STREAM)) {
+                                            (event != PA_QAHW_JACK_NO_VALID_STREAM) && (event != PA_QAHW_JACK_SET_PARAM)) {
         pa_log_error("%s: unsupport qahw jack event %d",__func__, event);
         return PA_HOOK_CANCEL;
     }
@@ -649,7 +692,15 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
                 } else if (port->direction == PA_DIRECTION_OUTPUT) {
                     pa_qahw_card_remove_dynamic_sink(port, u);
                 }
-            } else {
+            } else if ((event == PA_QAHW_JACK_SET_PARAM) && (port->available == PA_AVAILABLE_YES)) {
+                jack_param = (const char *)event_data->pa_qahw_jack_info;
+
+                if (port->direction == PA_DIRECTION_INPUT)
+                    pa_qahw_card_set_source_param(port, u, jack_param);
+                else if (port->direction == PA_DIRECTION_OUTPUT)
+                    pa_qahw_card_set_sink_param(port, u, jack_param);
+
+            }else {
                 pa_log_error("unsupported event %d", event);
             }
         } else {

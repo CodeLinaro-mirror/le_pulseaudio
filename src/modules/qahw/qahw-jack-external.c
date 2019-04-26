@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -40,18 +40,24 @@ typedef struct {
 enum module_method_handler_index {
     METHOD_HANDLER_START_STREAM = 0,
     METHOD_HANDLER_STOP_STREAM,
-    METHOD_HANDLER_MODULE_LAST = METHOD_HANDLER_STOP_STREAM,
+    METHOD_HANDLER_SET_PARAM,
+    METHOD_HANDLER_MODULE_LAST = METHOD_HANDLER_SET_PARAM,
     METHOD_HANDLER_MODULE_MAX = METHOD_HANDLER_MODULE_LAST + 1,
 };
 
 static void qahw_jack_external_start_stream(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void qahw_jack_external_stop_stream(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void qahw_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 static pa_dbus_arg_info start_stream_args[] = {
     {"stream_config", "(suss)", "in"},
 };
 
 static pa_dbus_arg_info stop_stream_args[] = {
+};
+
+static pa_dbus_arg_info set_param_args[] = {
+    {"param_string", "s", "in"},
 };
 
 static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] = {
@@ -65,6 +71,11 @@ static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] 
         .arguments = stop_stream_args,
         .n_arguments = sizeof(stop_stream_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = qahw_jack_external_stop_stream },
+[METHOD_HANDLER_SET_PARAM] = {
+        .method_name = "SetParam",
+        .arguments = set_param_args,
+        .n_arguments = sizeof(set_param_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = qahw_jack_external_set_param },
 };
 
 static pa_dbus_interface_info module_interface_info = {
@@ -176,6 +187,40 @@ static void qahw_jack_external_stop_stream(DBusConnection *conn, DBusMessage *ms
     /* generate jack config update event */
     event_data.jack_type = external_jdata->jack_type;
     event_data.event = PA_QAHW_JACK_UNAVAILABLE;
+    pa_hook_fire(&(external_jdata->event_hook), &event_data);
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+static void qahw_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    pa_qahw_jack_event_data_t event_data;
+    pa_qahw_external_jack_data *external_jdata = userdata;
+    const char *param = NULL;
+
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    pa_log_debug("%s", __func__);
+
+    if (!dbus_message_get_args(msg, &error, DBUS_TYPE_STRING, &param, DBUS_TYPE_INVALID)) {
+        pa_log_error("Invalid signature for SetParam - %s\n", error.message);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Invalid signature for SetParam");
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_log_info("%s: external source port %s  set param %s", __func__,
+                pa_qahw_util_get_port_name_from_jack_type(external_jdata->jack_type), param);
+
+    /* Generate jack set param event */
+    event_data.jack_type = external_jdata->jack_type;
+    event_data.event = PA_QAHW_JACK_SET_PARAM;
+    event_data.pa_qahw_jack_info = (void *)param;
     pa_hook_fire(&(external_jdata->event_hook), &event_data);
 
     pa_dbus_send_empty_reply(conn, msg);

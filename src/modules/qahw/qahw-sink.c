@@ -715,6 +715,23 @@ exit:
     return rc;
 }
 
+int pa_qahw_sink_set_param(pa_qahw_sink_handle_t *handle, const char *param) {
+    int ret = -1;
+    pa_qahw_sink_data *sdata = NULL;
+
+    pa_assert(handle);
+
+    sdata = (pa_qahw_sink_data *)handle;
+
+    pa_assert(sdata->qahw_sdata);
+    pa_assert(sdata->qahw_sdata->module_handle);
+
+    ret = qahw_set_parameters(sdata->qahw_sdata->module_handle, param);
+    pa_log_info("%s: param %s set to hal with return value %d", __func__, param, ret);
+
+    return ret;
+}
+
 int pa_qahw_sink_get_media_config(pa_qahw_sink_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
         pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)handle;
         pa_format_info *f;
@@ -879,6 +896,9 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
     int rc = 0;
     qahw_sink_data *qahw_sdata;
     qahw_param_payload payload;
+    int ret = -1;
+    const char *bt_sco_on = "BT_SCO=on";
+
 #ifdef SINK_DUMP_ENABLED
     char *file_name;
 #endif
@@ -903,6 +923,12 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
 
     pa_log_debug("opening sink with configuration flag = 0x%x, encoding %d, format %d, sample_rate %d, channel_mask 0x%x device %d",
                  qahw_sdata->flags, encoding, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask, qahw_sdata->devices);
+
+    /* Turn BT_SCO on if bt_sco recording */
+    if(audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
+        ret = qahw_set_parameters(module_handle, bt_sco_on);
+        pa_log_info("%s: param %s set to hal with return value %d", __func__, bt_sco_on, ret);
+    }
 
     if (buffer_duration > 0)
         qahw_sdata->config.offload_info.duration_us = buffer_duration * 1000;
@@ -968,9 +994,12 @@ exit:
 static int close_qahw_sink(pa_qahw_sink_data *sdata) {
     qahw_sink_data *qahw_sdata;
     int rc = -1;
+    int ret = -1;
+    const char *bt_sco_off = "BT_SCO=off";
 
     pa_assert(sdata);
     pa_assert(sdata->qahw_sdata);
+    pa_assert(sdata->qahw_sdata->module_handle);
 
     qahw_sdata = sdata->qahw_sdata;
 
@@ -991,6 +1020,12 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
 #ifdef SINK_DUMP_ENABLED
     close(qahw_sdata->write_fd);
 #endif
+
+    /* Turn BT_SCO off if bt_sco recording */
+    if(audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
+        ret = qahw_set_parameters(qahw_sdata->module_handle, bt_sco_off);
+        pa_log_info("%s: param %s set to hal with return value %d", __func__, bt_sco_off, ret);
+    }
 
     return rc;
 }

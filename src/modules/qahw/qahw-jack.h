@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -32,7 +32,9 @@ typedef enum {
     PA_QAHW_JACK_TYPE_BTA2DP_IN = 0x40,
     PA_QAHW_JACK_TYPE_HDMI_ARC = 0x80,
     PA_QAHW_JACK_TYPE_SPDIF = 0x100,
-    PA_QAHW_JACK_TYPE_LAST = PA_QAHW_JACK_TYPE_SPDIF,
+    PA_QAHW_JACK_TYPE_BTSCO_IN = 0x200,
+    PA_QAHW_JACK_TYPE_BTSCO_OUT = 0x400,
+    PA_QAHW_JACK_TYPE_LAST = PA_QAHW_JACK_TYPE_BTSCO_OUT,
     PA_QAHW_JACK_TYPE_MAX = PA_QAHW_JACK_TYPE_LAST,
 } pa_qahw_jack_type_t;
 
@@ -42,6 +44,7 @@ typedef enum {
     PA_QAHW_JACK_UNAVAILABLE,
     PA_QAHW_JACK_CONFIG_UPDATE,
     PA_QAHW_JACK_NO_VALID_STREAM,
+    PA_QAHW_JACK_SET_PARAM,
 } pa_qahw_jack_event_t;
 
 typedef struct pa_qahw_jack_event_data {

@@ -65,22 +65,26 @@ pa_qahw_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_QAHW_JACK_TYPE_BTA2DP_IN, (char*)"bta2dp-in" },
     { PA_QAHW_JACK_TYPE_HDMI_ARC, (char *)"hdmi-arc"},
     { PA_QAHW_JACK_TYPE_SPDIF, (char *)"spdif-in"},
+    { PA_QAHW_JACK_TYPE_BTSCO_IN, (char *)"btsco-in"},
+    { PA_QAHW_JACK_TYPE_BTSCO_OUT, (char *)"btsco-out"},
 };
 
 pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
-    { (char*)"speaker",          AUDIO_DEVICE_OUT_SPEAKER,          (char *)"AUDIO_DEVICE_OUT_SPEAKER" },
-    { (char *)"headset",         AUDIO_DEVICE_OUT_WIRED_HEADSET,    (char *)"AUDIO_DEVICE_OUT_WIRED_HEADSET" },
-    { (char*)"lineout",          AUDIO_DEVICE_OUT_LINE,             (char *)"AUDIO_DEVICE_OUT_LINE"},
-    { (char*)"headphone",        AUDIO_DEVICE_OUT_WIRED_HEADPHONE,  (char *)"AUDIO_DEVICE_OUT_WIRED_HEADPHONE" },
-    { (char *)"bta2dp-out" ,     AUDIO_DEVICE_OUT_BLUETOOTH_A2DP,   (char *)"AUDIO_DEVICE_OUT_BLUETOOTH_A2DP"},
-    { (char *)"headset-mic",     AUDIO_DEVICE_IN_WIRED_HEADSET,     (char *)"AUDIO_DEVICE_IN_WIRED_HEADSET" },
-    { (char *)"builtin-mic",     AUDIO_DEVICE_IN_BUILTIN_MIC,       (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC" },
-    { (char *)"hdmi-in",         AUDIO_DEVICE_IN_HDMI,              (char *)"AUDIO_DEVICE_IN_HDMI" },
-    { (char *)"spdif-in",        AUDIO_DEVICE_IN_SPDIF,             (char *)"AUDIO_DEVICE_IN_SPDIF" },
-    { (char *)"linein",          AUDIO_DEVICE_IN_LINE,              (char *)"AUDIO_DEVICE_IN_LINE" },
-    { (char *)"bta2dp-in" ,      AUDIO_DEVICE_IN_BLUETOOTH_A2DP,    (char *)"AUDIO_DEVICE_IN_BLUETOOTH_A2DP"},
-    { (char *)"hdmi-arc",        AUDIO_DEVICE_IN_HDMI_ARC,          (char *)"AUDIO_DEVICE_IN_HDMI_ARC" },
+    { (char*)"speaker",          AUDIO_DEVICE_OUT_SPEAKER,              (char *)"AUDIO_DEVICE_OUT_SPEAKER" },
+    { (char *)"headset",         AUDIO_DEVICE_OUT_WIRED_HEADSET,        (char *)"AUDIO_DEVICE_OUT_WIRED_HEADSET" },
+    { (char*)"lineout",          AUDIO_DEVICE_OUT_LINE,                 (char *)"AUDIO_DEVICE_OUT_LINE"},
+    { (char*)"headphone",        AUDIO_DEVICE_OUT_WIRED_HEADPHONE,      (char *)"AUDIO_DEVICE_OUT_WIRED_HEADPHONE" },
+    { (char *)"bta2dp-out" ,     AUDIO_DEVICE_OUT_BLUETOOTH_A2DP,       (char *)"AUDIO_DEVICE_OUT_BLUETOOTH_A2DP"},
+    { (char *)"headset-mic",     AUDIO_DEVICE_IN_WIRED_HEADSET,         (char *)"AUDIO_DEVICE_IN_WIRED_HEADSET" },
+    { (char *)"builtin-mic",     AUDIO_DEVICE_IN_BUILTIN_MIC,           (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC" },
+    { (char *)"hdmi-in",         AUDIO_DEVICE_IN_HDMI,                  (char *)"AUDIO_DEVICE_IN_HDMI" },
+    { (char *)"spdif-in",        AUDIO_DEVICE_IN_SPDIF,                 (char *)"AUDIO_DEVICE_IN_SPDIF" },
+    { (char *)"linein",          AUDIO_DEVICE_IN_LINE,                  (char *)"AUDIO_DEVICE_IN_LINE" },
+    { (char *)"bta2dp-in" ,      AUDIO_DEVICE_IN_BLUETOOTH_A2DP,        (char *)"AUDIO_DEVICE_IN_BLUETOOTH_A2DP"},
+    { (char *)"hdmi-arc",        AUDIO_DEVICE_IN_HDMI_ARC,              (char *)"AUDIO_DEVICE_IN_HDMI_ARC" },
     { (char *)"builtin-mic-ec-ref-loopback", AUDIO_DEVICE_IN_BUILTIN_MIC | AUDIO_DEVICE_IN_LOOPBACK, (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC_AND_EC_REF_LOOPBACK" },
+    { (char *)"btsco-in",        AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET, (char *)"AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
+    { (char *)"btsco-out",       AUDIO_DEVICE_OUT_BLUETOOTH_SCO,        (char *)"AUDIO_DEVICE_OUT_BLUETOOTH_SCO" },
 };
 
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {
