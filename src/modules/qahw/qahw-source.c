@@ -432,6 +432,23 @@ exit:
     return rc;
 }
 
+int pa_qahw_source_set_param(pa_qahw_source_handle_t *handle, const char *param) {
+    int ret = -1;
+    pa_qahw_source_data *sdata = NULL;
+
+    pa_assert(handle);
+
+    sdata = (pa_qahw_source_data *)handle;
+
+    pa_assert(sdata->qahw_sdata);
+    pa_assert(sdata->qahw_sdata->module_handle);
+
+    ret = qahw_set_parameters(sdata->qahw_sdata->module_handle, param);
+    pa_log_info("%s: param %s set to hal with return value %d", __func__, param, ret);
+
+    return ret;
+}
+
 int pa_qahw_source_get_media_config(pa_qahw_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
     pa_qahw_source_data *sdata = (pa_qahw_source_data *)handle;
     pa_format_info *f;
@@ -589,6 +606,9 @@ finish:
 static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                   audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata, audio_source_t source_type, int32_t buffer_duration) {
     int rc;
+    int ret = -1;
+    const char *bt_sco_on = "BT_SCO=on";
+
 #ifdef SOURCE_DUMP_ENABLED
     char *file_name;
 #endif
@@ -612,6 +632,12 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
 
     pa_log_debug("opening source with configuration flag = 0x%x, encoding %d,format %d, sample_rate %d, channel_mask 0x%x device 0x%x",
                  qahw_sdata->flags, encoding, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask, qahw_sdata->devices);
+
+    /* Turn BT_SCO on if bt_sco recording */
+    if(audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
+        ret = qahw_set_parameters(module_handle, bt_sco_on);
+        pa_log_info("%s: param %s set to hal with return value %d", __func__, bt_sco_on, ret);
+    }
 
     if (buffer_duration > 0)
         qahw_sdata->config.offload_info.duration_us = buffer_duration * 1000;
@@ -648,9 +674,12 @@ fail:
 
 static int close_qahw_source(qahw_source_data *qahw_sdata) {
     int rc = -1;
+    int ret = -1;
+    const char *bt_sco_off = "BT_SCO=off";
 
     pa_assert(qahw_sdata);
     pa_assert(qahw_sdata->in_handle);
+    pa_assert(qahw_sdata->module_handle);
 
     pa_log_debug("closing qahw source %p", qahw_sdata->in_handle);
 
@@ -667,6 +696,12 @@ static int close_qahw_source(qahw_source_data *qahw_sdata) {
 #ifdef SOURCE_DUMP_ENABLED
     close(qahw_sdata->write_fd);
 #endif
+
+    /* Turn BT_SCO off if bt_sco recording */
+    if(audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
+        ret = qahw_set_parameters(qahw_sdata->module_handle, bt_sco_off);
+        pa_log_info("%s: param %s set to hal with return value %d", __func__, bt_sco_off, ret);
+    }
 
     return rc;
 }

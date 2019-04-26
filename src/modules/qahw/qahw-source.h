@@ -120,5 +120,6 @@ static inline audio_input_flags_t pa_qahw_source_get_flags_from_string(const cha
 
 void pa_qahw_source_suspend(pa_qahw_source_handle_t *handle, bool suspend);
 audio_source_t pa_qahw_source_name_to_enum(const char *source_name);
+int pa_qahw_source_set_param(pa_qahw_source_handle_t *handle, const char *param);
 
 #endif
