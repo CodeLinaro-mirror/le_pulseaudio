@@ -139,6 +139,16 @@ static int pa_qahw_sink_pause(pa_qahw_sink_data *sdata, bool pause);
 static const uint32_t supported_sink_rates[] =
                           {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
 
+#ifdef CLOCK_MONOTONIC
+static int32_t get_clock_id() {
+    return CLOCK_MONOTONIC;
+}
+#else
+static int32_t get_clock_id() {
+    return CLOCK_REALTIME;
+}
+#endif
+
 static pa_sample_format_t pa_qahw_sink_find_nearest_supported_pa_format(pa_sample_format_t format) {
     pa_sample_format_t format1;
 
@@ -290,12 +300,11 @@ static int pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t enco
 static uint64_t pa_qahw_sink_get_latency(pa_qahw_sink_data *sdata) {
     int rc, delta, bytes_rendered;
     int64_t latency = 0;
-    uint64_t frames;
     qahw_sink_data *qahw_sdata;
     pa_sink_data *pa_sdata;
 
-    struct timespec timestamp;
     pa_usec_t qahw_time, now, delta_usec;
+    struct qahw_out_presentation_position_param pos_param;
 
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
@@ -306,11 +315,14 @@ static uint64_t pa_qahw_sink_get_latency(pa_qahw_sink_data *sdata) {
 
     pa_assert(pa_sdata->sink);
     pa_assert(qahw_sdata->out_handle);
+    memset(&pos_param, 0, sizeof(struct qahw_out_presentation_position_param));
 
-    rc = qahw_out_get_presentation_position(qahw_sdata->out_handle, &frames, &timestamp);
+    pos_param.clock_id = get_clock_id();
+    rc = qahw_out_get_param_data(qahw_sdata->out_handle, QAHW_PARAM_OUT_PRESENTATION_POSITION,
+                                 (qahw_param_payload *)&pos_param);
     if (!rc) {
-        qahw_time = pa_timespec_load(&timestamp);
-        bytes_rendered =  frames * pa_frame_size(&pa_sdata->sink->sample_spec);
+        qahw_time = pa_timespec_load(&pos_param.timestamp);
+        bytes_rendered =  pos_param.frames * pa_frame_size(&pa_sdata->sink->sample_spec);
 
         /* calculate bytes pending to be rendered */
         if (qahw_sdata->compressed) {
@@ -321,6 +333,10 @@ static uint64_t pa_qahw_sink_get_latency(pa_qahw_sink_data *sdata) {
             delta_usec = pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec);
         }
 
+#ifdef SINK_DEBUG
+        pa_log_debug("%s:: timestamp %" PRId64 ", frames %" PRId64 " clock id %d", __func__,
+                     pos_param.timestamp.tv_sec*1000000000LL + pos_param.timestamp.tv_nsec, pos_param.frames, pos_param.clock_id);
+#endif
         /* bytes written should never be less than bytes rendered */
         if (delta_usec <= 0) {
 #ifdef SINK_DEBUG
