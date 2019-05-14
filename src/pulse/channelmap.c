@@ -102,7 +102,10 @@ const char *const table[PA_CHANNEL_POSITION_MAX] = {
     [PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE] = "front-right-wide",
 
     [PA_CHANNEL_POSITION_TOP_SIDE_LEFT] = "top-side-left",
-    [PA_CHANNEL_POSITION_TOP_SIDE_RIGHT] = "top-side-right"
+    [PA_CHANNEL_POSITION_TOP_SIDE_RIGHT] = "top-side-right",
+
+    [PA_CHANNEL_POSITION_SURROUND_LEFT] = "surround-left",
+    [PA_CHANNEL_POSITION_SURROUND_RIGHT] = "surround-right"
 };
 
 const char *const pretty_table[PA_CHANNEL_POSITION_MAX] = {
@@ -171,7 +174,10 @@ const char *const pretty_table[PA_CHANNEL_POSITION_MAX] = {
     [PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE] = N_("Front Right Wide"),
 
     [PA_CHANNEL_POSITION_TOP_SIDE_LEFT] = N_("Top Side Left"),
-    [PA_CHANNEL_POSITION_TOP_SIDE_RIGHT] = N_("Top Side Right")
+    [PA_CHANNEL_POSITION_TOP_SIDE_RIGHT] = N_("Top Side Right"),
+
+    [PA_CHANNEL_POSITION_SURROUND_LEFT] = N_("Surround Left"),
+    [PA_CHANNEL_POSITION_SURROUND_RIGHT] = N_("Surround Right")
 };
 
 pa_channel_map* pa_channel_map_init(pa_channel_map *m) {

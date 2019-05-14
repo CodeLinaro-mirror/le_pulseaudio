@@ -553,6 +553,12 @@ static pa_channel_position_t mirror_channel(pa_channel_position_t channel) {
         case PA_CHANNEL_POSITION_TOP_SIDE_RIGHT:
                return PA_CHANNEL_POSITION_TOP_SIDE_LEFT;
 
+        case PA_CHANNEL_POSITION_SURROUND_LEFT:
+               return PA_CHANNEL_POSITION_SURROUND_RIGHT;
+
+        case PA_CHANNEL_POSITION_SURROUND_RIGHT:
+               return PA_CHANNEL_POSITION_SURROUND_LEFT;
+
         default:
             return channel;
     }
