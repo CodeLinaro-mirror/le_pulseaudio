@@ -723,7 +723,8 @@ static bool on_left(pa_channel_position_t p) {
         p == PA_CHANNEL_POSITION_FRONT_LEFT_WIDE ||
         p == PA_CHANNEL_POSITION_TOP_FRONT_LEFT ||
         p == PA_CHANNEL_POSITION_TOP_REAR_LEFT ||
-        p == PA_CHANNEL_POSITION_TOP_SIDE_LEFT;
+        p == PA_CHANNEL_POSITION_TOP_SIDE_LEFT ||
+        p == PA_CHANNEL_POSITION_SURROUND_LEFT;
 }
 
 static bool on_right(pa_channel_position_t p) {
@@ -736,7 +737,8 @@ static bool on_right(pa_channel_position_t p) {
         p == PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE ||
         p == PA_CHANNEL_POSITION_TOP_FRONT_RIGHT ||
         p == PA_CHANNEL_POSITION_TOP_REAR_RIGHT ||
-        p == PA_CHANNEL_POSITION_TOP_SIDE_RIGHT;
+        p == PA_CHANNEL_POSITION_TOP_SIDE_RIGHT ||
+        p == PA_CHANNEL_POSITION_SURROUND_RIGHT ;
 }
 
 static bool on_center(pa_channel_position_t p) {

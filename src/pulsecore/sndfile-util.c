@@ -282,6 +282,9 @@ int pa_sndfile_write_channel_map(SNDFILE *sf, pa_channel_map *cm) {
 
         [PA_CHANNEL_POSITION_TOP_SIDE_LEFT] = -1,
         [PA_CHANNEL_POSITION_TOP_SIDE_RIGHT] = -1,
+
+        [PA_CHANNEL_POSITION_SURROUND_LEFT] = -1,
+        [PA_CHANNEL_POSITION_SURROUND_RIGHT] = -1,
     };
 
     int *channels;
