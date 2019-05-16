@@ -1,0 +1,14 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=@CMAKE_INSTALL_PREFIX@
+libdir=@CMAKE_LIBRARY_PATH@
+sharedlibdir=@CMAKE_LIBRARY_PATH@
+includedir=@CMAKE_INCLUDE_PATH@
+
+Name: libdbus_audiorate
+Description: libdbus_audiorate  library
+Version: @VERSION@
+
+Requires:
+Libs: -L${libdir} -L${sharedlibdir} -ldbus_audiorate
+Cflags: -I${includedir}
+
