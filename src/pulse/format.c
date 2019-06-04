@@ -54,6 +54,7 @@ static const char* const _encoding_str_table[]= {
     [PA_ENCODING_UNKNOWN_HBR_IEC61937] = "unknown-hbr-iec61937",
     [PA_ENCODING_MPEG] = "mpeg",
     [PA_ENCODING_AAC] = "aac",
+    [PA_ENCODING_MAT_IEC61937] = "mat-iec61937",
     [PA_ENCODING_ANY] = "any",
 };
 
@@ -126,6 +127,7 @@ int pa_format_info_is_passthrough(const pa_format_info *f) {
         case PA_ENCODING_UNKNOWN_IEC61937:
         case PA_ENCODING_UNKNOWN_4X_IEC61937:
         case PA_ENCODING_UNKNOWN_HBR_IEC61937:
+        case PA_ENCODING_MAT_IEC61937:
             return true;
 
         default:

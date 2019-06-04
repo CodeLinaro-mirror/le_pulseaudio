@@ -240,7 +240,8 @@ int pa_format_info_to_sample_spec_fake(const pa_format_info *f, pa_sample_spec *
 
     if ((f->encoding == PA_ENCODING_TRUEHD_IEC61937) ||
         (f->encoding == PA_ENCODING_DTSHD_IEC61937) ||
-        (f->encoding == PA_ENCODING_UNKNOWN_HBR_IEC61937)) {
+        (f->encoding == PA_ENCODING_UNKNOWN_HBR_IEC61937) ||
+        (f->encoding == PA_ENCODING_MAT_IEC61937)) {
         ss->channels = 8;
         if (map) {
             /* We use the ALSA mapping, because most likely we will be using an
