@@ -947,3 +947,20 @@ audio_channel_mask_t pa_qahw_util_in_mask_from_count(uint32_t channel_count)
 
     return channel_mask;
 }
+
+pa_qahw_card_avoid_processing_config_id_t pa_qahw_utils_get_config_id_from_string(const char *config_str) {
+    pa_qahw_card_avoid_processing_config_id_t config_id = PA_QAHW_CARD_AVOID_PROCESSING_FOR_NONE;
+
+    if (pa_streq(config_str, "all") || pa_streq(config_str, "true"))
+        config_id = PA_QAHW_CARD_AVOID_PROCESSING_FOR_ALL;
+    else if (pa_streq(config_str, "rate"))
+        config_id = PA_QAHW_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE;
+    else if (pa_streq(config_str, "bitwidth"))
+        config_id = PA_QAHW_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH;
+    else if (pa_streq(config_str, "channels"))
+        config_id = PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS;
+    else
+        pa_log_error("%s: Unsupported config %s", __func__, config_str);
+
+    return config_id;
+}
