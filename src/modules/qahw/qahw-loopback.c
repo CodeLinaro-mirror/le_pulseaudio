@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -270,6 +270,20 @@ static audio_format_t pa_qahw_loopback_check_audio_format(uint32_t audio_format)
     return AUDIO_FORMAT_AC3;
 }
 
+static pa_encoding_t pa_qahw_loopback_get_valid_dsp_encoding(pa_encoding_t encoding) {
+    switch (encoding) {
+        case PA_ENCODING_UNKNOWN_4X_IEC61937:
+            return PA_ENCODING_EAC3_IEC61937;
+        case PA_ENCODING_UNKNOWN_HBR_IEC61937:
+            return PA_ENCODING_TRUEHD_IEC61937;
+        case PA_ENCODING_UNKNOWN_IEC61937:
+            return PA_ENCODING_AC3_IEC61937;
+        default:
+            pa_log_info("%s: returning default encoding %d", __func__, encoding);
+            return encoding;
+    }
+}
+
 static pa_qahw_jack_out_config *pa_qahw_loopback_read_port_configuration(char *port_name, pa_qahw_card_port_config *config_port,
                                                              pa_direction_t direction, pa_qahw_loopback_config *loopback_config) {
     pa_qahw_jack_type_t jack_type;
@@ -431,8 +445,8 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
                 return -1;
             }
 
-            pa_log_info("%s: No port %s using config %s", __func__, port_name,
-                          pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
+            pa_log_info("%s: port %s using config %s", __func__, port_name,
+                       pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
 
             num_channels = map.channels;
             sample_format =  ss.format;
@@ -442,10 +456,12 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
 
     cfg->channel_mask = pa_qahw_util_get_channel_mask_from_num_channels(num_channels);
 
-    if (encoding == PA_ENCODING_PCM)
+    if (encoding == PA_ENCODING_PCM) {
         cfg->format = pa_qahw_util_get_qahw_format_from_pa_sample(sample_format);
-    else
+    } else {
+        encoding = pa_qahw_loopback_get_valid_dsp_encoding(encoding);
         cfg->format = pa_qahw_util_get_qahw_format_from_pa_encoding(encoding);
+    }
 
     memset(&(cfg->gain), 0, sizeof(struct audio_gain_config));
 
@@ -644,10 +660,12 @@ static pa_hook_result_t pa_qahw_loopback_jack_callback(void *dummy __attribute__
     ses_data->src_cfg.sample_rate = (port_config->ss).rate;
     ses_data->src_cfg.channel_mask = pa_qahw_util_get_channel_mask_from_num_channels((port_config->ss).channels);
 
-    if (port_config->encoding == PA_ENCODING_PCM)
+    if (port_config->encoding == PA_ENCODING_PCM) {
         ses_data->src_cfg.format = pa_qahw_util_get_qahw_format_from_pa_sample((port_config->ss).format);
-    else
+    } else {
+        port_config->encoding = pa_qahw_loopback_get_valid_dsp_encoding(port_config->encoding);
         ses_data->src_cfg.format = pa_qahw_util_get_qahw_format_from_pa_encoding(port_config->encoding);
+    }
 
     if (ses_data->src_config_mask == PA_QAHW_LOOPBACK_PORT_CONFIG_AUTO)
         loopback_event = pa_qahw_loopback_restart_loopback_session(ses_data);
@@ -1134,6 +1152,9 @@ static void pa_qahw_loopback_stop(DBusConnection *conn, DBusMessage *msg, void *
 
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "session ID is not valid");
         dbus_error_free(&error);
+
+        /* Notify PA_QAHW_LOOPBACK_EVENT_STOPPED to QAHW card module */
+        ses_data->common->callback(ses_data->src_port, PA_QAHW_LOOPBACK_EVENT_STOPPED, ses_data->common->prv_data);
 
         pa_hashmap_remove(ses_data->common->loopback_sessions, &ses_data->ses_handle);
         pa_hashmap_remove(ses_data->common->loopback_mappings, &ses_data->ses_handle);

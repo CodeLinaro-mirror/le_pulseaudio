@@ -88,7 +88,7 @@ static int sink_process_msg_cb(pa_msgobject *o, int code, void *data, int64_t of
 
         case PA_SINK_MESSAGE_GET_LATENCY:
 
-            /* The sink is _put() before the sink input is, so let's
+            /* The sink is _put() before the sink input is, so let's,
              * make sure we don't access it in that time. Also, the
              * sink input is first shut down, the sink second. */
             if (!PA_SINK_IS_LINKED(u->sink->thread_info.state) ||

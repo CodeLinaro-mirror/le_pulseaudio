@@ -151,6 +151,9 @@ typedef enum pa_channel_position {
     PA_CHANNEL_POSITION_TOP_SIDE_LEFT,            /**< Dolby call this 'Left Top Middle' */
     PA_CHANNEL_POSITION_TOP_SIDE_RIGHT,           /**< Dolby call this 'Right Top Middle' */
 
+    PA_CHANNEL_POSITION_SURROUND_LEFT,            /**< DTS call this 'Surround Left' */
+    PA_CHANNEL_POSITION_SURROUND_RIGHT,           /**< DTS call this 'Surround Right' */
+
     PA_CHANNEL_POSITION_MAX
 } pa_channel_position_t;
 
@@ -215,6 +218,8 @@ typedef enum pa_channel_position {
 #define PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE
 #define PA_CHANNEL_POSITION_TOP_SIDE_LEFT PA_CHANNEL_POSITION_TOP_SIDE_LEFT
 #define PA_CHANNEL_POSITION_TOP_SIDE_RIGHT PA_CHANNEL_POSITION_TOP_SIDE_RIGHT
+#define PA_CHANNEL_POSITION_SURROUND_LEFT PA_CHANNEL_POSITION_SURROUND_LEFT
+#define PA_CHANNEL_POSITION_SURROUND_RIGHT PA_CHANNEL_POSITION_SURROUND_RIGHT
 #define PA_CHANNEL_POSITION_MAX PA_CHANNEL_POSITION_MAX
 /** \endcond */
 

@@ -52,6 +52,8 @@
 #define PA_DEFAULT_SOURCE_RATE 48000
 #define PA_DEFAULT_SOURCE_CHANNELS 2
 
+#define PA_DEFAULT_STARTUP_LATENCY_MS 100
+
 //#define SOURCE_DUMP_ENABLED
 
 typedef enum {
@@ -77,6 +79,7 @@ typedef struct {
     pa_atomic_t stopped;
 
     int32_t buffer_duration;
+    pa_atomic_t first_read;
 } qahw_source_data;
 
 typedef struct {
@@ -196,6 +199,7 @@ static int pa_qahw_source_start(pa_qahw_source_data *sdata) {
     pa_assert(sdata->qahw_sdata);
 
     pa_atomic_store(&sdata->qahw_sdata->stopped, 0);
+    pa_atomic_store(&sdata->qahw_sdata->first_read, 0);
     if (!(sdata->qahw_sdata->qahw_read_thread = pa_thread_new(sdata->pa_sdata->source->name, pa_qahw_source_read_thread_func, sdata))) {
         pa_log_error("%s: qahw_read_thread creation failed", __func__);
     }
@@ -434,6 +438,7 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
                 pa_msleep(pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 ret = in_buf.bytes;
             }
+            pa_atomic_store(&qahw_sdata->first_read, 1);
         } else {
             pa_memblock_release(chunk.memblock);
             pa_memblock_unref(chunk.memblock);
@@ -458,6 +463,8 @@ static void pa_qahw_source_thread_func(void *userdata) {
     pa_qahw_source_data *source_data = (pa_qahw_source_data *)userdata;
     pa_source_data *pa_sdata = source_data->pa_sdata;
     qahw_source_data *qahw_sdata = source_data->qahw_sdata;
+    pa_usec_t timeout = qahw_sdata->source_latency_us * 2;
+    bool timer_enabled = false;
 
     if ((pa_sdata->source->core->realtime_scheduling)) {
         pa_log_info("%s:: Making io thread for %s as realtime with prio %d", __func__,
@@ -473,9 +480,32 @@ static void pa_qahw_source_thread_func(void *userdata) {
     for (;;) {
         int ret = 0;
 
+        /* Start timer */
+        if (PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
+            if (!pa_atomic_load(&qahw_sdata->first_read))
+                timeout += (PA_DEFAULT_STARTUP_LATENCY_MS * 1000);
+
+            pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, timeout);
+            timer_enabled = true;
+        }
+
         /* nothing to do. Let's sleep */
         if ((ret = pa_rtpoll_run(pa_sdata->rtpoll, true)) < 0)
             goto fail;
+
+        /* Check whether timer has elapsed *
+         * This case occur when read() gets blocked in alsa */
+        if (timer_enabled) {
+            if (pa_rtpoll_timer_elapsed(pa_sdata->rtpoll)) {
+                if (source_data->qahw_sdata) {
+                    pa_log_info("%s: timer exceeded. unblock read() by calling stop()", __func__);
+                    qahw_in_stop(qahw_sdata->in_handle);
+                }
+            }
+
+            pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
+            timer_enabled = false;
+        }
 
         if (ret == 0)
             goto finish;
@@ -629,7 +659,7 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t
 
 static int create_pa_source(pa_module *m, char *source_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map,
                             uint32_t alternate_sample_rate, bool avoid_processing, pa_card *card, pa_hashmap *ports, const char *driver,
-                            pa_qahw_source_data *source_data) {
+                            pa_qahw_source_data *source_data, pa_proplist *proplist) {
     pa_source_new_data new_data;
     pa_source_data *pa_sdata = NULL;
 
@@ -681,6 +711,9 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
 
     new_data.avoid_processing = avoid_processing;
+
+    if (proplist)
+        pa_proplist_update(new_data.proplist, PA_UPDATE_REPLACE, proplist);
 
     pa_sdata->source = pa_source_new(m->core, &new_data, PA_SOURCE_HARDWARE);
     if (!pa_sdata->source) {
@@ -858,7 +891,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     }
 
     rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate,
-                          source->avoid_processing, card, ports, driver, sdata);
+                          source->avoid_processing, card, ports, driver, sdata, source->proplist);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", source->name, rc);
         free_qahw_source(sdata->qahw_sdata);
