@@ -395,10 +395,7 @@ static int pa_qahw_sink_standby(qahw_sink_data *qahw_sdata) {
     qahw_out_standby(qahw_sdata->out_handle);
     pa_atomic_store(&qahw_sdata->wait_for_write_ready, 0);
     qahw_sdata->state = STATE_IDLE;
-
-    /* Reset bytes written only for offload playback since AHAL does not reset in standby */
-    if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
-        qahw_sdata->bytes_written = 0;
+    qahw_sdata->bytes_written = 0;
 
     if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_FAST)
         pa_atomic_store(&qahw_sdata->set_rt_prio_for_out_cb, 1);
