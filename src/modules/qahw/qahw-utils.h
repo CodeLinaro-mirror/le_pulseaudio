@@ -50,4 +50,6 @@ void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qa
 pa_channel_map* pa_qahw_util_channel_map_init(pa_channel_map *m, unsigned channels);
 int pa_qahw_util_set_qahw_metadata_from_pa_format(const pa_format_info *format);
 audio_channel_mask_t pa_qahw_util_in_mask_from_count(uint32_t channel_count);
+pa_qahw_card_avoid_processing_config_id_t pa_qahw_utils_get_config_id_from_string(const char *config_str);
+
 #endif
