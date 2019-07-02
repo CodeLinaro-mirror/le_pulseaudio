@@ -519,10 +519,10 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
 
         memset(&in_buf, 0, sizeof(qahw_in_buffer_t));
 
+        pa_memchunk_reset(&chunk);
         chunk.memblock = pa_memblock_new(pa_sdata->source->core->mempool, (size_t) qahw_sdata->source_buffer_size);
         data = pa_memblock_acquire(chunk.memblock);
         chunk.length = pa_memblock_get_length(chunk.memblock);
-        chunk.index = 0;
 
         in_buf.buffer = data;
         in_buf.bytes = chunk.length;
