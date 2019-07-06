@@ -44,6 +44,8 @@ typedef struct {
     pa_hashmap *profiles;
     char **port_conf_string;
     pa_qal_card_usecase_type_t usecase_type;
+    uint32_t buffer_size;
+    uint32_t buffer_count;
 } pa_qal_source_config;
 
 /*create qal session and pa source */
