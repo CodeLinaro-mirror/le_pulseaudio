@@ -89,6 +89,7 @@ typedef struct {
     char *arc_state_node_path;
     char *arc_sample_format_node_path;
     char *arc_sample_rate_node_path;
+    char *bus;
 } pa_qahw_card_port_config;
 
 typedef union {
