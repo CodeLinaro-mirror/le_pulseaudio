@@ -112,6 +112,11 @@ void pa_device_port_set_available(pa_device_port *p, pa_available_t status) {
 
         pa_subscription_post(p->core, PA_SUBSCRIPTION_EVENT_CARD|PA_SUBSCRIPTION_EVENT_CHANGE, p->card->index);
 
+        /* This may cause the sink and source pointers to become invalid, if
+         * the availability change causes the card profile to get switched. If
+         * you add code after this line, remember to take that into account. */
+        pa_hook_fire(&p->core->hooks[PA_CORE_HOOK_PORT_AVAILABLE_CHANGED], p);
+
         sink = pa_device_port_get_sink(p);
         source = pa_device_port_get_source(p);
         if (sink)
@@ -144,11 +149,6 @@ void pa_device_port_set_available(pa_device_port *p, pa_available_t status) {
                     pa_core_move_streams_to_newly_available_preferred_source(p->core, source);
             }
         }
-
-        /* This may cause the sink and source pointers to become invalid, if
-         * the availability change causes the card profile to get switched. If
-         * you add code after this line, remember to take that into account. */
-        pa_hook_fire(&p->core->hooks[PA_CORE_HOOK_PORT_AVAILABLE_CHANGED], p);
     }
 }
 
