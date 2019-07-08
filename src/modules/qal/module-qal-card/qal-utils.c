@@ -90,6 +90,11 @@ static pa_qal_util_pa_qal_channel_map pa_qal_channel_map[] = {
     { PA_CHANNEL_POSITION_TOP_SIDE_RIGHT, QAL_CHMAP_CHANNEL_TSR }
 };
 
+uint32_t pa_qal_get_channel_count(pa_channel_map *pa_map) {
+    pa_assert(pa_map);
+    return pa_map->channels;
+}
+
 bool pa_qal_channel_map_to_qal(pa_channel_map *pa_map, struct qal_channel_info *qal_map) {
     uint32_t channels;
     uint32_t count;

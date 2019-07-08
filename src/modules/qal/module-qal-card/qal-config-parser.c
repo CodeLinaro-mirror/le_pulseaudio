@@ -375,6 +375,60 @@ exit:
     return ret;
 }
 
+static int pa_qal_config_parse_default_buffer_size(pa_config_parser_state *state) {
+    pa_qal_config_data* config_data = state->userdata;
+    pa_qal_sink_config *sink = NULL;
+    pa_qal_source_config *source = NULL;
+
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+        pa_atou(state->rvalue, &sink->buffer_size);
+        pa_log_debug("%s adding default buffer size %d to sink %s", __func__, sink->buffer_size, sink->name);
+    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+        pa_atou(state->rvalue, &source->buffer_size);
+        pa_log_debug("%s adding default buffer size %d to source %s", __func__, source->buffer_size, source->name);
+    } else {
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qal_config_parse_default_buffer_count(pa_config_parser_state *state) {
+    pa_qal_config_data* config_data = state->userdata;
+    pa_qal_sink_config *sink = NULL;
+    pa_qal_source_config *source = NULL;
+
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+        pa_atou(state->rvalue, &sink->buffer_count);
+        pa_log_debug("%s adding default buffer count %d to sink %s", __func__, sink->buffer_count, sink->name);
+    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+        pa_atou(state->rvalue, &source->buffer_count);
+        pa_log_debug("%s adding default buffer count %d to source %s", __func__, source->buffer_count, source->name);
+    } else {
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
 static int pa_qal_config_parse_sample_rates(pa_config_parser_state *state) {
     pa_qal_config_data* config_data = state->userdata;
     pa_qal_sink_config *sink = NULL;
@@ -1191,6 +1245,8 @@ pa_qal_config_data* pa_qal_config_parse_new(char *dir, char *conf_file_name) {
         { "default-sample-rate",         pa_qal_config_parse_default_sample_rate,                 NULL, NULL },
         { "default-sample-format",       pa_qal_config_parse_default_sample_format,               NULL, NULL },
         { "default-channel-map",         pa_qal_config_parse_default_channel_map,                 NULL, NULL },
+        { "default-buffer-size",         pa_qal_config_parse_default_buffer_size,                 NULL, NULL },
+        { "default-buffer-count",        pa_qal_config_parse_default_buffer_count,                NULL, NULL },
         { "encodings",                   pa_qal_config_parse_encodings,                           NULL, NULL },
         { "sample-rates",                pa_qal_config_parse_sample_rates,                        NULL, NULL },
         { "sample-formats",              pa_qal_config_parse_sample_formats,                      NULL, NULL },

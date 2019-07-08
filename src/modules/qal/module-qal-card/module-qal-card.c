@@ -455,7 +455,6 @@ void pa__done(pa_module *m) {
     struct userdata *u;
     pa_card_profile *profile;
     void *state;
-    int ret = 0;
 
     pa_assert(m);
 
@@ -478,10 +477,7 @@ void pa__done(pa_module *m) {
         pa_hashmap_free(u->sources);
     }
 
-    ret = qal_deinit();
-
-    if (ret)
-        pa_log_error("%s: qal deinit failed\n", __func__);
+    qal_deinit();
 
     pa_qal_card_free(u);
 
