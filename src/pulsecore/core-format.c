@@ -1,5 +1,6 @@
 /***
   This file is part of PulseAudio.
+  Copyright (c) 2019 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -139,6 +140,7 @@ int pa_format_info_to_sample_spec_fake(const pa_format_info *f, pa_sample_spec *
 
         case PA_ENCODING_MPEG:
         case PA_ENCODING_AAC:
+        case PA_ENCODING_DSD:
             /* Fake a frame size of 1 byte for compressed data */
             ss->format = PA_SAMPLE_U8;
             break;
@@ -161,7 +163,8 @@ int pa_format_info_to_sample_spec_fake(const pa_format_info *f, pa_sample_spec *
             pa_channel_map_init_auto(map, 8, PA_CHANNEL_MAP_ALSA);
         }
     } else if (f->encoding == PA_ENCODING_MPEG ||
-               f->encoding == PA_ENCODING_AAC) {
+               f->encoding == PA_ENCODING_AAC ||
+               f->encoding == PA_ENCODING_DSD) {
         /* Fake a frame size of 1 byte for compressed data */
         ss->channels = 1;
         if (map)

@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2006 Lennart Poettering
+  Copyright (c) 2019 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -55,6 +56,7 @@ PA_MODULE_USAGE(
         "source_properties=<properties for the source> "
         "file=<path of the FIFO> "
         "format=<sample format> "
+        "formats=<semi-colon separated source formats> "
         "rate=<sample rate> "
         "channels=<number of channels> "
         "channel_map=<channel map>");
@@ -66,6 +68,9 @@ struct userdata {
     pa_core *core;
     pa_module *module;
     pa_source *source;
+
+    pa_idxset *formats;
+    bool compressed;
 
     pa_thread *thread;
     pa_thread_mq thread_mq;
@@ -84,6 +89,7 @@ static const char* const valid_modargs[] = {
     "source_properties",
     "file",
     "format",
+    "formats",
     "rate",
     "channels",
     "channel_map",
@@ -204,6 +210,14 @@ finish:
     pa_log_debug("Thread shutting down");
 }
 
+static pa_idxset* source_get_formats(pa_source *s) {
+    struct userdata *u = s->userdata;
+
+    pa_assert(u);
+
+    return pa_idxset_copy(u->formats, (pa_copy_func_t)pa_format_info_copy);
+}
+
 int pa__init(pa_module *m) {
     struct userdata *u;
     struct stat st;
@@ -212,6 +226,8 @@ int pa__init(pa_module *m) {
     pa_modargs *ma;
     struct pollfd *pollfd;
     pa_source_new_data data;
+    pa_format_info *format;
+    const char *formats;
 
     pa_assert(m);
 
@@ -267,6 +283,43 @@ int pa__init(pa_module *m) {
         goto fail;
     }
 
+    // Added list of supported formats by the source
+    u->formats = pa_idxset_new(NULL, NULL);
+    if ((formats = pa_modargs_get_value(ma, "formats", NULL))) {
+        char *f = NULL;
+        const char *state = NULL;
+
+        while ((f = pa_split(formats, ";", &state))) {
+            format = pa_format_info_from_string(pa_strip(f));
+
+            if (!format) {
+                pa_log(_("Failed to set format: invalid format string %s"), f);
+                goto fail;
+            }
+
+            /* Let's minimise the number of ways to provide configuration */
+            if (pa_format_info_is_pcm(format)) {
+                pa_log(_("The 'formats' argument should only be used for compressed formats"));
+                goto fail;
+            }
+
+            pa_idxset_put(u->formats, format, NULL);
+        }
+
+        u->compressed = true;
+
+        /* Set ourselves up for a 1 byte-per-frame sample spec */
+        ss.format = PA_SAMPLE_U8;
+        ss.channels = 1;
+        pa_channel_map_init_mono(&map);
+
+    } else {
+        format = pa_format_info_new();
+        format->encoding = PA_ENCODING_PCM;
+        pa_idxset_put(u->formats, format, NULL);
+        u->compressed = false;
+    }
+
     pa_source_new_data_init(&data);
     data.driver = __FILE__;
     data.module = m;
@@ -292,6 +345,7 @@ int pa__init(pa_module *m) {
 
     u->source->parent.process_msg = source_process_msg;
     u->source->userdata = u;
+    u->source->get_formats = source_get_formats;
 
     pa_source_set_asyncmsgq(u->source, u->thread_mq.inq);
     pa_source_set_rtpoll(u->source, u->rtpoll);
@@ -357,6 +411,8 @@ void pa__done(pa_module *m) {
 
     if (u->rtpoll_item)
         pa_rtpoll_item_free(u->rtpoll_item);
+
+    pa_idxset_free(u->formats, (pa_free_cb_t) pa_format_info_free);
 
     if (u->rtpoll)
         pa_rtpoll_free(u->rtpoll);

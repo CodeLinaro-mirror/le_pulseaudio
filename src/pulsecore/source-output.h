@@ -5,6 +5,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2006 Lennart Poettering
+  Copyright (c) 2019 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -284,6 +285,7 @@ pa_source_output_new_data* pa_source_output_new_data_init(pa_source_output_new_d
 void pa_source_output_new_data_set_sample_spec(pa_source_output_new_data *data, const pa_sample_spec *spec);
 void pa_source_output_new_data_set_channel_map(pa_source_output_new_data *data, const pa_channel_map *map);
 bool pa_source_output_new_data_is_passthrough(pa_source_output_new_data *data);
+bool pa_source_output_new_data_compressed(pa_source_output_new_data *data);
 void pa_source_output_new_data_set_volume(pa_source_output_new_data *data, const pa_cvolume *volume);
 void pa_source_output_new_data_apply_volume_factor(pa_source_output_new_data *data, const pa_cvolume *volume_factor);
 void pa_source_output_new_data_apply_volume_factor_source(pa_source_output_new_data *data, const pa_cvolume *volume_factor);
