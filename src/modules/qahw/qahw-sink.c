@@ -109,6 +109,8 @@ typedef struct {
     pa_thread *thread;
     pa_rtpoll_item *rtpoll_item;
     pa_idxset *formats;
+
+    pa_qahw_card_avoid_processing_config_id_t avoid_config_processing;
 } pa_sink_data;
 
 typedef struct {
@@ -138,6 +140,16 @@ static int pa_qahw_sink_pause(pa_qahw_sink_data *sdata, bool pause);
 
 static const uint32_t supported_sink_rates[] =
                           {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
+
+#ifdef CLOCK_MONOTONIC
+static int32_t get_clock_id() {
+    return CLOCK_MONOTONIC;
+}
+#else
+static int32_t get_clock_id() {
+    return CLOCK_REALTIME;
+}
+#endif
 
 static pa_sample_format_t pa_qahw_sink_find_nearest_supported_pa_format(pa_sample_format_t format) {
     pa_sample_format_t format1;
@@ -290,12 +302,11 @@ static int pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t enco
 static uint64_t pa_qahw_sink_get_latency(pa_qahw_sink_data *sdata) {
     int rc, delta, bytes_rendered;
     int64_t latency = 0;
-    uint64_t frames;
     qahw_sink_data *qahw_sdata;
     pa_sink_data *pa_sdata;
 
-    struct timespec timestamp;
     pa_usec_t qahw_time, now, delta_usec;
+    struct qahw_out_presentation_position_param pos_param;
 
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
@@ -306,11 +317,14 @@ static uint64_t pa_qahw_sink_get_latency(pa_qahw_sink_data *sdata) {
 
     pa_assert(pa_sdata->sink);
     pa_assert(qahw_sdata->out_handle);
+    memset(&pos_param, 0, sizeof(struct qahw_out_presentation_position_param));
 
-    rc = qahw_out_get_presentation_position(qahw_sdata->out_handle, &frames, &timestamp);
+    pos_param.clock_id = get_clock_id();
+    rc = qahw_out_get_param_data(qahw_sdata->out_handle, QAHW_PARAM_OUT_PRESENTATION_POSITION,
+                                 (qahw_param_payload *)&pos_param);
     if (!rc) {
-        qahw_time = pa_timespec_load(&timestamp);
-        bytes_rendered =  frames * pa_frame_size(&pa_sdata->sink->sample_spec);
+        qahw_time = pa_timespec_load(&pos_param.timestamp);
+        bytes_rendered =  pos_param.frames * pa_frame_size(&pa_sdata->sink->sample_spec);
 
         /* calculate bytes pending to be rendered */
         if (qahw_sdata->compressed) {
@@ -321,6 +335,10 @@ static uint64_t pa_qahw_sink_get_latency(pa_qahw_sink_data *sdata) {
             delta_usec = pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec);
         }
 
+#ifdef SINK_DEBUG
+        pa_log_debug("%s:: timestamp %" PRId64 ", frames %" PRId64 " clock id %d", __func__,
+                     pos_param.timestamp.tv_sec*1000000000LL + pos_param.timestamp.tv_nsec, pos_param.frames, pos_param.clock_id);
+#endif
         /* bytes written should never be less than bytes rendered */
         if (delta_usec <= 0) {
 #ifdef SINK_DEBUG
@@ -379,10 +397,7 @@ static int pa_qahw_sink_standby(qahw_sink_data *qahw_sdata) {
     qahw_out_standby(qahw_sdata->out_handle);
     pa_atomic_store(&qahw_sdata->wait_for_write_ready, 0);
     qahw_sdata->state = STATE_IDLE;
-
-    /* Reset bytes written only for offload playback since AHAL does not reset in standby */
-    if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
-        qahw_sdata->bytes_written = 0;
+    qahw_sdata->bytes_written = 0;
 
     if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_FAST)
         pa_atomic_store(&qahw_sdata->set_rt_prio_for_out_cb, 1);
@@ -674,18 +689,30 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chan
             pa_log_info("%s:old channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), &pa_sdata->sink->channel_map));
             pa_log_info("%s:requested channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), map));
 
-            new_map = *map;
+            if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS)
+                new_map = *map;
+            else
+                new_map = pa_sdata->sink->channel_map;
         } else {
-            pa_channel_map_init_auto(&new_map, tmp_spec.channels, PA_CHANNEL_MAP_DEFAULT);
+            if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS)
+                pa_channel_map_init_auto(&new_map, tmp_spec.channels, PA_CHANNEL_MAP_DEFAULT);
+            else
+                new_map = pa_sdata->sink->channel_map;
         }
 
         qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port));
 
         /* find nearest suitable format */
-        tmp_spec.format = pa_qahw_sink_find_nearest_supported_pa_format(spec->format);
+        if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH)
+            tmp_spec.format = pa_qahw_sink_find_nearest_supported_pa_format(spec->format);
+        else
+            tmp_spec.format = pa_sdata->sink->sample_spec.format;
 
         /* find nearest suitable rate */
-        tmp_spec.rate =  pa_qahw_sink_find_nearest_supported_sample_rate(spec->rate);
+        if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE)
+            tmp_spec.rate =  pa_qahw_sink_find_nearest_supported_sample_rate(spec->rate);
+        else
+            tmp_spec.rate = pa_sdata->sink->sample_spec.rate;
 
         pa_log_info("%s: trying to reconfigure qahw with sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &tmp_spec));
 
@@ -1107,8 +1134,8 @@ static int pa_qahw_sink_alloc_common_resources(pa_qahw_sink_data *sdata) {
 }
 
 static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, bool use_hw_volume,
-                          uint32_t alternate_sample_rate, bool avoid_processing, pa_card *card, pa_hashmap *ports, const char *driver, pa_qahw_sink_data *sdata,
-                          pa_proplist *proplist) {
+                          uint32_t alternate_sample_rate, pa_qahw_card_avoid_processing_config_id_t avoid_config_processing, pa_card *card, pa_hashmap *ports,
+                          const char *driver, pa_qahw_sink_data *sdata, pa_proplist *proplist) {
     pa_sink_new_data new_data;
     pa_sink_data *pa_sdata;
     pa_device_port *port;
@@ -1160,7 +1187,10 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_qahw_sink_get_name_from_flags(sdata->qahw_sdata->flags));
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
 
-    new_data.avoid_processing = avoid_processing;
+    if (avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_ALL)
+        new_data.avoid_processing = true;
+    else
+        new_data.avoid_processing = false;
 
     if (proplist)
         pa_proplist_update(new_data.proplist, PA_UPDATE_REPLACE, proplist);
@@ -1183,6 +1213,8 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_sdata->sink->set_format = pa_qahw_sink_set_format_cb;
     pa_sdata->sink->drain = pa_qahw_sink_drain_cb;
     pa_sdata->sink->flush = pa_qahw_sink_flush_cb;
+
+    pa_sdata->avoid_config_processing = avoid_config_processing;
 
     if (pa_idxset_size(formats) > 0 ) {
         pa_sdata->sink->get_formats = pa_qahw_sink_get_formats;
@@ -1403,7 +1435,7 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     }
 
     rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &sink->default_spec, &sink->default_map, sink->use_hw_volume,
-                        sink->alternate_sample_rate, sink->avoid_processing, card, ports, driver, sdata, sink->proplist);
+                        sink->alternate_sample_rate, sink->avoid_config_processing, card, ports, driver, sdata, sink->proplist);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", sink->name, rc);
         free_qahw_sink(sdata);

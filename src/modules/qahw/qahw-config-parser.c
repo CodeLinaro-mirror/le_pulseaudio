@@ -1072,26 +1072,48 @@ static int pa_qahw_config_parse_avoid_processing(pa_config_parser_state *state) 
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink = NULL;
     pa_qahw_source_config *source = NULL;
-
-    bool avoid_processing = false;
-    int ret = 0;
+    char **items = NULL;
+    char *item;
+    char *name;
+    int i = 0;
+    int ret = -1;
 
     pa_assert(config_data);
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    avoid_processing = pa_parse_boolean(state->rvalue);
+    items = pa_split_spaces_strv(state->rvalue);
+
+    if (!items) {
+        pa_log_error("%s: [%s:%u] flag list missing", __func__, state->filename, state->lineno);
+        goto exit;
+    }
 
     if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
-        sink->avoid_processing = avoid_processing;
-        pa_log_debug("%s: avoid_processing %d for sink %s", __func__, sink->avoid_processing, sink->name);
+        name = sink->name;
     } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
-        source->avoid_processing = avoid_processing;
-        pa_log_debug("%s: avoid_processing %d for source %s", __func__, source->avoid_processing, source->name);
+        name = source->name;
     }  else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
-        ret = -1;
+        goto exit;
     }
+
+    /* add list to sink/source */
+    while ((item = items[i++])) {
+        if (sink) {
+            sink->avoid_config_processing |= pa_qahw_utils_get_config_id_from_string(item);
+            pa_log_debug("%s: adding %s to the list of configs to avoid processing for sink %s", __func__, item, name);
+        } else {
+            source->avoid_config_processing |= pa_qahw_utils_get_config_id_from_string(item);
+            pa_log_debug("%s: adding %s to the list of configs to avoid processing for source %s", __func__, item, name);
+        }
+    }
+
+    ret = 0;
+
+exit:
+    if (items)
+        pa_xstrfreev(items);
 
     return ret;
 }

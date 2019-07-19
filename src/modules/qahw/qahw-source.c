@@ -90,6 +90,8 @@ typedef struct {
     pa_thread_mq thread_mq;
     pa_thread *thread;
     pa_idxset *formats;
+
+    pa_qahw_card_avoid_processing_config_id_t avoid_config_processing;
 } pa_source_data;
 
 typedef struct {
@@ -393,17 +395,29 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_
             pa_log_info("%s:old channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), &pa_sdata->source->channel_map));
             pa_log_info("%s:requested channel map %s", __func__, pa_channel_map_snprint(channel_map_buf, sizeof(channel_map_buf), map));
 
-            new_map = *map;
+            if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS)
+                new_map = *map;
+            else
+                new_map = pa_sdata->source->channel_map;
         } else {
-            pa_channel_map_init_auto(&new_map, tmp_spec.channels, PA_CHANNEL_MAP_DEFAULT);
+            if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS)
+                pa_channel_map_init_auto(&new_map, tmp_spec.channels, PA_CHANNEL_MAP_DEFAULT);
+            else
+                new_map = pa_sdata->source->channel_map;
         }
 
         qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->source->active_port));
         /* find nearest suitable format */
-        tmp_spec.format = pa_qahw_source_find_nearest_supported_pa_format(spec->format);
+        if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH)
+            tmp_spec.format = pa_qahw_source_find_nearest_supported_pa_format(spec->format);
+        else
+            tmp_spec.format = pa_sdata->source->sample_spec.format;
 
         /* find nearest suitable rate */
-        tmp_spec.rate = pa_qahw_source_find_nearest_supported_sample_rate(spec->rate);
+        if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE)
+            tmp_spec.rate = pa_qahw_source_find_nearest_supported_sample_rate(spec->rate);
+        else
+            tmp_spec.rate = pa_sdata->source->sample_spec.rate;
 
         pa_log_info("%s: trying to reconfigure qahw with sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &tmp_spec));
 
@@ -505,10 +519,10 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
 
         memset(&in_buf, 0, sizeof(qahw_in_buffer_t));
 
+        pa_memchunk_reset(&chunk);
         chunk.memblock = pa_memblock_new(pa_sdata->source->core->mempool, (size_t) qahw_sdata->source_buffer_size);
         data = pa_memblock_acquire(chunk.memblock);
         chunk.length = pa_memblock_get_length(chunk.memblock);
-        chunk.index = 0;
 
         in_buf.buffer = data;
         in_buf.bytes = chunk.length;
@@ -758,8 +772,8 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t
 }
 
 static int create_pa_source(pa_module *m, char *source_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map,
-                            uint32_t alternate_sample_rate, bool avoid_processing, pa_card *card, pa_hashmap *ports, const char *driver,
-                            pa_qahw_source_data *source_data, pa_proplist *proplist) {
+                            uint32_t alternate_sample_rate, pa_qahw_card_avoid_processing_config_id_t avoid_config_processing, pa_card *card,
+                            pa_hashmap *ports, const char *driver, pa_qahw_source_data *source_data, pa_proplist *proplist) {
     pa_source_new_data new_data;
     pa_source_data *pa_sdata = NULL;
 
@@ -810,7 +824,10 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_qahw_source_get_name_from_flags(source_data->qahw_sdata->flags));
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
 
-    new_data.avoid_processing = avoid_processing;
+    if (avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_ALL)
+        new_data.avoid_processing = true;
+    else
+        new_data.avoid_processing = false;
 
     if (proplist)
         pa_proplist_update(new_data.proplist, PA_UPDATE_REPLACE, proplist);
@@ -831,6 +848,8 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
 
     /* FIXME: check reconfigure needed for non pcm */
     pa_sdata->source->reconfigure = pa_qahw_source_reconfigure_cb;
+
+    pa_sdata->avoid_config_processing = avoid_config_processing;
 
     if (pa_idxset_size(formats) > 0 ) {
         pa_sdata->source->get_formats = pa_qahw_source_get_formats;
@@ -991,7 +1010,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     }
 
     rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate,
-                          source->avoid_processing, card, ports, driver, sdata, source->proplist);
+                          source->avoid_config_processing, card, ports, driver, sdata, source->proplist);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", source->name, rc);
         free_qahw_source(sdata->qahw_sdata);
