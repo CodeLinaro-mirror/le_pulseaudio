@@ -81,9 +81,9 @@ typedef struct {
     pa_source_data *pa_sdata;
 } pa_qal_source_data;
 
-static int restart_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, qal_device_id_t device_id, qal_stream_type_t type,
+static int restart_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_qal_card_port_device_data *port_device_data, qal_stream_type_t type,
                               int source_id, qal_source_data *qal_sdata, uint32_t buffer_size, uint32_t buffer_count);
-static int create_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, qal_device_id_t device_id, qal_stream_type_t type,
+static int create_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_qal_card_port_device_data *port_device_data, qal_stream_type_t type,
                              int source_id, pa_qal_source_data *sdata, uint32_t buffer_size, uint32_t buffer_count);
 static int close_qal_source(qal_source_data *qal_sdata);
 
@@ -104,7 +104,7 @@ static const char *pa_qal_source_get_name_from_type(qal_stream_type_t type) {
 }
 
     //TODO: Format Hardcoded as of now
-static int pa_qal_source_fill_info(qal_source_data *qal_sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, qal_device_id_t device_id,
+static int pa_qal_source_fill_info(qal_source_data *qal_sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_qal_card_port_device_data *port_device_data,
                                     qal_stream_type_t type, int source_id, uint32_t buffer_size, uint32_t buffer_count) {
     uint32_t channel_count = 0;
     pa_assert(qal_sdata);
@@ -134,11 +134,17 @@ static int pa_qal_source_fill_info(qal_source_data *qal_sdata, pa_encoding_t enc
 
     qal_sdata->qal_device = pa_xnew0(struct qal_device, 1);
     memset(qal_sdata->qal_device, 0, sizeof(struct qal_device));
-    qal_sdata->qal_device->id = device_id;
-    qal_sdata->qal_device->config.sample_rate = 48000;
+    qal_sdata->qal_device->id = port_device_data->device;
+    qal_sdata->qal_device->config.sample_rate = port_device_data->default_spec.rate;
     qal_sdata->qal_device->config.bit_width = 16;
-    qal_sdata->qal_device->config.ch_info = pa_xnew0(struct qal_channel_info, 1);
-    qal_sdata->qal_device->config.ch_info->channels = 2;
+    channel_count = pa_qal_get_channel_count(&port_device_data->default_map);
+    qal_sdata->qal_device->config.ch_info = (struct qal_channel_info *) malloc(sizeof(uint16_t) + sizeof(uint8_t)*channel_count);
+    if (!pa_qal_channel_map_to_qal(map, qal_sdata->qal_device->config.ch_info)) {
+        pa_log_error("%s: unsupported channel map", __func__);
+        pa_xfree(qal_sdata->qal_device->config.ch_info);
+        return -1;
+    }
+
     qal_sdata->device_url = NULL; /* TODO: useful for BT devices */
     qal_sdata->index = source_id;
     qal_sdata->buffer_size = (size_t)buffer_size;
@@ -261,7 +267,7 @@ static int pa_qal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
         pa_sdata->source->sample_spec.rate = spec->rate;
 
         port_device_data = PA_DEVICE_PORT_DATA(pa_sdata->source->active_port);
-        rc = restart_qal_source(PA_ENCODING_PCM, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, port_device_data->device,
+        rc = restart_qal_source(PA_ENCODING_PCM, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, port_device_data,
                                 qal_sdata->stream_attributes->type, qal_sdata->index, qal_sdata, qal_sdata->buffer_size, qal_sdata->buffer_count);
         if (PA_UNLIKELY(rc)) {
             pa_sdata->source->sample_spec.rate = old_rate; /*restore old rate if failed*/
@@ -366,7 +372,7 @@ finish:
     pa_log_debug("Source IO Thread shutting down");
 }
 
-static int open_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, qal_device_id_t device_id, qal_stream_type_t type,
+static int open_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_qal_card_port_device_data *port_device_data, qal_stream_type_t type,
                            int source_id, qal_source_data *qal_sdata, uint32_t buffer_size, uint32_t buffer_count) {
     int rc;
 #ifdef SOURCE_DUMP_ENABLED
@@ -379,7 +385,7 @@ static int open_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channe
     pa_assert(map);
     pa_assert(qal_sdata);
 
-    pa_qal_source_fill_info(qal_sdata, encoding, ss, map, device_id, type, source_id, buffer_size, buffer_count);
+    pa_qal_source_fill_info(qal_sdata, encoding, ss, map, port_device_data, type, source_id, buffer_size, buffer_count);
 
 #ifdef SOURCE_DUMP_ENABLED
     file_name = pa_sprintf_malloc("/data/pcmdump_source_%d", qal_sdata->index);
@@ -441,7 +447,7 @@ static int close_qal_source(qal_source_data *qal_sdata) {
     return rc;
 }
 
-static int restart_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, qal_device_id_t device_id, qal_stream_type_t type,
+static int restart_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_qal_card_port_device_data *port_device_data, qal_stream_type_t type,
                               int source_id, qal_source_data *qal_sdata, uint32_t buffer_size, uint32_t buffer_count) {
     int rc;
 
@@ -451,7 +457,7 @@ static int restart_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_cha
         goto exit;
     }
 
-    rc = open_qal_source(encoding, ss, map, device_id, type, source_id, qal_sdata, buffer_size, buffer_count);
+    rc = open_qal_source(encoding, ss, map, port_device_data, type, source_id, qal_sdata, buffer_size, buffer_count);
     if (rc) {
         pa_log_error("open_qal_source failed during recreation, error %d", rc);
     }
@@ -478,13 +484,13 @@ static int free_qal_source(qal_source_data *qal_sdata) {
     return rc;
 }
 
-static int create_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, qal_device_id_t device_id, qal_stream_type_t type,
+static int create_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_qal_card_port_device_data *port_device_data, qal_stream_type_t type,
                              int source_id, pa_qal_source_data *sdata, uint32_t buffer_size, uint32_t buffer_count) {
     int rc;
 
     sdata->qal_sdata = pa_xnew0(qal_source_data, 1);
 
-    rc = open_qal_source(encoding, ss, map, device_id, type, source_id, sdata->qal_sdata, buffer_size, buffer_count);
+    rc = open_qal_source(encoding, ss, map, port_device_data, type, source_id, sdata->qal_sdata, buffer_size, buffer_count);
     if (rc) {
         pa_log_error("open_qal_source failed, error %d", rc);
         pa_xfree(sdata->qal_sdata);
@@ -703,7 +709,7 @@ int pa_qal_source_create(pa_module *m, pa_card *card, const char *driver, const 
 
     pa_log_info("%s: creating source with ss %s buffer size %d buffer count %d", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &source->default_spec), source->buffer_size, source->buffer_count);
 
-    rc = create_qal_source(source->default_encoding, &source->default_spec, &source->default_map, port_device_data->device, source->stream_type, source->id, sdata, source->buffer_size, source->buffer_count);
+    rc = create_qal_source(source->default_encoding, &source->default_spec, &source->default_map, port_device_data, source->stream_type, source->id, sdata, source->buffer_size, source->buffer_count);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could not open qal source, error %d", rc);
         pa_xfree(sdata);

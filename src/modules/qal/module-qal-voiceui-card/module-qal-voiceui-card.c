@@ -57,7 +57,7 @@ struct qal_voiceui_module_data {
     pa_dbus_protocol *dbus_protocol;
     pa_qal_voiceui_hooks *qsthw;
     bool is_session_started;
-    int32_t session_id;
+    uint32_t session_id;
 };
 
 struct qal_voiceui_session_data {
@@ -77,7 +77,9 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
 static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 enum module_handler_index {
@@ -89,7 +91,9 @@ enum session_handler_index {
     SESSION_HANDLER_UNLOAD_SOUND_MODEL,
     SESSION_HANDLER_START_RECOGNITION,
     SESSION_HANDLER_STOP_RECOGNITION,
+    SESSION_HANDLER_GET_BUFFER_SIZE,
     SESSION_HANDLER_READ_BUFFER,
+    SESSION_HANDLER_STOP_BUFFERING,
     SESSION_HANDLER_REQUEST_READ_BUFFER,
     SESSION_HANDLER_MAX
 };
@@ -111,9 +115,16 @@ pa_dbus_arg_info start_recognition_args[] = {
 pa_dbus_arg_info stop_recognition_args[] = {
 };
 
+pa_dbus_arg_info get_buffer_size_args[] = {
+    {"buffer_size", "i", "out"},
+};
+
 pa_dbus_arg_info read_buffer_args[] = {
     {"bytes", "u", "in"},
     {"buf", "ay", "out"},
+};
+
+pa_dbus_arg_info stop_buffering_args[] = {
 };
 
 pa_dbus_arg_info request_read_buffer_args[] = {
@@ -159,11 +170,21 @@ static pa_dbus_method_handler qsthw_session_handlers[SESSION_HANDLER_MAX] = {
         .arguments = stop_recognition_args,
         .n_arguments = sizeof(stop_recognition_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = stop_recognition},
+    [SESSION_HANDLER_GET_BUFFER_SIZE] = {
+    .method_name = "GetBufferSize",
+    .arguments = get_buffer_size_args,
+    .n_arguments = sizeof(get_buffer_size_args)/sizeof(pa_dbus_arg_info),
+    .receive_cb = get_buffer_size},
     [SESSION_HANDLER_READ_BUFFER] = {
         .method_name = "ReadBuffer",
         .arguments = read_buffer_args,
         .n_arguments = sizeof(read_buffer_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = read_buffer},
+    [SESSION_HANDLER_STOP_BUFFERING] = {
+        .method_name = "StopBuffering",
+        .arguments = stop_buffering_args,
+        .n_arguments = sizeof(stop_buffering_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = stop_buffering},
     [SESSION_HANDLER_REQUEST_READ_BUFFER] = {
         .method_name = "RequestReadBuffer",
         .arguments = request_read_buffer_args,
@@ -237,11 +258,10 @@ static void signal_read_buffer_available(struct qal_voiceui_session_data *ses_da
 
 /* Need to update this */
 static void pa_qal_fill_stream_attributes(struct qal_stream_attributes *stream_attr, uint32_t *no_of_devices,
-                                          struct qal_device *devices, uint32_t *no_of_modifiers,
-                                          struct modifier_kv *modifiers) {
+                                          struct qal_device *devices) {
     pa_assert(stream_attr);
     pa_assert(devices);
-    //Fix me: pa_assert(modifiers);
+
     stream_attr->type = QAL_STREAM_VOICE_UI;
     stream_attr->info.voice_rec_info.version = 1;
     stream_attr->info.voice_rec_info.record_direction = QAL_AUDIO_INPUT;
@@ -249,7 +269,7 @@ static void pa_qal_fill_stream_attributes(struct qal_stream_attributes *stream_a
     stream_attr->direction = QAL_AUDIO_INPUT;
     stream_attr->in_media_config.sample_rate = 16000;
     stream_attr->in_media_config.bit_width = 16;
-    stream_attr->in_media_config.aud_fmt_id = 0x00000000u;
+    stream_attr->in_media_config.aud_fmt_id = QAL_AUDIO_FMT_DEFAULT_PCM;
     stream_attr->in_media_config.ch_info->channels = 1;
 
     *no_of_devices = 1;
@@ -308,8 +328,6 @@ static void read_thread_func(void *userdata) {
 
 /* As of now qal is not filling event and cookie data. Hence just a log */
 static void event_callback(struct qal_st_recognition_event *event, void *cookie) {
-    pa_log_info("Callback event received");
-/*
     DBusMessage *message = NULL;
     DBusMessageIter arg_i, struct_i, struct_ii, array_i, array_ii;
     dbus_uint32_t i, j;
@@ -320,6 +338,16 @@ static void event_callback(struct qal_st_recognition_event *event, void *cookie)
     struct qal_st_phrase_recognition_event *phrase_event;
     int n_elements = 0;
     char *value = NULL;
+    dbus_bool_t capture_available;
+    dbus_bool_t trigger_in_data;
+    uint32_t channels;
+
+    pa_assert(event);
+    pa_assert(ses_data);
+
+    capture_available = event->capture_available;
+    trigger_in_data = event->trigger_in_data;
+    channels = event->media_config.ch_info->channels;
 
     pa_log_info("Callback event received: %d", event->status);
     qsthw_event = (pa_qal_st_phrase_recognition_event *)((void *)event);
@@ -328,22 +356,22 @@ static void event_callback(struct qal_st_recognition_event *event, void *cookie)
     pa_assert_se(message = dbus_message_new_signal(ses_data->obj_path,
             session_interface_info.name,
             det_event_signals[SIGNAL_DETECTION_EVENT].name));
+
     dbus_message_iter_init_append(message, &arg_i);
     dbus_message_iter_open_container(&arg_i, DBUS_TYPE_STRUCT, NULL, &struct_i);
     dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_INT32, &event->status);
     dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_INT32, &event->type);
     dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_INT32, &ses_data->common->session_id);
-    dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_BOOLEAN, &event->capture_available);
+    dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_BOOLEAN, &capture_available);
     dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_INT32, &event->capture_session);
     dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_INT32, &event->capture_delay_ms);
     dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_INT32, &event->capture_preamble_ms);
-    dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_BOOLEAN, &event->trigger_in_data);
-
+    dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_BOOLEAN, &trigger_in_data);
     dbus_message_iter_open_container(&struct_i, DBUS_TYPE_STRUCT, NULL, &struct_ii);
     dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &event->media_config.sample_rate);
-    dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &event->media_config.ch_info->channels); // TODO: Updatethis
+    dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &channels);
     dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &event->media_config.aud_fmt_id);
-    dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &frame_count);  // TODO: Update this
+    dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &frame_count);
     dbus_message_iter_close_container(&struct_i, &struct_ii);
     dbus_message_iter_close_container(&arg_i, &struct_i);
 
@@ -386,7 +414,7 @@ static void event_callback(struct qal_st_recognition_event *event, void *cookie)
         pa_hook_fire(&ses_data->common->qsthw->hooks[PA_HOOK_QAL_VOICEUI_START_DETECTION],NULL);
     }
 
-    dbus_message_unref(message); */
+    dbus_message_unref(message);
 }
 
 static DBusHandlerResult disconnection_filter_cb(DBusConnection *conn,
@@ -456,6 +484,29 @@ static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *us
     pa_dbus_send_empty_reply(conn, msg);
 }
 
+/*Fix me: Check if this is correct */
+static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct qal_voiceui_session_data *ses_data = userdata;
+    int status = 0;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    pa_log_debug("stop buffering");
+    status = qal_stream_stop(ses_data->ses_handle);
+    if (status) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "stop_buffering failed");
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
 static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     struct qal_voiceui_session_data *ses_data = userdata;
     int ret = 0;
@@ -492,12 +543,28 @@ static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata) 
     pa_assert_se((reply = dbus_message_new_method_return(msg)));
     dbus_message_iter_init_append(reply, &arg_i);
     dbus_message_iter_open_container(&arg_i, DBUS_TYPE_ARRAY, "y", &array_i);
-    dbus_message_iter_append_fixed_array(&array_i, DBUS_TYPE_BYTE, &in_buffer.buffer, bytes);
+    dbus_message_iter_append_fixed_array(&array_i, DBUS_TYPE_BYTE, &in_buffer.buffer, ret);
     dbus_message_iter_close_container(&arg_i, &array_i);
     pa_assert_se(dbus_connection_send(conn, reply, NULL));
 
     pa_xfree(in_buffer.buffer);
     dbus_message_unref(reply);
+}
+
+static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    int buffer_size;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    pa_log_debug("get buffer size");
+    buffer_size = 3840; /* Fixme: Modify this once qal_stream_get_buffer_size is implemented */
+
+    pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &buffer_size);
 }
 
 static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata) {
@@ -615,6 +682,7 @@ static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *user
     memcpy((char *)rc_config + rc_config->data_offset,
            value, n_elements);
     rc_config->callback = event_callback;
+    rc_config->cookie = (void *)ses_data;
 
     status = qal_stream_set_param(ses_data->ses_handle, QAL_PARAM_ID_START_RECOGNITION, (qal_param_payload *)rc_config);
     pa_xfree(rc_config);
@@ -747,7 +815,7 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
     memcpy(&sound_model.vendor_uuid.node[0], value, n_elements);
 
-    pa_qal_fill_stream_attributes(stream_attr, &no_of_devices, devices, &no_of_modifiers, modifiers);
+    pa_qal_fill_stream_attributes(stream_attr, &no_of_devices, devices);
 
     rc = qal_stream_open(stream_attr, no_of_devices, devices, no_of_modifiers, modifiers, NULL, NULL, &stream_handle);
     if (rc != 0) {
@@ -756,7 +824,6 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
         dbus_error_free(&error);
         return;
     }
-
 
     if (sm_type == QAL_SOUND_MODEL_TYPE_KEYPHRASE) {
         memcpy(&phrase_sound_model.common, &sound_model,
@@ -923,8 +990,7 @@ void pa__done(pa_module *m) {
     if (m_data->obj_path)
         pa_xfree(m_data->obj_path);
 
-    if (qal_deinit() < 0)
-        pa_log_error("QAL deinitialization failed\n");
+    qal_deinit();
 
     if (m_data->module_name)
         pa_xfree(m_data->module_name);
