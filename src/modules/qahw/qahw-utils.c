@@ -848,6 +848,12 @@ void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qa
 
     if (config_port->arc_sample_rate_node_path)
         jack_in_config->jack_sys_path.arc_audio_rate = config_port->arc_sample_rate_node_path;
+
+    if (config_port->audio_preemph_node_path)
+        jack_in_config->jack_sys_path.audio_preemph = config_port->audio_preemph_node_path;
+
+    if (config_port->arc_audio_preemph_node_path)
+        jack_in_config->jack_sys_path.arc_audio_preemph = config_port->arc_audio_preemph_node_path;
 }
 
 /* With reference to the translation table from "Dolby Atmos to Sound Bar Product

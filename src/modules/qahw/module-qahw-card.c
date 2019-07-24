@@ -310,6 +310,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
     new_source.default_map = config->map;
     new_source.formats = requested_formats;
     new_source.default_encoding = config->encoding;
+    new_source.preemph_status = config->preemph_status;
 
     source_info = pa_xnew0(pa_qahw_card_source_info, 1);
     rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, &new_source, &(source_info->handle));

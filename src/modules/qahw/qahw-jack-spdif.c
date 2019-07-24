@@ -103,13 +103,14 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
 
         if (audio_change_detected) {
             if (!pa_qahw_spdif_jack_get_config(spdif_jdata->active_port_type, spdif_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
-                if (new_port_config.active_jack != PA_QAHW_JACK_TYPE_INVALID) {
-                    memcpy(&curr_spdif_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
+                if ((new_port_config.active_jack != PA_QAHW_JACK_TYPE_INVALID) ||
+                    (new_port_config.preemph_status != curr_spdif_jack_config.preemph_status)) {
                     pa_log_info("qahw jack type %d config update", spdif_jdata->jack_type);
                     event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
                     event_data.pa_qahw_jack_info = &new_port_config;
                     pa_hook_fire(&(spdif_jdata->event_hook), &event_data);
-                    spdif_jdata->active_port_type = new_port_config.active_jack;
+                    spdif_jdata->active_port_type = PA_QAHW_JACK_TYPE_SPDIF;
+                    memcpy(&curr_spdif_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
                 }
             }
         }
@@ -130,6 +131,9 @@ struct pa_qahw_jack_data* pa_qahw_spdif_jack_detection_enable(pa_qahw_jack_type_
         pa_log_error("Socket initialization failed\n");
         return NULL;
     }
+
+    /* Initialize current jack out config */
+    memset(&curr_spdif_jack_config, 0, sizeof(pa_qahw_jack_out_config));
 
     jdata = pa_xnew0(struct pa_qahw_jack_data, 1);
 

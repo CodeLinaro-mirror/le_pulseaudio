@@ -949,6 +949,12 @@ static int pa_qahw_config_parse_port_sys_path(pa_config_parser_state *state) {
         } else if (pa_streq(state->lvalue, "arc-sample-rate-node-path")) {
             port->arc_sample_rate_node_path = pa_xstrdup(state->rvalue);
             pa_log_debug("%s: adding arc sample rate node path %s to %s", __func__, port->arc_sample_rate_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "audio-preemph-node-path")) {
+            port->audio_preemph_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding audio preemph node path %s to %s", __func__, port->audio_preemph_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "arc-audio-preemph-node-path")) {
+            port->arc_audio_preemph_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding arc audio preemph node path %s to %s", __func__, port->arc_audio_preemph_node_path, port->name);
         } else {
             pa_log_error ("%s: invalid property %s", __func__, state->lvalue);
             goto exit;
@@ -1858,6 +1864,8 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "arc-sample-format-node-path", pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "arc-sample-rate-node-path",   pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "bus",                         pa_qahw_config_parse_bus,                                 NULL, NULL },
+        { "audio-preemph-node-path",     pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "arc-audio-preemph-node-path", pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
 
         /* [Profile... ] */
         { "max-sink-channels",           pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },

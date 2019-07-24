@@ -50,6 +50,7 @@ typedef struct {
     audio_source_t source_type;
     pa_qahw_card_usecase_type_t usecase_type;
     int32_t buffer_duration;
+    int32_t preemph_status;
 } pa_qahw_source_config;
 
 /*create qahw session and pa source */
