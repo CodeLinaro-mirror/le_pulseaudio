@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2006 Lennart Poettering
+  Copyright (c) 2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -1019,7 +1020,10 @@ static void setup_remap(const pa_resampler *r, pa_remap_t *m, bool *lfe_remixed)
             }
 
             if (!oc_connected) {
-                /* Maybe it is due to 5.1 rear/side confustion? */
+                /* Maybe it is due to 5.1 rear/side confusion?
+                 * And for height speakers (TOP) vs Dolby's top
+                 * speakers (AUX) in a 7.1.4 setup
+                 */
                 for (ic = 0; ic < n_ic; ic++) {
                     pa_channel_position_t a = r->i_cm.map[ic];
                     if (ic_connected[ic])
@@ -1028,7 +1032,15 @@ static void setup_remap(const pa_resampler *r, pa_remap_t *m, bool *lfe_remixed)
                     if ((a == PA_CHANNEL_POSITION_REAR_LEFT && b == PA_CHANNEL_POSITION_SIDE_LEFT) ||
                         (a == PA_CHANNEL_POSITION_SIDE_LEFT && b == PA_CHANNEL_POSITION_REAR_LEFT) ||
                         (a == PA_CHANNEL_POSITION_REAR_RIGHT && b == PA_CHANNEL_POSITION_SIDE_RIGHT) ||
-                        (a == PA_CHANNEL_POSITION_SIDE_RIGHT && b == PA_CHANNEL_POSITION_REAR_RIGHT)) {
+                        (a == PA_CHANNEL_POSITION_SIDE_RIGHT && b == PA_CHANNEL_POSITION_REAR_RIGHT) ||
+                        (a == PA_CHANNEL_POSITION_TOP_FRONT_LEFT && b == PA_CHANNEL_POSITION_AUX0) ||
+                        (a == PA_CHANNEL_POSITION_AUX0 && b == PA_CHANNEL_POSITION_TOP_FRONT_LEFT) ||
+                        (a == PA_CHANNEL_POSITION_TOP_FRONT_RIGHT && b == PA_CHANNEL_POSITION_AUX1) ||
+                        (a == PA_CHANNEL_POSITION_AUX1 && b == PA_CHANNEL_POSITION_TOP_FRONT_RIGHT) ||
+                        (a == PA_CHANNEL_POSITION_TOP_REAR_LEFT && b == PA_CHANNEL_POSITION_AUX2) ||
+                        (a == PA_CHANNEL_POSITION_AUX2 && b == PA_CHANNEL_POSITION_TOP_REAR_LEFT) ||
+                        (a == PA_CHANNEL_POSITION_TOP_REAR_RIGHT && b == PA_CHANNEL_POSITION_AUX3) ||
+                        (a == PA_CHANNEL_POSITION_AUX3 && b == PA_CHANNEL_POSITION_TOP_REAR_RIGHT)) {
 
                         m->map_table_f[oc][ic] = 1.0f;
 
