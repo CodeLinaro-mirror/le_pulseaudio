@@ -1,0 +1,57 @@
+/*
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ *
+ * This library is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License version
+ * 2.1 and only version 2.1 as published by the Free Software Foundation
+ *
+ * This library is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301  USA
+ */
+#ifndef SRC_MODULES_GROUP_MODULES_MODULES_GROUP_SINK_CTRL_H_
+#define SRC_MODULES_GROUP_MODULES_MODULES_GROUP_SINK_CTRL_H_
+
+#include <ltdl.h>
+#include <pulse/cdecl.h>
+PA_C_DECL_BEGIN
+#include <pulsecore/module.h>
+#include <pulsecore/sink.h>
+PA_C_DECL_END
+
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "group_sink.h"
+
+class GroupSinkCtrl {
+ public:
+    GroupSinkCtrl() = default;
+    ~GroupSinkCtrl();
+
+    static std::shared_ptr<GroupSinkCtrl> create(pa_module *_module, const char *name, const char *library,
+        pa_usec_t lead_latency, pa_usec_t slave_latency,
+        const pa_sample_spec &sample_spec, const pa_channel_map &channel_map);
+
+    void setPeers(std::vector<std::string> peers);
+    void enable(bool enable);
+
+ public:  // TODO(jbing): should all be private
+    pa_module *module{nullptr};
+    pa_sink *sink{nullptr};
+    std::thread thread;
+    pa_thread_mq thread_mq{};
+    pa_rtpoll *rtpoll{nullptr};
+
+    lt_dlhandle dl{nullptr};
+    GroupSink *group_sink{nullptr};
+};
+
+#endif  // SRC_MODULES_GROUP_MODULES_MODULES_GROUP_SINK_CTRL_H_
