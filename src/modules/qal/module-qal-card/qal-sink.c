@@ -129,6 +129,7 @@ static void pa_qal_sink_set_volume_cb(pa_sink *s) {
     qal_sink_data *qal_sdata = NULL;
     struct qal_volume_data *volume_data = NULL;
     uint32_t i,no_vol_pair;
+    uint32_t channel_mask = 1;
 
     pa_assert(s);
     sdata = (pa_qal_sink_data *)s->userdata;
@@ -149,7 +150,13 @@ static void pa_qal_sink_set_volume_cb(pa_sink *s) {
     volume_data->no_of_volpair = no_vol_pair;
 
     for (i = 0; i < no_vol_pair; i++) {
-        volume_data->volume_pair[i].channel_mask = (uint32_t)qal_sdata->stream_attributes->out_media_config.ch_info->ch_map[i];
+        channel_mask = (channel_mask | qal_sdata->stream_attributes->out_media_config.ch_info->ch_map[i]);
+    }
+
+    channel_mask = (channel_mask << 1);
+
+    for (i = 0; i < no_vol_pair; i++) {
+        volume_data->volume_pair[i].channel_mask = channel_mask;
         volume_data->volume_pair[i].vol = gain;
     }
 
