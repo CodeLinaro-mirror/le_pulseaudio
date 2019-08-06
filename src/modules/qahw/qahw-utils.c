@@ -85,6 +85,8 @@ pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
     { (char *)"builtin-mic-ec-ref-loopback", AUDIO_DEVICE_IN_BUILTIN_MIC | AUDIO_DEVICE_IN_LOOPBACK, (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC_AND_EC_REF_LOOPBACK" },
     { (char *)"btsco-in",        AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET, (char *)"AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
     { (char *)"btsco-out",       AUDIO_DEVICE_OUT_BLUETOOTH_SCO,        (char *)"AUDIO_DEVICE_OUT_BLUETOOTH_SCO" },
+    { (char*)"speaker2",         QAHW_AUDIO_DEVICE_OUT_SPEAKER2,        (char *)"QAHW_AUDIO_DEVICE_OUT_SPEAKER2" },
+    { (char*)"speaker3",         QAHW_AUDIO_DEVICE_OUT_SPEAKER3,        (char *)"QAHW_AUDIO_DEVICE_OUT_SPEAKER3" },
 };
 
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {

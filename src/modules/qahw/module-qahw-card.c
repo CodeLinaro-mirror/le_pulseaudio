@@ -867,6 +867,9 @@ static void pa_qahw_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_
         port_device_data->device = config_port->device;
         port->priority = config_port->priority;
 
+        if (config_port->bus)
+            pa_proplist_sets(port->proplist, PA_PROP_DEVICE_BUS, config_port->bus);
+
         /* Sanity check that we don't have duplicates */
         pa_assert_se(pa_hashmap_put(ports, port->name, port) >= 0);
 
