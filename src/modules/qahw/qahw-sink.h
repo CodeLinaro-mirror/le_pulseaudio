@@ -98,6 +98,7 @@ static inline bool pa_qahw_sink_is_supported_encoding(pa_encoding_t encoding) {
         case PA_ENCODING_PCM:
         case PA_ENCODING_MPEG:
         case PA_ENCODING_AAC:
+        case PA_ENCODING_DSD:
             break;
 
         default :
