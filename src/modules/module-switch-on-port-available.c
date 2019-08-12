@@ -3,6 +3,7 @@
 
   Copyright 2006 Lennart Poettering
   Copyright 2011 Canonical Ltd
+  Copyright (c) 2019 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -227,6 +228,64 @@ static struct port_pointers find_port_pointers(pa_device_port *port) {
     return pp;
 }
 
+static void propagate_source_port_changes(pa_device_port *selected_port) {
+    uint32_t idx = 0;
+    pa_source *source = NULL;
+    pa_device_port *port = NULL;
+    void *state;
+    bool exists = false;
+
+    pa_log_debug("propagate_source_port_changes selected_port %s", selected_port->name);
+
+    // Update the port on the available sources that belong
+    // to a particular card
+    PA_IDXSET_FOREACH(source, selected_port->card->sources, idx) {
+        pa_log_debug("propagate_source_port_changes source %s", source->name);
+        exists = false;
+        PA_HASHMAP_FOREACH(port, source->ports, state) {
+            // Check if the selected port exists on the source
+            pa_log_debug("propagate_source_port_changes source %s port %s", source->name, port->name);
+            if (port->name == selected_port->name &&
+                port->direction == selected_port->direction) {
+                    exists = true;
+                    break;
+                }
+        }
+        if (exists) {
+            pa_source_set_port(source, selected_port->name, false);
+        }
+    }
+}
+
+static void propagate_sink_port_changes(pa_device_port *selected_port) {
+    uint32_t idx = 0;
+    pa_sink *sink = NULL;
+    pa_device_port *port = NULL;
+    void *state;
+    bool exists = false;
+
+    pa_log_debug("propagate_sink_port_changes selected_port %s", selected_port->name);
+
+    // Update the port on the available sinks that belong
+    // to a particular card
+    PA_IDXSET_FOREACH(sink, selected_port->card->sinks, idx) {
+        pa_log_debug("propagate_sink_port_changes sink %s", sink->name);
+        exists = false;
+        PA_HASHMAP_FOREACH(port, sink->ports, state) {
+            // Check if the selected port exists on the sink
+            pa_log_debug("propagate_sink_port_changes sink %s port %s", sink->name, port->name);
+            if (port->name == selected_port->name &&
+                port->direction == selected_port->direction) {
+                    exists = true;
+                    break;
+                }
+        }
+        if (exists) {
+            pa_sink_set_port(sink, selected_port->name, false);
+        }
+    }
+}
+
 /* Switches to a port, switching profiles if necessary or preferred */
 static void switch_to_port(pa_device_port *port) {
     struct port_pointers pp = find_port_pointers(port);
@@ -245,10 +304,12 @@ static void switch_to_port(pa_device_port *port) {
             pp = find_port_pointers(port);
     }
 
-    if (pp.source)
-        pa_source_set_port(pp.source, port->name, false);
-    if (pp.sink)
-        pa_sink_set_port(pp.sink, port->name, false);
+    if (pp.source) {
+        propagate_source_port_changes(port);
+    }
+    if (pp.sink) {
+        propagate_sink_port_changes(port);
+    }
 }
 
 /* Switches away from a port, switching profiles if necessary or preferred */

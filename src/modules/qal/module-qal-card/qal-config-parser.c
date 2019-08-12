@@ -280,6 +280,7 @@ static int pa_qal_config_parse_default_sample_rate(pa_config_parser_state *state
     pa_qal_config_data* config_data = state->userdata;
     pa_qal_sink_config *sink = NULL;
     pa_qal_source_config *source = NULL;
+    pa_qal_card_port_config *port = NULL;
 
     int ret = -1;
     pa_assert(config_data);
@@ -299,7 +300,10 @@ static int pa_qal_config_parse_default_sample_rate(pa_config_parser_state *state
             pa_log_error("%s: unsupported  sample rate %d by source %s", __func__, source->default_spec.rate, source->name);
             goto exit;
         }
-        pa_log_debug("%s: default sample rate %d for souce %s", __func__, source->default_spec.rate, source->name);
+        pa_log_debug("%s: default sample rate %d for source %s", __func__, source->default_spec.rate, source->name);
+    } else if ((port = pa_qal_config_get_port(config_data->ports, state->section))) {
+        pa_atou(state->rvalue, &port->default_spec.rate);
+        pa_log_debug("%s: default sample rate %d for port %s", __func__, port->default_spec.rate, port->name);
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
@@ -342,6 +346,7 @@ static int pa_qal_config_parse_default_channel_map(pa_config_parser_state *state
     pa_qal_config_data* config_data = state->userdata;
     pa_qal_sink_config *sink = NULL;
     pa_qal_source_config *source = NULL;
+    pa_qal_card_port_config *port = NULL;
 
     pa_channel_map map;
     char cm[PA_CHANNEL_MAP_SNPRINT_MAX];
@@ -365,6 +370,10 @@ static int pa_qal_config_parse_default_channel_map(pa_config_parser_state *state
         source->default_map = map;
         source->default_spec.channels = map.channels;
         pa_log_debug("%s adding default channel map %s to source %s", __func__, pa_channel_map_snprint(cm, sizeof(cm), &map), source->name);
+    } else if ((port = pa_qal_config_get_port(config_data->ports, state->section))) {
+        port->default_map = map;
+        port->default_spec.channels = map.channels;
+        pa_log_debug("%s adding default channel map %s to port %s", __func__, pa_channel_map_snprint(cm, sizeof(cm), &map), port->name);
     } else {
         goto exit;
     }

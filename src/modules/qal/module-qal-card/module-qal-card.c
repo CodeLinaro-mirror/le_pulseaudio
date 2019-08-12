@@ -138,6 +138,9 @@ static void pa_qal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_h
 
         port_device_data->device = config_port->device;
         port->priority = config_port->priority;
+        port_device_data->default_map = config_port->default_map;
+        port_device_data->default_spec.channels = config_port->default_map.channels;
+        port_device_data->default_spec.rate = config_port->default_spec.rate;
 
         /* Sanity check that we don't have duplicates */
         pa_assert_se(pa_hashmap_put(ports, port->name, port) >= 0);

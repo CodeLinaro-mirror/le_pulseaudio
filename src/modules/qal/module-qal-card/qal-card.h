@@ -52,6 +52,8 @@ typedef struct {
     char *description;
     pa_available_t available;
     pa_direction_t direction;
+    pa_sample_spec default_spec;
+    pa_channel_map default_map;
     uint32_t priority;
     qal_device_id_t device;
 
@@ -71,6 +73,8 @@ typedef enum {
 typedef struct {
     qal_device_id_t device;
     pa_qal_card_usecase_id_t usecase_id;
+    pa_sample_spec default_spec;
+    pa_channel_map default_map;
 } pa_qal_card_port_device_data;
 
 #endif
