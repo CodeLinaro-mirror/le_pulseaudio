@@ -1,0 +1,63 @@
+PULSEAUDIO FILTER EFFECT SINK MODULE
+
+DESCRIPTION
+--------------------
+This is pulseaudio filter module which uses GStreamer Pipeline for audio post processing and provides processed pcm audio output to master sink.
+Here GStreamer Pipeline can be represent as "appsrc -> audio post-process plugins(like audiorate, audioconvert etc.) -> appsink"
+
+SOURCE CODE
+--------------------
+1. Filter effect sink module source code structure (module-pulseaudio-effects-sink.so):
+    PulseAudio (Main dir)
+    |
+    |-- src (dir)
+        |
+        |-- modules (dir)
+            |
+            |-- filter-module (dir)
+                |
+                |-- module-filter-sink.c [ It contains implementation of opensource pulseaudio filter module. It gets command line parameters while loading filter module in pulseaudio, resource allocation/deallocation and perform init/deinit for GStreamer ]
+                |-- inc (dir)
+                    |
+                    |-- module-filter-sink.h [ It contains structures for callback functions and parameters needed for gstreamer pipeline to pass as callback functions arguments ]
+
+2. Post-process library source code structure (libdbus_audiorate.so):
+    PulseAudio (Main dir)
+    |
+    |-- src (dir)
+        |
+        |-- modules (dir)
+            |
+            |-- filter-module (dir)
+                |
+                |-- gstpostaudiorate (dir)
+                    |
+                    |-- src (dir)
+                        |
+                        |-- dbus-filter.c [ It contains callbacks definations for init/deinit D-Bus handle and gstreamer pipeline creation ]
+                        |-- dbus-audiorate.c [ It contains "audiorate" dbus interface structure and "audiorate" property handlers ]
+                        |-- inc (dir)
+                            |
+                            |-- dbus-filter.h [ It contains structure for callback functions and parameters needed for gstreamer pipeline creation ]
+                            |-- dbus-audiorate.h [ It contains "audiorate" specific functions declarations ]
+
+If Pulseaudio running on system, We can load pulseaudio filter effect sink module same as other pulseaudio modules using pactl command,
+For example:
+    pactl load-module module-pulseaudio-effects-sink filter_plugin_module=libdbus_audiorate.so filter_plugins=audiorate
+
+In above example we have processed audio with "audiorate" gstreamer plugin.
+filter_plugin_module: Reference code is provided for "audiorate" plugin to generate libdbus_audiorate.so as shown above in source code graphs.
+filter_plugins: Provide names of gstreamer plugins used inside filter_plugin_module separated by ',' like filter_plugins=audiorate,audioconvert etc.
+
+To set/get properties using dbus we can use standard dbus commands,
+For example:
+    dbus-send --address="unix:path=/var/run/pulse/dbus-socket" --dest="org.pulseaudio.Server" --type=method_call --print-reply "/org/filtereffects/audiorate_*" "org.freedesktop.DBus.Properties.Set" string:"org.filtereffects.audiorate" string:"skip-to-first" variant:boolean:false
+
+In above example * is sink index. We can get this sink index from command: pactl list sinks. This can be done after loading filter module.
+
+Sample command to test the filter module from gstreamer pipeline,
+gst-launch-1.0 audiotestsrc ! pulsesink device=new sink no (get from command: pactl list sinks)
+
+DEPENDENCIES
+--------------------
+This module depends on Pulseaudio, GStreamer and D-Bus.
