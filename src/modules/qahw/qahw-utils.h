@@ -51,5 +51,5 @@ pa_channel_map* pa_qahw_util_channel_map_init(pa_channel_map *m, unsigned channe
 int pa_qahw_util_set_qahw_metadata_from_pa_format(const pa_format_info *format);
 audio_channel_mask_t pa_qahw_util_in_mask_from_count(uint32_t channel_count);
 pa_qahw_card_avoid_processing_config_id_t pa_qahw_utils_get_config_id_from_string(const char *config_str);
-
+pa_qahw_card_qahw_processing_id_t pa_qahw_utils_get_qahw_processing_id_from_string(const char *config_str);
 #endif
