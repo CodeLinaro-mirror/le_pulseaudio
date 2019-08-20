@@ -553,7 +553,7 @@ static void qahw_set_channel_config(DBusConnection *conn, DBusMessage *msg, void
     pa_channel_map channel_map;
     struct qahw_out_channel_map_param qahw_channel_map;
     void *state = NULL;
-    const char *bus_name, *prop_name;
+    const char *bus_name, *prop_name = NULL;
     pa_device_port *port;
     audio_devices_t *audio_device;
 
@@ -597,13 +597,19 @@ static void qahw_set_channel_config(DBusConnection *conn, DBusMessage *msg, void
 
     PA_HASHMAP_FOREACH(port, qahw_extn_mdata->card->ports, state) {
         prop_name = pa_proplist_gets(port->proplist, PA_PROP_DEVICE_BUS);
-        if (pa_streq(prop_name, bus_name)) {
-            audio_device = PA_DEVICE_PORT_DATA(port);
-            payload.device_cfg_params.device = *audio_device;
-            break;
+        if (prop_name != NULL) {
+            if (pa_streq(prop_name, bus_name)) {
+                audio_device = PA_DEVICE_PORT_DATA(port);
+                payload.device_cfg_params.device = *audio_device;
+                break;
+            }
         }
     }
 
+    if (!prop_name) {
+        pa_log_info("%s: port property not defined\n", __func__);
+        return;
+    }
     pa_log_debug("Server:device is 0x%x", payload.device_cfg_params.device);
     pa_log_debug("Server:channels %d", payload.device_cfg_params.channels);
 
