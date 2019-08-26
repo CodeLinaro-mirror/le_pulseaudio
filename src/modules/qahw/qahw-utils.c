@@ -456,7 +456,19 @@ static pa_qahw_util_pa_qahw_channel_map pa_qahw_channel_map[] = {
     { PA_CHANNEL_POSITION_AUX2, QAHW_PCM_CHANNEL_TBL },
     { PA_CHANNEL_POSITION_AUX3, QAHW_PCM_CHANNEL_TBR },
     { PA_CHANNEL_POSITION_SURROUND_LEFT, QAHW_PCM_CHANNEL_SL },
-    { PA_CHANNEL_POSITION_SURROUND_RIGHT, QAHW_PCM_CHANNEL_SR }
+    { PA_CHANNEL_POSITION_SURROUND_RIGHT, QAHW_PCM_CHANNEL_SR },
+    /*
+     * Use AUX27-AUX30 channel to support Lmix_d, Rmix_d, Lmix and
+     * Rmix channels. AUX31 is used for dummy mapping to round for
+     * an even number of channels in mainzone.
+     * Custom channels are mapped from bottom to top for Lmix and
+     * RMix channels.
+     */
+    { PA_CHANNEL_POSITION_AUX27, QAHW_PCM_CUSTOM_CHANNEL_MAP_12 },
+    { PA_CHANNEL_POSITION_AUX28, QAHW_PCM_CUSTOM_CHANNEL_MAP_13 },
+    { PA_CHANNEL_POSITION_AUX29, QAHW_PCM_CUSTOM_CHANNEL_MAP_14 },
+    { PA_CHANNEL_POSITION_AUX30, QAHW_PCM_CUSTOM_CHANNEL_MAP_15 },
+    { PA_CHANNEL_POSITION_AUX31, QAHW_PCM_CUSTOM_CHANNEL_MAP_16 }
 
     /* FIXME: mapping for is missing in PA
        #define QAHW_PCM_CHANNEL_LFE2 17
