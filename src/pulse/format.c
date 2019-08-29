@@ -4,6 +4,7 @@
   Copyright 2011 Intel Corporation
   Copyright 2011 Collabora Multimedia
   Copyright 2011 Arun Raghavan <arun.raghavan@collabora.co.uk>
+  Copyright (c) 2019 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -55,6 +56,7 @@ static const char* const _encoding_str_table[]= {
     [PA_ENCODING_MPEG] = "mpeg",
     [PA_ENCODING_AAC] = "aac",
     [PA_ENCODING_MAT_IEC61937] = "mat-iec61937",
+    [PA_ENCODING_DSD] = "dsd",
     [PA_ENCODING_ANY] = "any",
 };
 
@@ -139,6 +141,17 @@ int pa_format_info_is_compressed(const pa_format_info *f) {
     switch (f->encoding) {
         case PA_ENCODING_MPEG:
         case PA_ENCODING_AAC:
+        case PA_ENCODING_DSD:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+int pa_format_info_is_compressed_capture(const pa_format_info *f) {
+        switch (f->encoding) {
+        case PA_ENCODING_DSD:
             return true;
 
         default:
