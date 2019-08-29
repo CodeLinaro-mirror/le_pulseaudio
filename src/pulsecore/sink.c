@@ -2207,13 +2207,6 @@ void pa_sink_set_volume(
     pa_assert(volume || pa_sink_flat_volume_enabled(s));
     pa_assert(!volume || volume->channels == 1 || pa_cvolume_compatible(volume, &s->sample_spec));
 
-    /* make sure we don't change the volume when a passthrough or compressed input is connected ...
-     * ... *except* if we're being invoked to reset the volume to ensure 0 dB gain */
-    if (pa_sink_is_exclusive(s) && (!volume || !pa_cvolume_is_norm(volume))) {
-        pa_log_warn("Cannot change volume, Sink is connected to exclusive input");
-        return;
-    }
-
     /* In case of volume sharing, the volume is set for the root sink first,
      * from which it's then propagated to the sharing sinks. */
     root_sink = pa_sink_get_master(s);
@@ -2269,9 +2262,12 @@ void pa_sink_set_volume(
     if (root_sink->set_volume) {
         /* If we have a function set_volume(), then we do not apply a
          * soft volume by default. However, set_volume() is free to
-         * apply one to root_sink->soft_volume */
+         * apply one to root_sink->soft_volume. This should be done
+         * only on PCM streams not on encoded streams.*/
 
-        pa_cvolume_reset(&root_sink->soft_volume, root_sink->sample_spec.channels);
+        if (!pa_sink_is_exclusive(s))
+            pa_cvolume_reset(&root_sink->soft_volume, root_sink->sample_spec.channels);
+
         if (!(root_sink->flags & PA_SINK_DEFERRED_VOLUME))
             root_sink->set_volume(root_sink);
 
