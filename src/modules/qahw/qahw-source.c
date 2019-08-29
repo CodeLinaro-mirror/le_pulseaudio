@@ -397,13 +397,17 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_
 
             if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS)
                 new_map = *map;
-            else
+            else {
                 new_map = pa_sdata->source->channel_map;
+                tmp_spec.channels = pa_sdata->source->sample_spec.channels;
+            }
         } else {
             if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS)
                 pa_channel_map_init_auto(&new_map, tmp_spec.channels, PA_CHANNEL_MAP_DEFAULT);
-            else
+            else {
                 new_map = pa_sdata->source->channel_map;
+                tmp_spec.channels = pa_sdata->source->sample_spec.channels;
+            }
         }
 
         qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->source->active_port));
