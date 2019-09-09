@@ -80,6 +80,7 @@ typedef struct {
     pa_atomic_t stopped;
 
     int32_t buffer_duration;
+    int32_t preemph_status;
     pa_atomic_t first_read;
 } qahw_source_data;
 
@@ -113,9 +114,11 @@ pa_qahw_source_name_to_enum_mapping source_name_to_enum[] = {
 static int restart_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                               audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata);
 static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                      audio_input_flags_t flags, int source_id, pa_qahw_source_data *sdata, audio_source_t source_type, int32_t buffer_duration);
+                                                    audio_input_flags_t flags, int source_id, pa_qahw_source_data *sdata, audio_source_t source_type,
+                                                                                                     int32_t buffer_duration, int32_t preemph_status);
 static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                  audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata, audio_source_t source_type, int32_t buffer_duration);
+                                                audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata, audio_source_t source_type,
+                                                                                                                           int32_t buffer_duration);
 static int close_qahw_source(qahw_source_data *qahw_sdata);
 static int stop_qahw_source(qahw_source_data *qahw_sdata);
 static void pa_qahw_source_read_thread_func(void *userdata);
@@ -397,13 +400,17 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_
 
             if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS)
                 new_map = *map;
-            else
+            else {
                 new_map = pa_sdata->source->channel_map;
+                tmp_spec.channels = pa_sdata->source->sample_spec.channels;
+            }
         } else {
             if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS)
                 pa_channel_map_init_auto(&new_map, tmp_spec.channels, PA_CHANNEL_MAP_DEFAULT);
-            else
+            else {
                 new_map = pa_sdata->source->channel_map;
+                tmp_spec.channels = pa_sdata->source->sample_spec.channels;
+            }
         }
 
         qahw_sdata->devices = *((audio_devices_t *)PA_DEVICE_PORT_DATA(pa_sdata->source->active_port));
@@ -426,7 +433,7 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_
         if (rc) {
             pa_log_error("%s: could not create qahw source with requested conf, error %d, restoring old conf", __func__, rc);
             rc = open_qahw_source(qahw_sdata->module_handle, encoding, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, qahw_sdata->devices,
-                                  qahw_sdata->flags, qahw_sdata->handle, qahw_sdata, qahw_sdata->source_type, qahw_sdata->buffer_duration);
+                                                   qahw_sdata->flags, qahw_sdata->handle, qahw_sdata, qahw_sdata->source_type, qahw_sdata->buffer_duration);
             if (rc)
                 pa_log_info("%s: restoring of qahw source with old config failed, error %d", __func__, rc);
 
@@ -618,7 +625,8 @@ finish:
 }
 
 static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                  audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata, audio_source_t source_type, int32_t buffer_duration) {
+                                                audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata, audio_source_t source_type,
+                                                                                                                           int32_t buffer_duration) {
     int rc;
     int ret = -1;
     const char *bt_sco_on = "BT_SCO=on";
@@ -666,7 +674,9 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
     qahw_sdata->module_handle = module_handle;
 
     /* set profile for the recording session */
-    if (qahw_sdata->source_type == AUDIO_SOURCE_UNPROCESSED)
+    if (qahw_sdata->preemph_status)
+        qahw_in_set_parameters(qahw_sdata->in_handle, "audio_stream_profile=record_deemph");
+    else if (qahw_sdata->source_type == AUDIO_SOURCE_UNPROCESSED)
         qahw_in_set_parameters(qahw_sdata->in_handle, "audio_stream_profile=record_unprocessed");
 
     pa_log_debug("qahw source opened %p", qahw_sdata->in_handle);
@@ -756,10 +766,12 @@ static int free_qahw_source(qahw_source_data *qahw_sdata) {
 }
 
 static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                      audio_input_flags_t flags, int source_id, pa_qahw_source_data *sdata, audio_source_t source_type, int32_t buffer_duration) {
+                                                    audio_input_flags_t flags, int source_id, pa_qahw_source_data *sdata, audio_source_t source_type,
+                                                                                                     int32_t buffer_duration, int32_t preemph_status) {
    int rc;
 
    sdata->qahw_sdata = pa_xnew0(qahw_source_data, 1);
+   sdata->qahw_sdata->preemph_status = preemph_status;
 
    rc = open_qahw_source(module_handle, encoding, ss, map, devices, flags, source_id, sdata->qahw_sdata, source_type, buffer_duration);
    if (rc) {
@@ -1000,8 +1012,8 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
 
     pa_log_info("%s: creating source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &source->default_spec));
 
-    rc = create_qahw_source(module_handle, source->default_encoding, &source->default_spec, &source->default_map,  port_device_data->device, source->flags, source->id, sdata, source->source_type,
-                                                                                                                                                                      source->buffer_duration);
+    rc = create_qahw_source(module_handle, source->default_encoding, &source->default_spec, &source->default_map,  port_device_data->device, source->flags,
+                                                                   source->id, sdata, source->source_type, source->buffer_duration, source->preemph_status);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could not open qahw source, error %d", rc);
         pa_xfree(sdata);

@@ -7,6 +7,7 @@
   Copyright 2011 Intel Corporation
   Copyright 2011 Collabora Multimedia
   Copyright 2011 Arun Raghavan <arun.raghavan@collabora.co.uk>
+  Copyright (c) 2019 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -79,6 +80,12 @@ typedef enum pa_encoding {
     PA_ENCODING_AAC,
     /**< MPEG-2 or MPEG-4 AAC data. \since: FIXME */
 
+    PA_ENCODING_MAT_IEC61937,
+    /**< Dolby MAT data encapsulated in IEC 61937 header/padding. */
+
+    PA_ENCODING_DSD,
+    /**< DSD data. \since: FIXME */
+
     PA_ENCODING_MAX,
     /**< Valid encoding types must be less than this value */
 
@@ -100,6 +107,8 @@ typedef enum pa_encoding {
 #define PA_ENCODING_UNKNOWN_4X_IEC61937 PA_ENCODING_UNKNOWN_4X_IEC61937
 #define PA_ENCODING_MPEG PA_ENCODING_MPEG
 #define PA_ENCODING_AAC PA_ENCODING_AAC
+#define PA_ENCODING_MAT_IEC61937 PA_ENCODING_MAT_IEC61937
+#define PA_ENCODING_DSD PA_ENCODING_DSD
 #define PA_ENCODING_MAX PA_ENCODING_MAX
 #define PA_ENCODING_INVALID PA_ENCODING_INVALID
 /** \endcond */
@@ -147,6 +156,12 @@ int pa_format_info_is_passthrough(const pa_format_info *f);
  * to most compressed data except when encapsulated in the IEC61937 format.
  * \since FIXME. */
 int pa_format_info_is_compressed(const pa_format_info *f);
+
+/** Returns non-zero when the format info structure represents a compressed
+ * format which cannot be transmitted as a PCM-equivalent format. This applies
+ * to most compressed data except when encapsulated in the IEC61937 format.
+ * \since FIXME. */
+int pa_format_info_is_compressed_capture(const pa_format_info *f);
 
 /** Returns non-zero if the format represented by \a first is a subset of
  * the format represented by \a second. This means that \a second must

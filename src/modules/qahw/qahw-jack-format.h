@@ -28,6 +28,7 @@ typedef struct pa_qahw_jack_config {
     pa_sample_spec ss;
     pa_channel_map map;
     pa_qahw_jack_type_t active_jack;
+    int32_t preemph_status;
 } pa_qahw_jack_out_config;
 
 bool pa_qahw_format_detection_get_value_from_path(const char* path, int *node_value);

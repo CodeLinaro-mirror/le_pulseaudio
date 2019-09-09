@@ -67,6 +67,7 @@ typedef struct {
     const char *audio_layout;
     const char *audio_channel;
     const char *audio_channel_alloc;
+    const char *audio_preemph;
 
     const char *linkon_0;
     const char *power_on;
@@ -76,6 +77,7 @@ typedef struct {
     const char *arc_audio_state;
     const char *arc_audio_format;
     const char *arc_audio_rate;
+    const char *arc_audio_preemph;
 } pa_qahw_jack_sys_path;
 
 typedef struct {

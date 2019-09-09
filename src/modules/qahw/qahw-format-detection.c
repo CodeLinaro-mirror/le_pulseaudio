@@ -40,6 +40,7 @@ typedef struct {
     uint32_t layout;
     uint32_t channel_allocation;
     pa_qahw_jack_input_mode_t mode;
+    int32_t preemph_status;
 } pa_qahw_jack_sys_node_config_t;
 
 int supported_pcm_sample_rates[] = {32000, 44100, 48000, 88200, 96000, 176400, 192000};
@@ -67,6 +68,11 @@ static int pa_qahw_format_detection_config_to_jack_config(pa_qahw_jack_sys_node_
 
     if (sys_config->sample_rate == 0)
         sys_config->sample_rate = 48000;
+
+    if (sys_config->mode != PA_QAHW_JACK_INPUT_MODE_COMPRESS)
+        jack_config->preemph_status = sys_config->preemph_status;
+    else
+        jack_config->preemph_status = 0;
 
     jack_config->ss.rate = sys_config->sample_rate;
     jack_config->ss.format =  PA_SAMPLE_S16LE; /* FIXME:assume format is 16bit for now */
@@ -193,7 +199,7 @@ bool pa_qahw_format_detection_get_value_from_path(const char* path, int *node_va
 int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys_path sys_path,
                                                           pa_qahw_jack_out_config *jack_config) {
     int rc = -1;
-    pa_qahw_jack_sys_node_config_t new_config = {0, 16, 0, 0, 0, -1};
+    pa_qahw_jack_sys_node_config_t new_config = {0, 16, 0, 0, 0, -1, 0};
     int audio_state_value;
     int audio_format_value;
     int audio_rate_value;
@@ -204,6 +210,8 @@ int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys
     int arc_audio_state_value;
     int arc_audio_format_value;
     int arc_audio_rate_value;
+    int arc_audio_preemph_value;
+    int audio_preemph_value;
 
     jack_config->active_jack = PA_QAHW_JACK_TYPE_INVALID;
 
@@ -216,7 +224,9 @@ int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys
         !pa_qahw_format_detection_get_value_from_path(sys_path.arc_enable, &arc_enable_value) ||
         !pa_qahw_format_detection_get_value_from_path(sys_path.arc_audio_state, &arc_audio_state_value) ||
         !pa_qahw_format_detection_get_value_from_path(sys_path.arc_audio_format, &arc_audio_format_value) ||
-        !pa_qahw_format_detection_get_value_from_path(sys_path.arc_audio_rate, &arc_audio_rate_value))
+        !pa_qahw_format_detection_get_value_from_path(sys_path.arc_audio_rate, &arc_audio_rate_value) ||
+        !pa_qahw_format_detection_get_value_from_path(sys_path.audio_preemph, &audio_preemph_value) ||
+        !pa_qahw_format_detection_get_value_from_path(sys_path.arc_audio_preemph, &arc_audio_preemph_value))
         goto exit;
 
     if (audio_format_value != -1)
@@ -248,6 +258,7 @@ int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys
             new_config.sample_rate = arc_audio_rate_value;
             new_config.channels = DEFAULT_NUM_CHANNELS;
             new_config.mode = arc_audio_format_value;
+            new_config.preemph_status = arc_audio_preemph_value;
         }
     } else if (audio_state_value && (audio_layout_value == 0) && audio_format_value) {
         if ((jack_type != PA_QAHW_JACK_TYPE_HDMI_ARC) || (arc_audio_state_value == 2)) {
@@ -257,18 +268,24 @@ int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys
             new_config.channels = (uint32_t)audio_channel_value;
             new_config.mode = audio_format_value;
             new_config.sample_rate = audio_rate_value;
+            new_config.preemph_status = audio_preemph_value;
         }
     } else if (audio_state_value) {
         pa_log_debug("%s: HDMI audio interface MI2S", __func__);
         jack_config->active_jack = PA_QAHW_JACK_TYPE_HDMI_IN;
 
         new_config.channels = (uint32_t)audio_channel_value;
+        new_config.preemph_status = audio_preemph_value;
     }
 
     rc = pa_qahw_format_detection_config_to_jack_config(&new_config, jack_config);
 
     if ((sys_path.audio_channel_alloc) && (arc_enable_value == 0))
         pa_qahw_util_channel_allocation_to_pa_channel_map(&(jack_config->map), new_config.channel_allocation);
+
+    /* When there is no device switch, set active jack as current jack */
+    if (jack_config->active_jack == PA_QAHW_JACK_TYPE_INVALID)
+        jack_config->active_jack = jack_type;
 
 exit:
     return rc;
@@ -277,10 +294,11 @@ exit:
 int pa_qahw_spdif_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys_path sys_path,
                                                            pa_qahw_jack_out_config *jack_config) {
     int rc = -1;
-    pa_qahw_jack_sys_node_config_t new_config = {0, 16, DEFAULT_NUM_CHANNELS, 0, 0, -1};
+    pa_qahw_jack_sys_node_config_t new_config = {0, 16, DEFAULT_NUM_CHANNELS, 0, 0, -1, 0};
     int audio_rate_value = -1;
     int audio_format_value = -1;
     int audio_state_value = -1;
+    int audio_preemph_value = -1;
 
     jack_config->active_jack = PA_QAHW_JACK_TYPE_INVALID;
 
@@ -305,12 +323,20 @@ int pa_qahw_spdif_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sy
         }
     }
 
+    if (sys_path.audio_preemph) {
+        if ((audio_preemph_value = pa_qahw_format_detection_read_from_fd(sys_path.audio_preemph)) == -1) {
+            pa_log_error("%s: Unable to read %s path", __func__, sys_path.audio_preemph);
+            goto exit;
+        }
+    }
+
     if ((jack_type != PA_QAHW_JACK_TYPE_SPDIF) || (audio_state_value == 2))
         jack_config->active_jack = PA_QAHW_JACK_TYPE_SPDIF;
 
     new_config.mode = (uint32_t)audio_format_value;
     new_config.sample_rate = (uint32_t)audio_rate_value;
     new_config.channels = (uint32_t)DEFAULT_NUM_CHANNELS;
+    new_config.preemph_status = audio_preemph_value;
 
     rc = pa_qahw_format_detection_config_to_jack_config(&new_config, jack_config);
 

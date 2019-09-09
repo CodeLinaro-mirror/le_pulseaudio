@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2006 Lennart Poettering
+  Copyright (c) 2019 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -79,6 +80,15 @@ bool pa_source_output_new_data_is_passthrough(pa_source_output_new_data *data) {
         return true;
 
     if (PA_UNLIKELY(data->flags & PA_SOURCE_OUTPUT_PASSTHROUGH))
+        return true;
+
+    return false;
+}
+
+bool pa_source_output_new_data_compressed(pa_source_output_new_data *data) {
+    pa_assert(data);
+
+    if (data->format && pa_format_info_is_compressed_capture(data->format))
         return true;
 
     return false;
@@ -363,8 +373,14 @@ int pa_source_output_new(
     if (!data->muted_is_set)
         data->muted = false;
 
-    if ((!(data->flags & PA_SOURCE_OUTPUT_VARIABLE_RATE) &&
-         !pa_sample_spec_equal(&data->sample_spec, &data->source->sample_spec)) ||
+    if (pa_source_output_new_data_compressed(data)) {
+        // FIXME
+        // In the case of compressed offload, the format info is set to sink
+        // Sink need this format information, to set the right meta-data
+        // to HAL. For example, setting of stream format information
+        pa_log_warn("TODO: Compressed capture, nothing set to actual source, missing??");
+    } else if ((!(data->flags & PA_SOURCE_OUTPUT_VARIABLE_RATE) &&
+        !pa_sample_spec_equal(&data->sample_spec, &data->source->sample_spec)) ||
         pa_source_output_new_data_is_passthrough(data)) {
         /* try to change source rate. This is done before the FIXATE hook since
            module-suspend-on-idle can resume a source */
@@ -405,7 +421,8 @@ int pa_source_output_new(
         !pa_sample_spec_equal(&data->sample_spec, &data->source->sample_spec) ||
         !pa_channel_map_equal(&data->channel_map, &data->source->channel_map)) {
 
-        if (!pa_source_output_new_data_is_passthrough(data)) /* no resampler for passthrough content */
+        if (!pa_source_output_new_data_is_passthrough(data) &&
+            !pa_source_output_new_data_compressed(data)) /* no resampler for passthrough content */
             if (!(resampler = pa_resampler_new(
                         core->mempool,
                         &data->source->sample_spec, &data->source->channel_map,

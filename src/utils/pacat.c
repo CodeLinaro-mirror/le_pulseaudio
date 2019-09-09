@@ -3,6 +3,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright (c) 2019 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -1043,13 +1044,6 @@ int main(int argc, char *argv[]) {
 
     if (encoding_set && !raw) {
         pa_log(_("Cannot set encoding for non-raw mode"));
-        goto quit;
-    }
-
-    /* The capture path uses the sample spec to know how much to read, so let's
-     * not support that for now. */
-    if (encoding_set && mode != PLAYBACK) {
-        pa_log(_("Cannot set encoding for capture"));
         goto quit;
     }
 

@@ -85,6 +85,8 @@ pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
     { (char *)"builtin-mic-ec-ref-loopback", AUDIO_DEVICE_IN_BUILTIN_MIC | AUDIO_DEVICE_IN_LOOPBACK, (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC_AND_EC_REF_LOOPBACK" },
     { (char *)"btsco-in",        AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET, (char *)"AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
     { (char *)"btsco-out",       AUDIO_DEVICE_OUT_BLUETOOTH_SCO,        (char *)"AUDIO_DEVICE_OUT_BLUETOOTH_SCO" },
+    { (char*)"speaker2",         QAHW_AUDIO_DEVICE_OUT_SPEAKER2,        (char *)"QAHW_AUDIO_DEVICE_OUT_SPEAKER2" },
+    { (char*)"speaker3",         QAHW_AUDIO_DEVICE_OUT_SPEAKER3,        (char *)"QAHW_AUDIO_DEVICE_OUT_SPEAKER3" },
 };
 
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {
@@ -162,6 +164,12 @@ audio_format_t pa_qahw_util_get_qahw_format_from_pa_encoding(pa_encoding_t pa_fo
                 qahw_format = AUDIO_FORMAT_AAC_ADTS_HE_V2;
             else
                 qahw_format = AUDIO_FORMAT_AAC_HE_V2;
+            break;
+        case PA_ENCODING_MAT_IEC61937:
+            qahw_format = AUDIO_FORMAT_MAT;
+            break;
+        case PA_ENCODING_DSD:
+            qahw_format = AUDIO_FORMAT_DSD;
             break;
         default:
             pa_log_error("PA format encoding not supported in QAHW\n");
@@ -269,6 +277,12 @@ pa_encoding_t pa_qahw_util_get_pa_encoding_from_qahw_format(audio_format_t qahw_
             break;
         case AUDIO_FORMAT_AAC_HE_V2:
             pa_format = PA_ENCODING_AAC;
+            break;
+        case AUDIO_FORMAT_MAT:
+            pa_format = PA_ENCODING_MAT_IEC61937;
+            break;
+        case AUDIO_FORMAT_DSD:
+            pa_format = PA_ENCODING_DSD;
             break;
         default:
             pa_log_debug("QAHW format not supported\n");
@@ -448,7 +462,19 @@ static pa_qahw_util_pa_qahw_channel_map pa_qahw_channel_map[] = {
     { PA_CHANNEL_POSITION_AUX2, QAHW_PCM_CHANNEL_TBL },
     { PA_CHANNEL_POSITION_AUX3, QAHW_PCM_CHANNEL_TBR },
     { PA_CHANNEL_POSITION_SURROUND_LEFT, QAHW_PCM_CHANNEL_SL },
-    { PA_CHANNEL_POSITION_SURROUND_RIGHT, QAHW_PCM_CHANNEL_SR }
+    { PA_CHANNEL_POSITION_SURROUND_RIGHT, QAHW_PCM_CHANNEL_SR },
+    /*
+     * Use AUX27-AUX30 channel to support Lmix_d, Rmix_d, Lmix and
+     * Rmix channels. AUX31 is used for dummy mapping to round for
+     * an even number of channels in mainzone.
+     * Custom channels are mapped from bottom to top for Lmix and
+     * RMix channels.
+     */
+    { PA_CHANNEL_POSITION_AUX27, QAHW_PCM_CUSTOM_CHANNEL_MAP_12 },
+    { PA_CHANNEL_POSITION_AUX28, QAHW_PCM_CUSTOM_CHANNEL_MAP_13 },
+    { PA_CHANNEL_POSITION_AUX29, QAHW_PCM_CUSTOM_CHANNEL_MAP_14 },
+    { PA_CHANNEL_POSITION_AUX30, QAHW_PCM_CUSTOM_CHANNEL_MAP_15 },
+    { PA_CHANNEL_POSITION_AUX31, QAHW_PCM_CUSTOM_CHANNEL_MAP_16 }
 
     /* FIXME: mapping for is missing in PA
        #define QAHW_PCM_CHANNEL_LFE2 17
@@ -828,6 +854,12 @@ void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qa
 
     if (config_port->arc_sample_rate_node_path)
         jack_in_config->jack_sys_path.arc_audio_rate = config_port->arc_sample_rate_node_path;
+
+    if (config_port->audio_preemph_node_path)
+        jack_in_config->jack_sys_path.audio_preemph = config_port->audio_preemph_node_path;
+
+    if (config_port->arc_audio_preemph_node_path)
+        jack_in_config->jack_sys_path.arc_audio_preemph = config_port->arc_audio_preemph_node_path;
 }
 
 /* With reference to the translation table from "Dolby Atmos to Sound Bar Product

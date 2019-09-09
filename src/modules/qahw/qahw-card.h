@@ -80,6 +80,7 @@ typedef struct {
     char *sample_layout_node_path;
     char *sample_channel_node_path;
     char *sample_channel_alloc_node_path;
+    char *audio_preemph_node_path;
 
     char *linkon0_node_path;
     char *poweron_node_path;
@@ -89,6 +90,8 @@ typedef struct {
     char *arc_state_node_path;
     char *arc_sample_format_node_path;
     char *arc_sample_rate_node_path;
+    char *bus;
+    char *arc_audio_preemph_node_path;
 } pa_qahw_card_port_config;
 
 typedef union {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -57,6 +57,8 @@ static void qahw_module_set_sound_focus_params(DBusConnection *conn, DBusMessage
 static void qahw_module_set_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void qahw_module_get_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
+static void qahw_set_channel_config(DBusConnection *conn, DBusMessage *msg, void *userdata);
+
 enum module_method_handler_index {
     METHOD_HANDLER_SET_PORT_CONFIG = 0,
     METHOD_HANDLER_SET_APTX_DEC_PARAMS,
@@ -65,7 +67,8 @@ enum module_method_handler_index {
     METHOD_HANDLER_SET_SOUND_FOCUS,
     METHOD_HANDLER_SET_PARAMETERS,
     METHOD_HANDLER_GET_PARAMETERS,
-    METHOD_HANDLER_MODULE_LAST = METHOD_HANDLER_GET_PARAMETERS,
+    MODULE_HANDLER_SET_CHANNEL_CONFIG,
+    METHOD_HANDLER_MODULE_LAST = MODULE_HANDLER_SET_CHANNEL_CONFIG,
     METHOD_HANDLER_MODULE_MAX = METHOD_HANDLER_MODULE_LAST + 1,
 };
 
@@ -96,6 +99,10 @@ static pa_dbus_arg_info set_parameters_args[] = {
 static pa_dbus_arg_info get_parameters_args[] = {
     {"kv_pairs", "s", "in"},
     {"value", "s", "out"},
+};
+
+static pa_dbus_arg_info set_channel_config_args[] = {
+    {"channel_config", "(suas)", "in"},
 };
 
 static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] = {
@@ -134,6 +141,11 @@ static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] 
         .arguments = get_parameters_args,
         .n_arguments = sizeof(get_parameters_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = qahw_module_get_parameters},
+[MODULE_HANDLER_SET_CHANNEL_CONFIG] = {
+        .method_name = "SetChannelConfig",
+        .arguments = set_channel_config_args,
+        .n_arguments = sizeof(set_channel_config_args) / sizeof(pa_dbus_arg_info),
+        .receive_cb = qahw_set_channel_config},
 };
 
 static pa_dbus_interface_info module_interface_info = {
@@ -529,6 +541,107 @@ static void qahw_module_get_parameters(DBusConnection *conn, DBusMessage *msg, v
     pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_STRING, &param);
 
     free(param);
+}
+
+static void qahw_set_channel_config(DBusConnection *conn, DBusMessage *msg, void *userdata)
+{
+    int rc = 0;
+    uint32_t i = 0;
+    qahw_param_payload payload;
+    char *str[AUDIO_CHANNEL_COUNT_MAX];
+    int arg_type;
+    pa_channel_map channel_map;
+    struct qahw_out_channel_map_param qahw_channel_map;
+    void *state = NULL;
+    const char *bus_name, *prop_name = NULL;
+    pa_device_port *port;
+    audio_devices_t *audio_device;
+
+    DBusError error;
+    DBusMessageIter arg, struct_i, array_i;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+    if (!dbus_message_iter_init(msg, &arg)) {
+        pa_log_error("SetChannelConfig has no arguments\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "SetChannelConfig has no arguments");
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (!pa_streq(dbus_message_get_signature(msg), "(suas)")) {
+        pa_log_error("Invalid signature for SetChannelConfig\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Invalid signature for SetPortConfig");
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_log_info("Unmarshalling SetChannelConfig message\n");
+
+    memset(&qahw_channel_map, 0, sizeof(struct qahw_out_channel_map_param));
+    memset(&(payload.device_cfg_params), 0, sizeof(struct qahw_device_cfg_param));
+
+    dbus_message_iter_recurse(&arg, &struct_i);
+    dbus_message_iter_get_basic(&struct_i, &bus_name);
+
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &payload.device_cfg_params.channels);
+
+    channel_map.channels = payload.device_cfg_params.channels;
+
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_recurse(&struct_i, &array_i);
+
+    PA_HASHMAP_FOREACH(port, qahw_extn_mdata->card->ports, state) {
+        prop_name = pa_proplist_gets(port->proplist, PA_PROP_DEVICE_BUS);
+        if (prop_name != NULL) {
+            if (pa_streq(prop_name, bus_name)) {
+                audio_device = PA_DEVICE_PORT_DATA(port);
+                payload.device_cfg_params.device = *audio_device;
+                break;
+            }
+        }
+    }
+
+    if (!prop_name) {
+        pa_log_info("%s: port property not defined\n", __func__);
+        return;
+    }
+    pa_log_debug("Server:device is 0x%x", payload.device_cfg_params.device);
+    pa_log_debug("Server:channels %d", payload.device_cfg_params.channels);
+
+    while (((arg_type = dbus_message_iter_get_arg_type(&array_i)) != DBUS_TYPE_INVALID) && (i < payload.device_cfg_params.channels)) {
+        dbus_message_iter_get_basic(&array_i, &str[i]);
+        pa_log_debug("%s: Server:channel_map[%d] is %s", __func__, i, str[i]);
+
+        channel_map.map[i] = pa_channel_position_from_string(str[i]);
+
+        dbus_message_iter_next(&array_i);
+
+        i++;
+    }
+
+    if (!pa_qahw_channel_map_to_qahw(&channel_map, &(qahw_channel_map))) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Unsupported channel map received");
+        return;
+    }
+
+    pa_assert(payload.device_cfg_params.channels == qahw_channel_map.channels);
+
+    for (i = 0; i < payload.device_cfg_params.channels; i++)
+         payload.device_cfg_params.channel_map[i] = qahw_channel_map.channel_map[i];
+
+    rc = qahw_set_param_data(qahw_extn_mdata->module_handle, QAHW_PARAM_DEVICE_CONFIG, &payload);
+    if (rc) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "set_param_data for QAHW_PARAM_DEVICE_CONFIG failed");
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_dbus_send_empty_reply(conn, msg);
 }
 
 int pa_qahw_module_extn_init(pa_core *core, pa_card *card, qahw_module_handle_t *module_handle) {

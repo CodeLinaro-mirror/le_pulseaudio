@@ -92,6 +92,7 @@ static void pa_qahw_loopback_stop(DBusConnection *conn, DBusMessage *msg, void *
 static void pa_qahw_loopback_get_port_config(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_loopback_set_port_config(DBusConnection *conn, DBusMessage *msg, void *userdata);
 void pa_qahw_loopback_cb(pa_qahw_effect_event event_id, void *event_data, void *prv_data);
+static int pa_set_metadata_av_window_mat(qahw_module_handle_t *hw_module, audio_patch_handle_t handle);
 
 enum pa_qahw_module_handler_index {
     MODULE_HANDLER_CREATE_LOOPBACK,
@@ -264,7 +265,8 @@ static void pa_qahw_loopback_free_resources(struct pa_qahw_loopback_session_data
 static audio_format_t pa_qahw_loopback_check_audio_format(uint32_t audio_format) {
     if ((audio_format == AUDIO_FORMAT_AC3) ||
         (audio_format == AUDIO_FORMAT_E_AC3) ||
-        (audio_format == AUDIO_FORMAT_DOLBY_TRUEHD))
+        (audio_format == AUDIO_FORMAT_DOLBY_TRUEHD) ||
+        (audio_format == AUDIO_FORMAT_MAT))
         return audio_format;
 
     pa_log_debug("%s: unsupported audio format: 0x%0x, using AC3\n", __func__, audio_format);
@@ -277,7 +279,7 @@ static pa_encoding_t pa_qahw_loopback_get_valid_dsp_encoding(pa_encoding_t encod
         case PA_ENCODING_UNKNOWN_4X_IEC61937:
             return PA_ENCODING_EAC3_IEC61937;
         case PA_ENCODING_UNKNOWN_HBR_IEC61937:
-            return PA_ENCODING_TRUEHD_IEC61937;
+            return PA_ENCODING_MAT_IEC61937;
         case PA_ENCODING_UNKNOWN_IEC61937:
             return PA_ENCODING_AC3_IEC61937;
         default:
@@ -585,6 +587,9 @@ static pa_qahw_loopback_event_t pa_qahw_loopback_restart_loopback_session(struct
                                                                                     pa_qahw_jack_out_config *port_config) {
     int status = 0;
     int num_srcs = 1;
+    qahw_source_port_config_t source_port_config;
+    qahw_sink_port_config_t sink_port_config;
+
     pa_qahw_loopback_event_t loopback_event = PA_QAHW_LOOPBACK_EVENT_INVALID;
     audio_patch_handle_t handle = AUDIO_PATCH_HANDLE_NONE;
 
@@ -597,8 +602,19 @@ static pa_qahw_loopback_event_t pa_qahw_loopback_restart_loopback_session(struct
         /* Notify PA_QAHW_LOOPBACK_EVENT_STARTED to QAHW card module */
         ses_data->common->callback(ses_data->src_port, PA_QAHW_LOOPBACK_EVENT_STARTED, ses_data->common->prv_data);
 
-        status = qahw_create_audio_patch(ses_data->common->module_handle, num_srcs, &(ses_data->src_cfg),
-                                                       ses_data->num_sinks, ses_data->sink_cfg, &handle);
+        source_port_config.source_config = &(ses_data->src_cfg);
+        sink_port_config.sink_config = ses_data->sink_cfg;
+
+        source_port_config.flags = QAHW_INPUT_FLAG_PASSTHROUGH | QAHW_INPUT_FLAG_COMPRESS;
+        sink_port_config.flags = 0;
+
+        source_port_config.num_sources = num_srcs;
+        sink_port_config.num_sinks = ses_data->num_sinks;
+
+        status = qahw_create_audio_patch_v2(ses_data->common->module_handle,
+                                    &source_port_config,
+                                    &sink_port_config,
+                                    &handle);
 
         if (status) {
             pa_log_error("Create audio patch failed with status %d", status);
@@ -632,8 +648,20 @@ static pa_qahw_loopback_event_t pa_qahw_loopback_restart_loopback_session(struct
         ses_data->ses_handle = AUDIO_PATCH_HANDLE_NONE;
 
         /* Create new loopback session */
-        status = qahw_create_audio_patch(ses_data->common->module_handle, num_srcs, &(ses_data->src_cfg),
-                                                       ses_data->num_sinks, ses_data->sink_cfg, &handle);
+
+    source_port_config.source_config = &(ses_data->src_cfg);
+    sink_port_config.sink_config = ses_data->sink_cfg;
+
+    source_port_config.flags = QAHW_INPUT_FLAG_PASSTHROUGH | QAHW_INPUT_FLAG_COMPRESS;
+    sink_port_config.flags = 0;
+
+    source_port_config.num_sources = num_srcs;
+    sink_port_config.num_sinks = ses_data->num_sinks;
+
+    status = qahw_create_audio_patch_v2(ses_data->common->module_handle,
+                                    &source_port_config,
+                                    &sink_port_config,
+                                    &handle);
 
         if (status) {
             pa_log_error("Create audio patch failed with status %d", status);
@@ -844,6 +872,28 @@ static int pa_qahw_loopback_set_format_update_callback(struct pa_qahw_loopback_s
     return ret;
 }
 
+int pa_set_metadata_av_window_mat(qahw_module_handle_t *hw_module,
+                                  audio_patch_handle_t handle)
+{
+    qahw_loopback_param_payload payload;
+    int ret = 0;
+
+    pa_log_error("Set the AV sync meta data params using qahw_loopback_set_param_data\n");
+
+    payload.render_window_params.render_ws = 0xFFFFFFFFFFFE7960;
+    payload.render_window_params.render_we = 0x00000000000186A0;
+
+    ret = qahw_loopback_set_param_data(hw_module, handle,
+        QAHW_PARAM_LOOPBACK_RENDER_WINDOW, &payload);
+
+    if (ret < 0) {
+        pa_log_error("qahw_loopback_set_param_data av render failed with err %d\n", ret);
+        goto done;
+    }
+done:
+    return ret;
+}
+
 /******* Module specific function ********/
 static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     int status = 0;
@@ -869,6 +919,9 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
 
     pa_qahw_effect_callback_config cb;
     pa_qahw_loopback_callback_data *pdata;
+
+    qahw_source_port_config_t source_port_config;
+    qahw_sink_port_config_t sink_port_config;
 
     DBusMessage *reply = NULL;
     DBusError error;
@@ -959,9 +1012,26 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
     u->callback(ses_data->src_port, PA_QAHW_LOOPBACK_EVENT_STARTED, u->prv_data);
 
     pa_log_info("Creating audio loopback patch\n");
-    status = qahw_create_audio_patch(module_handle, num_srcs, &src_cfg, num_sinks, sink_cfg, &handle);
+
+    source_port_config.source_config = &(src_cfg);
+    sink_port_config.sink_config = sink_cfg;
+
+    source_port_config.flags = QAHW_INPUT_FLAG_PASSTHROUGH | QAHW_INPUT_FLAG_COMPRESS;
+    sink_port_config.flags = 0;
+
+    source_port_config.num_sources = num_srcs;
+    sink_port_config.num_sinks = num_sinks;
+
+    status = qahw_create_audio_patch_v2(module_handle,
+                                    &source_port_config,
+                                    &sink_port_config,
+                                    &handle);
     pa_log_debug("Create audio loopback patch returned status: %d, handle %u\n", status, handle);
 
+    if (ses_data->src_cfg.format == AUDIO_FORMAT_MAT) {
+        pa_set_metadata_av_window_mat(module_handle, handle);
+        pa_log_info("Setting AV sync for MAT loopback case\n");
+    }
     ses_data->ses_handle = handle;
 
     if (!status) {
