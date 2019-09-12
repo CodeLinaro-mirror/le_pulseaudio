@@ -725,21 +725,28 @@ static void pa_qahw_card_disable_jack_detection(struct userdata *u, pa_module *m
     pa_qahw_card_port_config *config_port = NULL;
     const char *port_name = NULL;
     void *state;
+    bool external_jack = false;
 
     pa_assert(u);
     pa_assert(u->jacks);
 
     PA_HASHMAP_FOREACH(jack_info, u->jacks, state) {
+        external_jack = false;
         port_name = pa_qahw_util_get_port_name_from_jack_type(jack_info->jack_type);
         config_port = pa_hashmap_get(u->config_data->ports, port_name);
 
+        if (config_port->detection) {
+            if (pa_streq(config_port->detection, "external"))
+                external_jack = true;
+        }
+
         if (config_port->port_type) {
             /* no need to deregister secondary port */
-            if (pa_streq(config_port->port_type, "secondary"))
+            if (pa_streq(config_port->port_type, "secondary") && !external_jack)
                 continue;
         }
 
-        if (pa_qahw_jack_deregister_event_callback(jack_info->handle, m))
+        if (pa_qahw_jack_deregister_event_callback(jack_info->handle, m, external_jack))
             pa_log_info("Jack event callback deregister successful for jack %d\n", jack_info->jack_type);
         else
             pa_log_error("Jack event callback deregister failed for jack %d\n",  jack_info->jack_type);
@@ -761,19 +768,27 @@ static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
     pa_qahw_jack_in_config *jack_in_config = NULL;
     char *port_name = NULL;
     int i = 0;
+    bool external_jack = false;
 
     u->jacks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
     /* register for jack detection for dynamic port, PA_AVAILABLE_NO means its dynamic port */
     PA_HASHMAP_FOREACH(port, u->card->ports, state) {
+        external_jack = false;
+
         config_port = pa_hashmap_get(u->config_data->ports, port->name);
         if (!config_port)
             continue;
 
+        if (config_port->detection) {
+            if (pa_streq(config_port->detection, "external"))
+                external_jack = true;
+        }
+
         if (config_port->port_type) {
             /* port type secondary means that this port is linked to another primary port
              * for instance, port "hdmi-arc" might be a secondary port to "hdmi-in" */
-            if (pa_streq(config_port->port_type, "secondary"))
+            if (pa_streq(config_port->port_type, "secondary") && !external_jack)
                 continue;
         }
 
@@ -782,7 +797,8 @@ static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
         else
             continue;
 
-        if (config_port->format_detection) {
+        /* If external jack, no need to pass any input configs */
+        if (config_port->format_detection && !external_jack) {
             jack_in_config = pa_xnew0(pa_qahw_jack_in_config, 1);
             pa_qahw_util_get_jack_sys_path(config_port, jack_in_config);
         }
@@ -792,7 +808,8 @@ static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
         jack_info->jack_type = jack_types;
         pa_hashmap_put(u->jacks, port->name, jack_info);
 
-        if (config_port->linked_ports) {
+        /* If external jack, no need to pass any input configs from linked ports */
+        if (config_port->linked_ports && !external_jack) {
             while ((port_name = config_port->linked_ports[i++])) {
                 secondary_config_port = pa_hashmap_get(u->config_data->ports, port_name);
                 pa_qahw_util_get_jack_sys_path(secondary_config_port, jack_in_config);
@@ -807,7 +824,7 @@ static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
         }
 
         jack_handle = pa_qahw_jack_register_event_callback(jack_types, pa_qahw_jack_callback, u->module,
-                                                                             jack_in_config, (void *)u);
+                                                               jack_in_config, (void *)u, external_jack);
         if (!jack_handle) {
             pa_log_error("%s: Enable qahw jack failed for port %s\n", __func__, port->name);
 

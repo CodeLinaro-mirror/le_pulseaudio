@@ -1264,6 +1264,27 @@ static int pa_qahw_config_parse_bus(pa_config_parser_state *state) {
     return ret;
 }
 
+static int pa_qahw_config_parse_port_detection(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_card_port_config *port = NULL;
+
+    int ret = 0;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+         port->detection = pa_xstrdup(state->rvalue);
+         pa_log_debug("%s: adding %s detection mode to %s", __func__, port->detection, port->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        ret = -1;
+    }
+
+    return ret;
+}
+
 /* common between port and profile */
 static int pa_qahw_config_parse_priority(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
@@ -1866,6 +1887,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "bus",                         pa_qahw_config_parse_bus,                                 NULL, NULL },
         { "audio-preemph-node-path",     pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "arc-audio-preemph-node-path", pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "detection",                   pa_qahw_config_parse_port_detection,                      NULL, NULL },
 
         /* [Profile... ] */
         { "max-sink-channels",           pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },

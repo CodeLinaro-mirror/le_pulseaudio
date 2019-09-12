@@ -92,6 +92,8 @@ typedef struct {
     char *arc_sample_rate_node_path;
     char *bus;
     char *arc_audio_preemph_node_path;
+
+    char *detection;
 } pa_qahw_card_port_config;
 
 typedef union {
