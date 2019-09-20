@@ -73,6 +73,9 @@ struct pa_qahw_loopback_session_data {
     uint32_t src_config_mask;
     pa_qahw_jack_type_t src_jack_type;
     pa_qahw_jack_handle_t *jack_handle;
+    bool external_jack;
+    bool effect_cb_registered;
+    int *loopback_gain_in_millibels;
 };
 
 typedef struct {
@@ -255,9 +258,11 @@ static void pa_qahw_loopback_free_resources(struct pa_qahw_loopback_session_data
 
     pa_xfree(ses_data->obj_path);
     pa_xfree(ses_data->sink_cfg);
+    pa_xfree(ses_data->loopback_gain_in_millibels);
 
+    /* Deregister jack callback */
     if (ses_data->jack_handle)
-        pa_qahw_jack_deregister_event_callback(ses_data->jack_handle, pa_qahw_loopback_mdata->m);
+        pa_qahw_jack_deregister_event_callback(ses_data->jack_handle, pa_qahw_loopback_mdata->m, ses_data->external_jack);
 
     pa_xfree(ses_data);
 }
@@ -358,7 +363,7 @@ static pa_qahw_jack_out_config *pa_qahw_loopback_read_port_configuration(char *p
 }
 
 static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct audio_port_config *cfg,
-                                      double *port_gain, pa_card *card, pa_hashmap *loopbacks) {
+                                              double *port_gain, pa_card *card, pa_hashmap *loopbacks) {
 
     DBusMessageIter struct_i;
     pa_device_port *p;
@@ -381,6 +386,7 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
     pa_channel_map default_map;
     char *kvpair;
     int rc;
+    bool external_jack = false;
 
     pa_assert(loopbacks);
 
@@ -427,9 +433,14 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
         return -1;
     }
 
+    if (config_port->detection) {
+        if (pa_streq(config_port->detection, "external"))
+            external_jack = true;
+    }
+
     if (cfg->config_mask == PA_QAHW_LOOPBACK_PORT_CONFIG_AUTO) {
         /* if port supports format detection then get it from jack else read the default config from conf */
-        if (config_port->format_detection) {
+        if (config_port->format_detection && !external_jack) {
             jack_config = pa_qahw_loopback_read_port_configuration(port_name, config_port, p->direction, loopback_config);
 
             if (jack_config) {
@@ -474,12 +485,11 @@ static int pa_qahw_loopback_unmarshal_port_config(DBusMessageIter *arg, struct a
 
     /* Cache the current source config */
     if ((p->direction == PA_DIRECTION_INPUT) && (cfg->config_mask == PA_QAHW_LOOPBACK_PORT_CONFIG_AUTO) &&
-                                                                          (config_port->format_detection)) {
+                                                         (config_port->format_detection) && !external_jack)
         memcpy(&curr_port_config, jack_config, sizeof(pa_qahw_jack_out_config));
 
-        if (encoding == PA_ENCODING_UNKNOWN_4X_IEC61937)
-            cfg->sample_rate = 4 * cfg->sample_rate;
-    }
+    if (encoding == PA_ENCODING_UNKNOWN_4X_IEC61937)
+        cfg->sample_rate = 4 * cfg->sample_rate;
 
     memset(&(cfg->gain), 0, sizeof(struct audio_gain_config));
 
@@ -512,6 +522,37 @@ static dbus_uint32_t pa_qahw_loopback_get_array_size(DBusMessageIter array) {
     return cnt;
 }
 
+static bool pa_qahw_loopback_is_jack_external(struct pa_qahw_loopback_session_data *ses_data) {
+    pa_device_port *p = NULL;
+    pa_qahw_card_port_config *config_port = NULL;
+    pa_qahw_loopback_config *loopback_config = NULL;
+
+    pa_assert(ses_data);
+    pa_assert(ses_data->common);
+    pa_assert(ses_data->common->card);
+    pa_assert(ses_data->common->loopbacks);
+
+    p = pa_hashmap_get(ses_data->common->card->ports, ses_data->src_port);
+    if (!p)
+        return false;
+
+    loopback_config = pa_hashmap_first(ses_data->common->loopbacks);
+    if (p->direction == PA_DIRECTION_INPUT)
+        config_port = pa_hashmap_get(loopback_config->in_ports, ses_data->src_port);
+
+    if (!(config_port)) {
+        pa_log_error("%s: unsupported port %s", __func__, ses_data->src_port);
+        return false;
+    }
+
+    if (config_port->detection) {
+        if (pa_streq(config_port->detection, "external"))
+            return true;
+    }
+
+    return false;
+}
+
 static const char *pa_qahw_loopback_get_loopback_event_string(pa_qahw_loopback_event_t event) {
     switch (event) {
         case PA_QAHW_LOOPBACK_EVENT_INVALID:
@@ -525,8 +566,8 @@ static const char *pa_qahw_loopback_get_loopback_event_string(pa_qahw_loopback_e
     }
 }
 
-static pa_qahw_jack_type_t pa_qahw_loopback_get_valid_jack_type(pa_qahw_jack_type_t src_jack_type, const char *port_name,
-                                                                                    pa_card *card, pa_hashmap *loopbacks) {
+static void pa_qahw_loopback_register_jack_callback(struct pa_qahw_loopback_session_data *ses_data,
+                            pa_card *card, pa_hashmap *loopbacks, pa_qahw_jack_callback_t callback) {
     pa_qahw_card_port_config *config_port = NULL;
     pa_qahw_loopback_config *loopback_config = NULL;
     pa_device_port *p = NULL;
@@ -535,34 +576,41 @@ static pa_qahw_jack_type_t pa_qahw_loopback_get_valid_jack_type(pa_qahw_jack_typ
     pa_assert(card);
     pa_assert(loopbacks);
 
-    p = pa_hashmap_get(card->ports, port_name);
+    p = pa_hashmap_get(card->ports, ses_data->src_port);
     if (!p)
-        goto exit;
+        return;
 
     loopback_config = pa_hashmap_first(loopbacks);
     if (p->direction == PA_DIRECTION_INPUT)
-        config_port = pa_hashmap_get(loopback_config->in_ports, port_name);
+        config_port = pa_hashmap_get(loopback_config->in_ports, ses_data->src_port);
 
     if (!config_port) {
-        pa_log_error("%s: unsupported port %s", __func__, port_name);
-        goto exit;
+        pa_log_error("%s: unsupported port %s", __func__, ses_data->src_port);
+        return;
+    }
+
+    if (config_port->detection) {
+        if (pa_streq(config_port->detection, "external"))
+            ses_data->external_jack = true;
     }
 
     if (config_port->port_type) {
-        if (pa_streq(config_port->port_type, "secondary")) {
+        if (pa_streq(config_port->port_type, "secondary") && !(ses_data->external_jack)) {
             /* Get primary jack */
-            pa_log_info("%s: primary port for %s is %s", __func__, port_name, config_port->primary_port_name);
+            pa_log_info("%s: primary port for %s is %s", __func__, ses_data->src_port,
+                                                       config_port->primary_port_name);
             jack_type = pa_qahw_util_get_jack_type_from_port_name(config_port->primary_port_name);
         } else {
-            jack_type = src_jack_type;
+            jack_type = ses_data->src_jack_type;
         }
     } else {
         /* If port-type not mentioned, means port is primary */
-        jack_type = src_jack_type;
+        jack_type = ses_data->src_jack_type;
     }
 
-exit:
-    return jack_type;
+    if (jack_type != PA_QAHW_JACK_TYPE_INVALID)
+        ses_data->jack_handle = pa_qahw_jack_register_event_callback(jack_type, callback,
+              pa_qahw_loopback_mdata->m, NULL, (void *)ses_data, ses_data->external_jack);
 }
 
 static bool pa_qahw_loopback_config_change_valid(pa_qahw_jack_out_config *port_config) {
@@ -589,6 +637,12 @@ static pa_qahw_loopback_event_t pa_qahw_loopback_restart_loopback_session(struct
     int num_srcs = 1;
     qahw_source_port_config_t source_port_config;
     qahw_sink_port_config_t sink_port_config;
+    char *loopback_name = NULL;
+    pa_qahw_effect_callback_config cb;
+    pa_qahw_loopback_callback_data *pdata;
+    pa_qahw_loopback_config *loopback_config = NULL;
+    struct audio_port_config sink_gain_config;
+    dbus_uint32_t i = 0;
 
     pa_qahw_loopback_event_t loopback_event = PA_QAHW_LOOPBACK_EVENT_INVALID;
     audio_patch_handle_t handle = AUDIO_PATCH_HANDLE_NONE;
@@ -623,10 +677,41 @@ static pa_qahw_loopback_event_t pa_qahw_loopback_restart_loopback_session(struct
             ses_data->ses_handle = handle;
             loopback_event = PA_QAHW_LOOPBACK_EVENT_RECREATED;
 
+            for (i = 0; i < ses_data->num_sinks; i++) {
+                sink_gain_config.gain.index = 0;
+                sink_gain_config.gain.mode = AUDIO_GAIN_MODE_JOINT;
+                sink_gain_config.gain.channel_mask = 1;
+                sink_gain_config.gain.values[0] = ses_data->loopback_gain_in_millibels[i];
+                sink_gain_config.id = ses_data->sink_cfg[i].id;
+                sink_gain_config.role = ses_data->sink_cfg[i].role;
+                sink_gain_config.type = ses_data->sink_cfg[i].type;
+                sink_gain_config.config_mask = AUDIO_PORT_CONFIG_GAIN;
+                (void)qahw_set_audio_port_config(ses_data->common->module_handle, &sink_gain_config);
+            }
+
             /* Set format update event callback */
             pa_qahw_loopback_set_format_update_callback(ses_data);
 
             memcpy(&(curr_port_config), port_config, sizeof(pa_qahw_jack_out_config));
+
+            if (ses_data->effect_cb_registered == false) {
+                pdata = pa_xnew0(pa_qahw_loopback_callback_data, 1);
+                pdata->mdata = ses_data->common;
+                pdata->handle = ses_data->ses_handle;
+
+                loopback_config = pa_hashmap_first(ses_data->common->loopbacks);
+                cb.endpoint_name = pa_xstrdup(loopback_config->name);
+                cb.cb_func = pa_qahw_loopback_cb;
+                cb.prv_data = pdata;
+                status = pa_qahw_effect_register_callback(ses_data->common->effect_handle, &cb);
+
+                if (status == 0) {
+                    pa_log_debug("Callback registered successfully\n");
+                    ses_data->effect_cb_registered = true;
+                }
+
+                pa_xfree(cb.endpoint_name);
+            }
         }
 
         return loopback_event;
@@ -636,6 +721,16 @@ static pa_qahw_loopback_event_t pa_qahw_loopback_restart_loopback_session(struct
     if (!pa_qahw_loopback_config_change_valid(port_config)) {
         pa_log_error("%s: no valid config change with current session", __func__);
         return loopback_event;
+    }
+
+    if (ses_data->effect_cb_registered == true) {
+        loopback_name = pa_qahw_loopback_get_name_from_handle(ses_data->ses_handle);
+        status = pa_qahw_effect_deregister_callback(ses_data->common->effect_handle, loopback_name);
+
+        if (status < 0)
+            pa_log_error("%s: pa_qahw_effect_deregister_callback failed\n", __func__);
+        else
+            ses_data->effect_cb_registered = false;
     }
 
     pa_log_info("%s: restarting loopback with updated port configs", __func__);
@@ -648,20 +743,19 @@ static pa_qahw_loopback_event_t pa_qahw_loopback_restart_loopback_session(struct
         ses_data->ses_handle = AUDIO_PATCH_HANDLE_NONE;
 
         /* Create new loopback session */
+        source_port_config.source_config = &(ses_data->src_cfg);
+        sink_port_config.sink_config = ses_data->sink_cfg;
 
-    source_port_config.source_config = &(ses_data->src_cfg);
-    sink_port_config.sink_config = ses_data->sink_cfg;
+        source_port_config.flags = QAHW_INPUT_FLAG_PASSTHROUGH | QAHW_INPUT_FLAG_COMPRESS;
+        sink_port_config.flags = 0;
 
-    source_port_config.flags = QAHW_INPUT_FLAG_PASSTHROUGH | QAHW_INPUT_FLAG_COMPRESS;
-    sink_port_config.flags = 0;
+        source_port_config.num_sources = num_srcs;
+        sink_port_config.num_sinks = ses_data->num_sinks;
 
-    source_port_config.num_sources = num_srcs;
-    sink_port_config.num_sinks = ses_data->num_sinks;
-
-    status = qahw_create_audio_patch_v2(ses_data->common->module_handle,
-                                    &source_port_config,
-                                    &sink_port_config,
-                                    &handle);
+        status = qahw_create_audio_patch_v2(ses_data->common->module_handle,
+                                        &source_port_config,
+                                        &sink_port_config,
+                                        &handle);
 
         if (status) {
             pa_log_error("Create audio patch failed with status %d", status);
@@ -670,8 +764,39 @@ static pa_qahw_loopback_event_t pa_qahw_loopback_restart_loopback_session(struct
             ses_data->ses_handle = handle;
             loopback_event = PA_QAHW_LOOPBACK_EVENT_RECREATED;
 
+            for (i = 0; i < ses_data->num_sinks; i++) {
+                sink_gain_config.gain.index = 0;
+                sink_gain_config.gain.mode = AUDIO_GAIN_MODE_JOINT;
+                sink_gain_config.gain.channel_mask = 1;
+                sink_gain_config.gain.values[0] = ses_data->loopback_gain_in_millibels[i];
+                sink_gain_config.id = ses_data->sink_cfg[i].id;
+                sink_gain_config.role = ses_data->sink_cfg[i].role;
+                sink_gain_config.type = ses_data->sink_cfg[i].type;
+                sink_gain_config.config_mask = AUDIO_PORT_CONFIG_GAIN;
+                (void)qahw_set_audio_port_config(ses_data->common->module_handle, &sink_gain_config);
+            }
+
             /* Set format update event callback */
             pa_qahw_loopback_set_format_update_callback(ses_data);
+
+            if (ses_data->effect_cb_registered == false) {
+                pdata = pa_xnew0(pa_qahw_loopback_callback_data, 1);
+                pdata->mdata = ses_data->common;
+                pdata->handle = ses_data->ses_handle;
+
+                loopback_config = pa_hashmap_first(ses_data->common->loopbacks);
+                cb.endpoint_name = pa_xstrdup(loopback_config->name);
+                cb.cb_func = pa_qahw_loopback_cb;
+                cb.prv_data = pdata;
+                status = pa_qahw_effect_register_callback(ses_data->common->effect_handle, &cb);
+
+                if (status == 0) {
+                    pa_log_debug("Callback registered successfully\n");
+                    ses_data->effect_cb_registered = true;
+                }
+
+                pa_xfree(cb.endpoint_name);
+            }
         }
     }
 
@@ -728,6 +853,7 @@ static pa_hook_result_t pa_qahw_loopback_jack_callback(void *dummy __attribute__
     pa_encoding_t valid_encoding;
     int status = 0;
     bool close_session = false;
+    char *loopback_name = NULL;
 
     pa_assert(prv_data);
     pa_assert(event_data);
@@ -749,13 +875,24 @@ static pa_hook_result_t pa_qahw_loopback_jack_callback(void *dummy __attribute__
         pa_assert(event_data->pa_qahw_jack_info);
         port_config = (pa_qahw_jack_out_config *)event_data->pa_qahw_jack_info;
 
-        if (ses_data->src_jack_type != port_config->active_jack) {
+        /* If jacks are external, caller needs to ensure mutually exclusive jacks usecase */
+        if ((ses_data->src_jack_type != port_config->active_jack) && !(ses_data->external_jack)) {
             pa_log_error("%s: unsupported active jack, closing session", __func__);
             close_session = true;
         }
     }
 
     if (close_session) {
+        if (ses_data->effect_cb_registered == true) {
+            loopback_name = pa_qahw_loopback_get_name_from_handle(ses_data->ses_handle);
+            status = pa_qahw_effect_deregister_callback(ses_data->common->effect_handle, loopback_name);
+
+            if (status < 0)
+                pa_log_error("%s: pa_qahw_effect_deregister_callback failed\n", __func__);
+            else
+                ses_data->effect_cb_registered = false;
+        }
+
         status = qahw_release_audio_patch(ses_data->common->module_handle, ses_data->ses_handle);
         if (status) {
             pa_log_error("Release audio patch failed with status %d", status);
@@ -915,7 +1052,6 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
 
     struct audio_port_config sink_gain_config;
     int loopback_gain_in_millibels;
-    pa_qahw_jack_type_t jack_type = PA_QAHW_JACK_TYPE_INVALID;
 
     pa_qahw_effect_callback_config cb;
     pa_qahw_loopback_callback_data *pdata;
@@ -1002,6 +1138,8 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
     memcpy(ses_data->sink_cfg, sink_cfg, sizeof(struct audio_port_config) * num_sinks);
     ses_data->num_sinks = num_sinks;
     ses_data->src_jack_type = pa_qahw_util_get_jack_type_from_port_name(ses_data->src_port);
+    ses_data->external_jack = pa_qahw_loopback_is_jack_external(ses_data);
+    ses_data->loopback_gain_in_millibels = pa_xnew0(int, num_sinks);
 
     if (src_cfg.config_mask == PA_QAHW_LOOPBACK_PORT_CONFIG_AUTO) {
         src_cfg.config_mask = AUDIO_PORT_CONFIG_ALL ^ AUDIO_PORT_CONFIG_GAIN;
@@ -1049,12 +1187,15 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
             sink_gain_config.type = sink_cfg[i].type;
             sink_gain_config.config_mask = AUDIO_PORT_CONFIG_GAIN;
             (void)qahw_set_audio_port_config(module_handle, &sink_gain_config);
+
+            ses_data->loopback_gain_in_millibels[i] = loopback_gain_in_millibels;
         }
     } else {
         pa_log_error("QAHW create audio patch failed\n");
         /* Unsuspend source if loopback fails to create */
         u->callback(ses_data->src_port, PA_QAHW_LOOPBACK_EVENT_STOPPED, u->prv_data);
         pa_xfree(ses_data->sink_cfg);
+        pa_xfree(ses_data->loopback_gain_in_millibels);
         pa_xfree(ses_data);
         pa_xfree(sink_cfg);
         pa_xfree(sink_port_gain);
@@ -1092,18 +1233,13 @@ static void pa_qahw_loopback_create(DBusConnection *conn, DBusMessage *msg, void
     cb.prv_data = pdata;
     status = pa_qahw_effect_register_callback(ses_data->common->effect_handle, &cb);
 
-    if (status == 0)
+    if (status == 0) {
         pa_log_debug("Callback registered successfully\n");
+        ses_data->effect_cb_registered = true;
+    }
 
-    /* Check whether the jack is secondary jack before registering for event */
-    /* If secondary jack, then register event for its primary jack */
-    jack_type = pa_qahw_loopback_get_valid_jack_type(ses_data->src_jack_type, ses_data->src_port,
-                                                                           u->card, u->loopbacks);
-
-    if (jack_type != PA_QAHW_JACK_TYPE_INVALID)
-        ses_data->jack_handle = pa_qahw_jack_register_event_callback(jack_type, pa_qahw_loopback_jack_callback,
-                                                             pa_qahw_loopback_mdata->m, NULL, (void *)ses_data);
-
+    /* Register jack callback */
+    pa_qahw_loopback_register_jack_callback(ses_data, u->card, u->loopbacks, pa_qahw_loopback_jack_callback);
     if (ses_data->jack_handle)
         pa_log_info("Register jack event callback successful\n");
     else
@@ -1274,11 +1410,15 @@ static void pa_qahw_loopback_stop(DBusConnection *conn, DBusMessage *msg, void *
 
     dbus_error_init(&error);
 
-    loopback_name = pa_qahw_loopback_get_name_from_handle(ses_data->ses_handle);
-    status = pa_qahw_effect_deregister_callback(ses_data->common->effect_handle, loopback_name);
+    if (ses_data->effect_cb_registered == true) {
+        loopback_name = pa_qahw_loopback_get_name_from_handle(ses_data->ses_handle);
+        status = pa_qahw_effect_deregister_callback(ses_data->common->effect_handle, loopback_name);
 
-    if (status < 0)
-        pa_log_error("%s: pa_qahw_effect_deregister_callback failed\n", __func__);
+        if (status < 0)
+            pa_log_error("%s: pa_qahw_effect_deregister_callback failed\n", __func__);
+        else
+            ses_data->effect_cb_registered = false;
+    }
 
     if (ses_data->ses_handle == AUDIO_PATCH_HANDLE_NONE) {
         pa_log_error("%s: requested session handle is invalid", __func__);
