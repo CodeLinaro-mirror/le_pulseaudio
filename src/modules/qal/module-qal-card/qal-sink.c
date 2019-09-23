@@ -69,6 +69,8 @@ typedef struct {
 
     int write_fd;
     int index;
+
+    bool standby;
 } qal_sink_data;
 
 typedef struct {
@@ -217,16 +219,23 @@ static int pa_qal_sink_fill_info(qal_sink_data *qal_sdata, pa_encoding_t encodin
     qal_sdata->buffer_size = (size_t)buffer_size;
     qal_sdata->buffer_count = (size_t)buffer_count;
 
+    qal_sdata->standby = true;
+
     return 0;
 }
-/* Update after start stop issue is resolved */
+
 static int pa_qal_sink_start(qal_sink_data *qal_sdata) {
     int rc = 0;
     pa_assert(qal_sdata);
-    pa_log_debug("%s", __func__);
+    pa_log_debug("%s %d", __func__, qal_sdata->standby);
 
-    rc = qal_stream_start(qal_sdata->stream_handle);
-    pa_log_debug("qal_stream_start returned %d", rc);
+    if (qal_sdata->standby) {
+        rc = qal_stream_start(qal_sdata->stream_handle);
+        pa_log_debug("qal_stream_start returned %d", rc);
+        qal_sdata->standby = false;
+    } else {
+        pa_log_debug("qal_stream already started");
+    }
     return rc;
 }
 
@@ -238,9 +247,14 @@ static int pa_qal_sink_standby(qal_sink_data *qal_sdata) {
 
     pa_log_debug("%s",__func__);
 
-    rc = qal_stream_stop(qal_sdata->stream_handle);
-    pa_log_debug("qal_stream_stop returned %d\n", rc);
-    qal_sdata->bytes_written = 0;
+    if (!qal_sdata->standby) {
+        rc = qal_stream_stop(qal_sdata->stream_handle);
+        pa_log_debug("qal_stream_stop returned %d\n", rc);
+        qal_sdata->bytes_written = 0;
+        qal_sdata->standby = true;
+    } else {
+        pa_log_debug("qal_stream already in standby");
+    }
 
     return 0;
 }
@@ -607,8 +621,7 @@ static int create_qal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channe
         return rc;
     }
 
-    rc = qal_stream_start(sdata->qal_sdata->stream_handle);
-
+    rc = pa_qal_sink_start(sdata->qal_sdata);
     if (rc) {
         pa_log_error("qal stream start failed, error %d", rc);
         pa_xfree(sdata->qal_sdata);
