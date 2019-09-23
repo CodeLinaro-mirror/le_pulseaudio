@@ -285,6 +285,9 @@ static int pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t enco
         qahw_sdata->config.offload_info.format = qahw_sdata->config.format;
         qahw_sdata->config.offload_info.sample_rate = qahw_sdata->config.sample_rate;
         qahw_sdata->config.offload_info.channel_mask = qahw_sdata->config.channel_mask;
+
+        if (qahw_sdata->config.format == AUDIO_FORMAT_DSD)
+            qahw_sdata->config.offload_info.bit_width = 32;
     }
 
     qahw_sdata->devices = devices;
@@ -577,12 +580,12 @@ static bool pa_qahw_sink_set_format_cb(pa_sink *s, const pa_format_info *format)
         }
 
         encoding = format->encoding;
+
         pa_log_info("%s: sample spec %s", __func__,
               pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &ss));
         pa_log_info("%s: channel map %s", __func__,
               pa_channel_map_snprint(ch_map_buf, sizeof(ch_map_buf), &map));
     }
-
 
     rc = restart_qahw_sink(qahw_sdata->module_handle, encoding,
                            &ss, &map, qahw_sdata->devices, qahw_sdata->flags,
@@ -978,6 +981,9 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
     }
 
     qahw_sdata->module_handle = module_handle;
+
+    if (qahw_sdata->config.format == AUDIO_FORMAT_DSD)
+        qahw_out_set_parameters(qahw_sdata->out_handle, "dsd_format=0");
 
     pa_log_debug("qahw sink opened %p", qahw_sdata->out_handle);
 
