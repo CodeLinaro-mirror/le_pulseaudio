@@ -955,6 +955,9 @@ static int pa_qahw_config_parse_port_sys_path(pa_config_parser_state *state) {
         } else if (pa_streq(state->lvalue, "arc-audio-preemph-node-path")) {
             port->arc_audio_preemph_node_path = pa_xstrdup(state->rvalue);
             pa_log_debug("%s: adding arc audio preemph node path %s to %s", __func__, port->arc_audio_preemph_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "dsd-rate-node-path")) {
+            port->dsd_rate_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding DSD rate node path %s to %s", __func__, port->dsd_rate_node_path, port->name);
         } else {
             pa_log_error ("%s: invalid property %s", __func__, state->lvalue);
             goto exit;
@@ -1938,6 +1941,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "audio-preemph-node-path",     pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "arc-audio-preemph-node-path", pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "detection",                   pa_qahw_config_parse_port_detection,                      NULL, NULL },
+        { "dsd-rate-node-path",          pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
 
         /* [Profile... ] */
         { "max-sink-channels",           pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },
