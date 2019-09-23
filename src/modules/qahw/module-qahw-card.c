@@ -237,9 +237,8 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
     requested_format = pa_format_info_new();
     requested_format->encoding = config->encoding;
 
-    if (config->encoding != PA_ENCODING_PCM) {
+    if ((config->encoding != PA_ENCODING_PCM) && (config->encoding != PA_ENCODING_DSD))
         pa_format_info_set_rate(requested_format, config->ss.rate);
-    }
 
     pa_log_info("%s: requested source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &config->ss));
 
@@ -254,7 +253,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
         }
 
         /* For pcm get the media config as pcm source doesn't only add encoding in format*/
-        if (config->encoding == PA_ENCODING_PCM) {
+        if ((config->encoding == PA_ENCODING_PCM) || (config->encoding == PA_ENCODING_DSD)) {
             rc = pa_qahw_source_get_media_config(source_info->handle, &ss, &map, &encoding);
             if (rc) {
                 pa_log_error("%s: pa_qahw_source_get_media_config failed, error %d", __func__, rc);
@@ -311,6 +310,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
     new_source.formats = requested_formats;
     new_source.default_encoding = config->encoding;
     new_source.preemph_status = config->preemph_status;
+    new_source.dsd_rate = config->dsd_rate;
 
     source_info = pa_xnew0(pa_qahw_card_source_info, 1);
     rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, &new_source, &(source_info->handle));
@@ -1200,7 +1200,6 @@ int pa__init(pa_module *m) {
 
         if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
             goto fail;
-
     }
 
     pa_log_info("%s: using default profile %s", __func__, u->config_data->default_profile);

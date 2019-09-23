@@ -81,6 +81,7 @@ typedef struct {
     char *sample_channel_node_path;
     char *sample_channel_alloc_node_path;
     char *audio_preemph_node_path;
+    char *dsd_rate_node_path;
 
     char *linkon0_node_path;
     char *poweron_node_path;
