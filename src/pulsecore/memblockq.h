@@ -5,6 +5,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2006 Lennart Poettering
+  Copyright (c) 2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as
@@ -99,6 +100,10 @@ int pa_memblockq_peek(pa_memblockq* bq, pa_memchunk *chunk);
  * will have a length of the block size passed. You must configure a
  * silence memchunk for this memblockq if you use this call. */
 int pa_memblockq_peek_fixed_size(pa_memblockq *bq, size_t block_size, pa_memchunk *chunk);
+
+/* Same as pa_memblockq_peek but doesn't not return silence if the queue is
+ * empty. Silence can still be returned if there is a hole. */
+int pa_memblockq_peek_one(pa_memblockq *bq, pa_memchunk *chunk);
 
 /* Drop the specified bytes from the queue. */
 void pa_memblockq_drop(pa_memblockq *bq, size_t length);

@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2009 Lennart Poettering
+  Copyright (c) 2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -180,6 +181,23 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
 
     pa_sink_render(u->sink, nbytes, chunk);
     return 0;
+}
+
+/* Called from I/O thread context */
+static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
+    struct userdata *u;
+
+    pa_sink_input_assert_ref(i);
+    pa_assert(chunk);
+    pa_assert_se(u = i->userdata);
+
+    if (!PA_SINK_IS_LINKED(u->sink->thread_info.state))
+        return false;
+
+    /* Hmm, process any rewind request that might be queued up */
+    pa_sink_process_rewind(u->sink, 0);
+
+    return pa_sink_render_one(u->sink, chunk);
 }
 
 /* Called from I/O thread context */
@@ -453,6 +471,7 @@ int pa__init(pa_module*m) {
         goto fail;
 
     u->sink_input->pop = sink_input_pop_cb;
+    u->sink_input->pop_one = sink_input_pop_one_cb;
     u->sink_input->process_rewind = sink_input_process_rewind_cb;
     u->sink_input->update_max_rewind = sink_input_update_max_rewind_cb;
     u->sink_input->update_max_request = sink_input_update_max_request_cb;

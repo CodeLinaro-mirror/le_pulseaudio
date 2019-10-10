@@ -17,9 +17,9 @@
  */
 #include "pulsecore/config.h"
 
-#include "clock.h"
 #include "group_sink_impl.h"
 #include "pulse/timeval.h"
+#include "pulsecore/ts_clock.h"
 
 typedef struct GroupSinkImpl {
     GroupSink group_sink;

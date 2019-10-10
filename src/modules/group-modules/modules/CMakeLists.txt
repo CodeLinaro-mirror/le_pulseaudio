@@ -92,7 +92,6 @@ set(PROJECT_LIBNAME lib${PROJECT_NAME})
 
 # Create the "object library" and executable (without sources yet)
 add_library(${PROJECT_LIBNAME} OBJECT
-    clock.h
     enums.h
     group_manager.cc
     group_manager.h

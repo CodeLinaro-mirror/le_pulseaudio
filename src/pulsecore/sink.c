@@ -1076,7 +1076,11 @@ static unsigned fill_mix_info(pa_sink *s, size_t *length, pa_mix_info *info, uns
     while ((i = pa_hashmap_iterate(s->thread_info.inputs, &state, NULL)) && maxinfo > 0) {
         pa_sink_input_assert_ref(i);
 
-        pa_sink_input_peek(i, *length, &info->chunk, &info->volume);
+        if (*length > 0)
+            pa_sink_input_peek(i, *length, &info->chunk, &info->volume);
+        else if (!pa_sink_input_peek_one(i, &info->chunk, &info->volume)) {
+            continue;
+        }
 
         if (mixlength == 0 || info->chunk.length < mixlength)
             mixlength = info->chunk.length;
@@ -1497,7 +1501,7 @@ bool pa_sink_render_one(pa_sink *s, pa_memchunk *result) {
     pa_assert(s->thread_info.rewind_nbytes == 0);
 
     /* Can't do this if the sink is not running or has more than one stream */
-    if (!PA_SINK_IS_RUNNING(s->state) || pa_idxset_size(s->inputs) == 1)
+    if (!PA_SINK_IS_RUNNING(s->state) || pa_idxset_size(s->inputs) != 1)
         return false;
 
     pa_sink_ref(s);
@@ -1505,6 +1509,7 @@ bool pa_sink_render_one(pa_sink *s, pa_memchunk *result) {
     n = fill_mix_info(s, &length, &info, 1);
     if (n == 0) {
         /* No data available */
+        pa_assert(length == 0);
         return false;
     }
 

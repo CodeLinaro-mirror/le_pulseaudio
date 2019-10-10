@@ -26,10 +26,11 @@
 #include <unistd.h>
 
 #include <pulse/timeval.h>
+extern "C" {
+#include <pulsecore/ts_clock.h>
+}
 
 #include <chrono>
-
-#include "clock.h"
 
 #if !defined(__cplusplus)
 #    define nullptr NULL

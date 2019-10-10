@@ -240,6 +240,7 @@ enum {
 
 static bool sink_input_process_underrun_cb(pa_sink_input *i);
 static int sink_input_pop_cb(pa_sink_input *i, size_t length, pa_memchunk *chunk);
+static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk);
 static void sink_input_kill_cb(pa_sink_input *i);
 static void sink_input_suspend_cb(pa_sink_input *i, bool suspend);
 static void sink_input_moving_cb(pa_sink_input *i, pa_sink *dest);
@@ -1056,6 +1057,7 @@ static playback_stream* playback_stream_new(
 
     s->sink_input->parent.process_msg = sink_input_process_msg;
     s->sink_input->pop = sink_input_pop_cb;
+    s->sink_input->pop_one = sink_input_pop_one_cb;
     s->sink_input->process_underrun = sink_input_process_underrun_cb;
     s->sink_input->process_rewind = sink_input_process_rewind_cb;
     s->sink_input->update_max_rewind = sink_input_update_max_rewind_cb;
@@ -1574,6 +1576,35 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
     playback_stream_request_bytes(s);
 
     return 0;
+}
+
+/* Called from thread context */
+static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
+    playback_stream *s;
+
+    pa_sink_input_assert_ref(i);
+    s = PLAYBACK_STREAM(i->userdata);
+    playback_stream_assert_ref(s);
+    pa_assert(chunk);
+
+#ifdef PROTOCOL_NATIVE_DEBUG
+    pa_log("%s, pop_one(): %lu", pa_proplist_gets(i->proplist, PA_PROP_MEDIA_NAME), (unsigned long)pa_memblockq_get_length(s->memblockq));
+#endif
+
+    if (!handle_input_underrun(s, false))
+        s->is_underrun = false;
+
+    if (pa_memblockq_peek_one(s->memblockq, chunk) < 0) {
+        return false;
+    }
+
+    if (i->thread_info.underrun_for > 0)
+        pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_STARTED, NULL, 0, NULL, NULL);
+
+    pa_memblockq_drop(s->memblockq, chunk->length);
+    playback_stream_request_bytes(s);
+
+    return true;
 }
 
 /* Called from thread context */

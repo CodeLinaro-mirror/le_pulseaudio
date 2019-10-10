@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2006 Lennart Poettering
+  Copyright (c) 2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -472,7 +473,7 @@ static bool update_prebuf(pa_memblockq *bq) {
     }
 }
 
-int pa_memblockq_peek(pa_memblockq* bq, pa_memchunk *chunk) {
+static int pa_memblockq_peek_readahead(pa_memblockq *bq, pa_memchunk *chunk, bool readahead) {
     int64_t d;
     pa_assert(bq);
     pa_assert(chunk);
@@ -482,6 +483,11 @@ int pa_memblockq_peek(pa_memblockq* bq, pa_memchunk *chunk) {
         return -1;
 
     fix_current_read(bq);
+
+    /* Can we read ahead of a write? */
+    if (!readahead && !bq->current_read) {
+        return -1;
+    }
 
     /* Do we need to spit out silence? */
     if (!bq->current_read || bq->current_read->index > bq->read_index) {
@@ -545,6 +551,10 @@ int pa_memblockq_peek(pa_memblockq* bq, pa_memchunk *chunk) {
     }
 
     return 0;
+}
+
+int pa_memblockq_peek(pa_memblockq *bq, pa_memchunk *chunk) {
+    return pa_memblockq_peek_readahead(bq, chunk, true);
 }
 
 int pa_memblockq_peek_fixed_size(pa_memblockq *bq, size_t block_size, pa_memchunk *chunk) {
@@ -624,6 +634,10 @@ int pa_memblockq_peek_fixed_size(pa_memblockq *bq, size_t block_size, pa_memchun
 
     *chunk = rchunk;
     return 0;
+}
+
+int pa_memblockq_peek_one(pa_memblockq *bq, pa_memchunk *chunk) {
+    return pa_memblockq_peek_readahead(bq, chunk, false);
 }
 
 void pa_memblockq_drop(pa_memblockq *bq, size_t length) {

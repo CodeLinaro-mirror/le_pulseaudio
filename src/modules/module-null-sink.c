@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2008 Lennart Poettering
+  Copyright (c) 2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -42,6 +43,7 @@
 #include <pulsecore/thread.h>
 #include <pulsecore/thread-mq.h>
 #include <pulsecore/rtpoll.h>
+#include <pulsecore/ts_clock.h>
 
 PA_MODULE_AUTHOR("Lennart Poettering");
 PA_MODULE_DESCRIPTION(_("Clocked NULL sink"));
@@ -62,6 +64,7 @@ PA_MODULE_USAGE(
 
 #define DEFAULT_SINK_NAME "null"
 #define BLOCK_USEC (PA_USEC_PER_SEC * 2)
+#define RETRY_USEC (PA_USEC_PER_MSEC * 10)
 
 struct userdata {
     pa_core *core;
@@ -74,7 +77,6 @@ struct userdata {
 
     pa_usec_t block_usec;
     pa_usec_t timestamp;
-    pa_usec_t next_buf_timestamp;
 
     pa_idxset *formats;
 
@@ -268,7 +270,12 @@ static void process_render(struct userdata *u, pa_usec_t now) {
     while (u->timestamp < now + u->block_usec) {
         pa_memchunk chunk;
 
-        pa_sink_render(u->sink, u->sink->thread_info.max_request, &chunk);
+        if (!u->timestamp_mode && !u->compressed)
+            pa_sink_render(u->sink, u->sink->thread_info.max_request, &chunk);
+        else if (!pa_sink_render_one(u->sink, &chunk)) {
+            u->timestamp = PA_MAX(u->timestamp, now + RETRY_USEC);
+            break;
+        }
 
         if (u->dump_fd >= 0) {
             void *p;
@@ -291,18 +298,13 @@ static void process_render(struct userdata *u, pa_usec_t now) {
             /* FIXME: Fix dump format above to include duration/frame boundary */
         }
 
-        /* We don't really use timestamps, this is just for validation. We
-         * assume that if timestamps are provided, they start from 0 and
-         * verify that each buffer has the expected timestamp based on the
-         * duration of the previous buffer */
-        if (u->timestamp_mode) {
-            pa_assert(pa_memblock_is_silence(chunk.memblock) || chunk.duration == pa_bytes_to_nsec(chunk.length, &u->sink->sample_spec));
-            pa_assert(pa_memblock_is_silence(chunk.memblock) || chunk.timestamp == 0 || chunk.timestamp == u->next_buf_timestamp);
-
-            if (chunk.timestamp == 0)
-                u->next_buf_timestamp = 0;
-
-            u->next_buf_timestamp += chunk.duration;
+        if (u->timestamp_mode && (chunk.timestamp != PA_NSEC_INVALID)) {
+            /* Use the chunk's timestamp, after converting from the TS clock to
+               the RT clock */
+            pa_usec_t rt_now = pa_rtclock_now();
+            pa_nsec_t ts_now = ts_clock_now();
+            /* !! Need to cast to signed before dividing to preserve sign bit */
+            u->timestamp = (pa_nsec_t)((int64_t)(chunk.timestamp - ts_now) / (int64_t)PA_NSEC_PER_USEC) + rt_now;
         }
 
         pa_memblock_unref(chunk.memblock);
@@ -310,10 +312,10 @@ static void process_render(struct userdata *u, pa_usec_t now) {
 /*         pa_log_debug("Ate %lu bytes, %lu nsec at %lu.", (unsigned long) chunk.length,
                 (unsigned long) chunk.duration, (unsigned long) chunk.timestamp); */
 
-        if (!u->compressed && !u->timestamp_mode)
-            u->timestamp += pa_bytes_to_usec(chunk.length, &u->sink->sample_spec);
-        else if (chunk.duration != PA_NSEC_INVALID)
+        if ((u->compressed || u->timestamp_mode) && (chunk.duration != PA_NSEC_INVALID))
             u->timestamp += chunk.duration / PA_NSEC_PER_USEC;
+        else
+            u->timestamp += pa_bytes_to_usec(chunk.length, &u->sink->sample_spec);
 
         ate += chunk.length;
 

@@ -16,10 +16,11 @@
  * 02110-1301  USA
  */
 
-#ifndef SRC_MODULES_GROUP_MODULES_MODULES_CLOCK_H_
-#define SRC_MODULES_GROUP_MODULES_MODULES_CLOCK_H_
+#ifndef SRC_PULSECORE_TS_CLOCK_H_
+#define SRC_PULSECORE_TS_CLOCK_H_
 
-#include "pulse/sample.h"
+#include <pulse/sample.h>
+#include <pulsecore/macro.h>
 
 inline static pa_nsec_t ts_clock_now();
 
@@ -44,7 +45,13 @@ inline static pa_nsec_t ts_clock_now() {
 }
 
 #else
-#    error "Unsupported platform"
+
+#include <pulse/rtclock.h>
+#include <pulse/timeval.h>
+inline static pa_nsec_t ts_clock_now() {
+    return pa_rtclock_now() * PA_NSEC_PER_USEC;
+}
+
 #endif
 
-#endif  // SRC_MODULES_GROUP_MODULES_MODULES_CLOCK_H_
+#endif  // SRC_PULSECORE_TS_CLOCK_H_

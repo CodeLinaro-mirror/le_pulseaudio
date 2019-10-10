@@ -33,12 +33,12 @@ PA_C_DECL_BEGIN
 #include <pulsecore/ltdl-helper.h>
 #include <pulsecore/module.h>
 #include <pulsecore/sink.h>
+#include <pulsecore/ts_clock.h>
 PA_C_DECL_END
 
 #include <iomanip>
 #include <sstream>
 
-#include "clock.h"
 #include "enums.h"
 
 static constexpr pa_usec_t kMaxSilence = 1 * 1000;  // 1ms
@@ -186,14 +186,10 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
         return res;
     }
     while (chunk->length <= 0) {
-        size_t block_size_max_sink = pa_frame_align(pa_mempool_block_size_max(i->core->mempool), &u->sink->sample_spec);
         pa_memchunk nchunk;
-        pa_sink_render(u->sink, block_size_max_sink, &nchunk);
-
-        // Pass chunks without a timestamp (likely a silent chunk) directly
-        if (nchunk.timestamp == PA_NSEC_INVALID) {
-            // Pass silence directly
-            *chunk = nchunk;
+        if (!pa_sink_render_one(u->sink, &nchunk)) {
+            *chunk = u->sink->silence;
+            pa_memblock_ref(chunk->memblock);
             // Since we asked for as big a chunk as possible, we got a huge
             // silent block, so reduce the size to something more reasonable
             chunk->length = std::min(nbytes, pa_usec_to_bytes(kMaxSilence, &u->sink->sample_spec));

@@ -167,13 +167,8 @@ static void thread_func(GroupSinkCtrl *u) {
         }
 
         pa_memchunk chunk;
-        size_t block_size_max_sink = pa_frame_align(pa_mempool_block_size_max(u->sink->core->mempool), &u->sink->sample_spec);
-        pa_sink_render(u->sink, block_size_max_sink, &chunk);
-
-        // Ignore silent block, sleep a while before trying again
-        if (pa_memblock_is_silence(chunk.memblock) && (chunk.timestamp == PA_NSEC_INVALID)) {
-            pa_memblock_unref(chunk.memblock);
-            pa_rtpoll_set_timer_relative(u->rtpoll, std::min(pa_bytes_to_usec(chunk.length, &u->sink->sample_spec), kMaxSilence));
+        if (!pa_sink_render_one(u->sink, &chunk)) {
+            pa_rtpoll_set_timer_relative(u->rtpoll, kMaxSilence);
             continue;
         }
 
@@ -181,7 +176,7 @@ static void thread_func(GroupSinkCtrl *u) {
         if ((chunk.timestamp == PA_NSEC_INVALID)
             || (chunk.duration == PA_NSEC_INVALID)) {
             pa_memblock_unref(chunk.memblock);
-            pa_rtpoll_set_timer_relative(u->rtpoll, std::min(pa_bytes_to_usec(chunk.length, &u->sink->sample_spec), kMaxSilence));
+            pa_rtpoll_set_timer_relative(u->rtpoll, kMaxSilence);
 
             pa_usec_t now = pa_rtclock_now();
             if (invalid_chunk_count == 0) {
