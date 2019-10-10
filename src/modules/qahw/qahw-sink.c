@@ -320,8 +320,15 @@ static uint64_t pa_qahw_sink_get_latency(pa_qahw_sink_data *sdata) {
     memset(&pos_param, 0, sizeof(struct qahw_out_presentation_position_param));
 
     pos_param.clock_id = get_clock_id();
-    rc = qahw_out_get_param_data(qahw_sdata->out_handle, QAHW_PARAM_OUT_PRESENTATION_POSITION,
+
+    if(qahw_sdata->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+        rc = qahw_out_get_param_data(qahw_sdata->out_handle, QAHW_PARAM_OUT_PRESENTATION_POSITION,
                                  (qahw_param_payload *)&pos_param);
+    } else {
+        rc = qahw_out_get_presentation_position(qahw_sdata->out_handle, &pos_param.frames,
+                                 &pos_param.timestamp);
+    }
+
     if (!rc) {
         qahw_time = pa_timespec_load(&pos_param.timestamp);
         bytes_rendered =  pos_param.frames * pa_frame_size(&pa_sdata->sink->sample_spec);
@@ -397,7 +404,10 @@ static int pa_qahw_sink_standby(qahw_sink_data *qahw_sdata) {
     qahw_out_standby(qahw_sdata->out_handle);
     pa_atomic_store(&qahw_sdata->wait_for_write_ready, 0);
     qahw_sdata->state = STATE_IDLE;
-    qahw_sdata->bytes_written = 0;
+
+    /* Reset bytes written only for offload playback since AHAL does not reset in standby */
+    if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
+        qahw_sdata->bytes_written = 0;
 
     if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_FAST)
         pa_atomic_store(&qahw_sdata->set_rt_prio_for_out_cb, 1);
