@@ -507,6 +507,7 @@ static int create_qal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_chan
         pa_log_error("open_qal_source failed, error %d", rc);
         pa_xfree(sdata->qal_sdata);
         sdata->qal_sdata = NULL;
+        return rc;
     }
 
     rc = pa_qal_source_start(sdata->qal_sdata);
