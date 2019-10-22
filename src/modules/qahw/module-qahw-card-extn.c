@@ -551,7 +551,7 @@ static void qahw_set_channel_config(DBusConnection *conn, DBusMessage *msg, void
     char *str[AUDIO_CHANNEL_COUNT_MAX];
     int arg_type;
     pa_channel_map channel_map;
-    struct qahw_out_channel_map_param qahw_channel_map;
+    struct qahw_out_channel_map_param channel_map_qahw;
     void *state = NULL;
     const char *bus_name, *prop_name = NULL;
     pa_device_port *port;
@@ -581,7 +581,7 @@ static void qahw_set_channel_config(DBusConnection *conn, DBusMessage *msg, void
 
     pa_log_info("Unmarshalling SetChannelConfig message\n");
 
-    memset(&qahw_channel_map, 0, sizeof(struct qahw_out_channel_map_param));
+    memset(&channel_map_qahw, 0, sizeof(struct qahw_out_channel_map_param));
     memset(&(payload.device_cfg_params), 0, sizeof(struct qahw_device_cfg_param));
 
     dbus_message_iter_recurse(&arg, &struct_i);
@@ -624,15 +624,15 @@ static void qahw_set_channel_config(DBusConnection *conn, DBusMessage *msg, void
         i++;
     }
 
-    if (!pa_qahw_channel_map_to_qahw(&channel_map, &(qahw_channel_map))) {
+    if (!pa_qahw_channel_map_to_qahw(&channel_map, &(channel_map_qahw))) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Unsupported channel map received");
         return;
     }
 
-    pa_assert(payload.device_cfg_params.channels == qahw_channel_map.channels);
+    pa_assert(payload.device_cfg_params.channels == channel_map_qahw.channels);
 
     for (i = 0; i < payload.device_cfg_params.channels; i++)
-         payload.device_cfg_params.channel_map[i] = qahw_channel_map.channel_map[i];
+         payload.device_cfg_params.channel_map[i] = channel_map_qahw.channel_map[i];
 
     rc = qahw_set_param_data(qahw_extn_mdata->module_handle, QAHW_PARAM_DEVICE_CONFIG, &payload);
     if (rc) {
