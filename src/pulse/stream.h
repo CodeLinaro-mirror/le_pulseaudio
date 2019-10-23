@@ -6,6 +6,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright (c) 2019 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -581,6 +582,10 @@ int pa_stream_peek(
         pa_stream *p                 /**< The stream to use */,
         const void **data            /**< Pointer to pointer that will point to data */,
         size_t *nbytes               /**< The length of the data read in bytes */);
+
+/** Same as pa_stream_peek(), but allows client to get the timestamp of the buffer
+ */
+int pa_stream_peek_ts(pa_stream *s, const void **data, size_t *length, pa_nsec_t *ts);
 
 /** Remove the current fragment on record streams. It is invalid to do this without first
  * calling pa_stream_peek(). Returns zero on success. */
