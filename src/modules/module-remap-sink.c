@@ -45,7 +45,8 @@ PA_MODULE_USAGE(
         "channels=<number of channels> "
         "channel_map=<channel map> "
         "resample_method=<resampler> "
-        "remix=<remix channels?>");
+        "remix=<remix channels?> "
+        "remix_override=<remix upstream channels?>");
 
 struct userdata {
     pa_module *module;
@@ -67,6 +68,7 @@ static const char* const valid_modargs[] = {
     "channel_map",
     "resample_method",
     "remix",
+    "remix_override",
     NULL
 };
 
@@ -334,6 +336,7 @@ int pa__init(pa_module*m) {
     pa_sink_input_new_data sink_input_data;
     pa_sink_new_data sink_data;
     bool remix = true;
+    bool remix_override = true;
 
     pa_assert(m);
 
@@ -373,6 +376,11 @@ int pa__init(pa_module*m) {
         goto fail;
     }
 
+    if (pa_modargs_get_value_boolean(ma, "remix_override", &remix_override) < 0) {
+        pa_log("Invalid boolean remix_override parameter");
+        goto fail;
+    }
+
     if (pa_modargs_get_resample_method(ma, &resample_method) < 0) {
         pa_log("Invalid resampling method");
         goto fail;
@@ -406,7 +414,9 @@ int pa__init(pa_module*m) {
         pa_proplist_setf(sink_data.proplist, PA_PROP_DEVICE_DESCRIPTION, "Remapped %s", k ? k : master->name);
     }
 
-    u->sink = pa_sink_new(m->core, &sink_data, master->flags & (PA_SINK_LATENCY|PA_SINK_DYNAMIC_LATENCY));
+    u->sink = pa_sink_new(m->core, &sink_data,
+            (master->flags & (PA_SINK_LATENCY | PA_SINK_DYNAMIC_LATENCY)) |
+            (remix_override ? 0 : PA_SINK_NO_REMIX_OVERRIDE));
     pa_sink_new_data_done(&sink_data);
 
     if (!u->sink) {

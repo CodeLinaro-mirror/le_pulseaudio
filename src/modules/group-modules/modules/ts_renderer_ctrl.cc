@@ -441,7 +441,7 @@ std::shared_ptr<TsRendererCtrl> TsRendererCtrl::create(pa_module *m,
     pa_proplist_sets(sink_input_data.proplist, PA_PROP_MEDIA_ROLE, "filter");
     pa_sink_input_new_data_set_sample_spec(&sink_input_data, &u->sink->sample_spec);
     pa_sink_input_new_data_set_channel_map(&sink_input_data, &u->sink->channel_map);
-    sink_input_data.flags |= PA_SINK_INPUT_START_CORKED | PA_SINK_INPUT_NO_REMIX;
+    sink_input_data.flags |= PA_SINK_INPUT_START_CORKED;
 
     pa_sink_input_new(&u->sink_input, m->core, &sink_input_data);
     pa_sink_input_new_data_done(&sink_input_data);
