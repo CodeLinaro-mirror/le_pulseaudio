@@ -222,7 +222,7 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t /*nbytes*/, pa_memchunk *c
             if (u->timestamp_ == PA_NSEC_INVALID) {
                 // No timestamp yet => initialize it
                 u->timestamp_ = now + target_latency;
-            } else if ((u->timestamp_ - now) < (target_latency / 2)) {
+            } else if (static_cast<int64_t>(u->timestamp_ - now) < static_cast<int64_t>(target_latency / 2)) {
                 // We are getting the data too late, reset the timestamp
                 u->timestamp_ = now + target_latency;
             }
