@@ -67,6 +67,7 @@ struct qal_voiceui_session_data {
     int read_state;
     struct qal_buffer *read_buf;
     unsigned int read_bytes;
+    bool recognition_started;
     pa_thread *read_thread;
     pa_mutex *mutex;
     pa_cond *cond;
@@ -503,6 +504,7 @@ static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdat
 static DBusHandlerResult disconnection_filter_cb(DBusConnection *conn,
                               DBusMessage *msg, void *userdata) {
     struct qal_voiceui_session_data *ses_data = userdata;
+    int rc = 0;
 
     pa_assert(conn);
     pa_assert(msg);
@@ -511,7 +513,18 @@ static DBusHandlerResult disconnection_filter_cb(DBusConnection *conn,
     if (dbus_message_is_signal(msg, "org.freedesktop.DBus.Local", "Disconnected")) {
         /* connection died, unload the session for which callback got triggered */
         pa_log_info("connection died for session\n");
-        unload_sm(conn, ses_data);
+        if (ses_data->recognition_started) {
+            rc = qal_stream_stop(ses_data->ses_handle);
+            ses_data->recognition_started = false;
+
+            if (rc)
+                pa_log_error("%s: qal_stream_stop failed %d\n", __func__, rc);
+        }
+
+        rc = unload_sm(conn, ses_data);
+
+        if (rc)
+            pa_log_error("%s: unload_sm failed %d\n", __func__, rc);
     }
 
     return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
@@ -580,7 +593,12 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
     dbus_error_init(&error);
 
     pa_log_debug("stop buffering");
-    status = qal_stream_stop(ses_data->ses_handle);
+
+    if (ses_data->recognition_started) {
+        status = qal_stream_stop(ses_data->ses_handle);
+        ses_data->recognition_started = false;
+    }
+
     if (status) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "stop_buffering failed");
         dbus_error_free(&error);
@@ -663,7 +681,11 @@ static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userd
 
     pa_log_debug("stop recognition");
 
-    status = qal_stream_stop(ses_data->ses_handle);
+    if (ses_data->recognition_started) {
+        status = qal_stream_stop(ses_data->ses_handle);
+        ses_data->recognition_started = false;
+    }
+
     if (status != 0) {
         pa_log_error("qal stream stop failed\n");
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "stop_recognition failed");
@@ -786,6 +808,7 @@ static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *user
         return;
     }
 
+    ses_data->recognition_started = true;
     pa_dbus_send_empty_reply(conn, msg);
 }
 
@@ -1003,6 +1026,7 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     ses_data->cond = pa_cond_new();
     ses_data->read_state = QAL_READ_IDLE;
     ses_data->read_buf = NULL;
+    ses_data->recognition_started = false;
 
     pa_assert_se(pa_dbus_protocol_add_interface(ses_data->common->dbus_protocol,
             ses_data->obj_path, &session_interface_info, ses_data) >= 0);
