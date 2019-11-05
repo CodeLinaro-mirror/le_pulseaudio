@@ -224,6 +224,92 @@ static int pa_qal_sink_fill_info(qal_sink_data *qal_sdata, pa_encoding_t encodin
     return 0;
 }
 
+static uint64_t pa_qal_sink_get_latency(pa_qal_sink_data *sdata) {
+    int rc, delta, bytes_rendered;
+    int64_t latency = 0, ticks = 0;
+    uint64_t cur_qtimer, abs_qtimer_time_stamp, session_time_stamp;
+    uint64_t cur_session_time = 0, time_in_future = 0, time_elapsed = 0;
+    qal_sink_data *qal_sdata;
+    pa_sink_data *pa_sdata;
+    struct qal_session_time stime = {0};
+
+    pa_log_debug("%s", __func__);
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->qal_sdata);
+
+    qal_sdata = sdata->qal_sdata;
+    pa_sdata = sdata->pa_sdata;
+
+    pa_assert(pa_sdata->sink);
+    pa_assert(sdata->qal_sdata->stream_handle);
+
+    rc = qal_get_timestamp(sdata->qal_sdata->stream_handle, &stime);
+    if (!rc) {
+        abs_qtimer_time_stamp = (uint64_t)(((uint64_t)stime.absolute_time.value_msw << 32) | (uint64_t)stime.absolute_time.value_lsw);
+        session_time_stamp = (uint64_t)(((uint64_t)stime.session_time.value_msw << 32) | (uint64_t)stime.session_time.value_lsw);
+
+#ifdef SINK_DEBUG
+        pa_log_debug("%s: abs_qtimer_time_stamp%" PRId64 ", session_time_stamp %" PRId64 "", __func__,
+                     abs_qtimer_time_stamp, session_time_stamp);
+#endif
+
+#if defined __aarch64__
+        asm volatile("mrs %0, cntvct_el0" : "=r"(ticks));
+#else
+        asm volatile("mrrc p15, 1, %Q0, %R0, c14" : "=r"(ticks));
+#endif
+
+        cur_qtimer = (uint64_t)(ticks * 10/240);
+
+#ifdef SINK_DEBUG
+        pa_log_debug("%s:: ticks  %" PRId64 "us, qtimer %" PRId64 "us", __func__, ticks, (int64_t)cur_qtimer);
+#endif
+
+        if (abs_qtimer_time_stamp > cur_qtimer) {
+            time_in_future = abs_qtimer_time_stamp - cur_qtimer;
+            if (time_in_future < session_time_stamp) {
+                cur_session_time = session_time_stamp - time_in_future;
+                bytes_rendered = pa_usec_to_bytes(cur_session_time, &pa_sdata->sink->sample_spec);
+            } else {
+                bytes_rendered = 0;
+            }
+        } else {
+            time_elapsed = cur_qtimer - abs_qtimer_time_stamp;
+            cur_session_time = session_time_stamp + time_elapsed;
+            bytes_rendered = pa_usec_to_bytes(cur_session_time, &pa_sdata->sink->sample_spec);
+        }
+
+        delta = qal_sdata->bytes_written - bytes_rendered;
+        latency = pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec);
+#ifdef SINK_DEBUG
+        pa_log_debug("%s:: time_in_future %" PRId64 ", cur_session_time %" PRId64 " bytes_rendered %d,  latency %" PRId64 "", __func__,
+                     time_in_future, cur_session_time, bytes_rendered, (int64_t)latency);
+#endif
+        /* bytes written should never be less than bytes rendered */
+        if (latency <= 0) {
+#ifdef SINK_DEBUG
+            pa_log_debug("latency is 0");
+#endif
+            return 0;
+        }
+
+    } else  {
+        latency = (int64_t)(pa_bytes_to_usec(qal_sdata->bytes_written, &pa_sdata->sink->sample_spec));
+#ifdef SINK_DEBUG
+        pa_log_debug("qal_get_timestamp failed, using latency based on written bytes latency = %" PRId64 "", latency);
+#endif
+    }
+
+    if (latency < 0) {
+        pa_log_error("latency is invalid (-ve), resetting it zero");
+        latency = 0;
+    }
+
+    return (uint64_t)latency;
+}
+
 static int pa_qal_sink_start(qal_sink_data *qal_sdata) {
     int rc = 0;
     pa_assert(qal_sdata);
@@ -290,7 +376,7 @@ static int pa_qal_sink_process_msg(pa_msgobject *o, int code, void *data, int64_
 /* FIXME: Add callback function once qal_stream_get_param is enabled */
     switch (code) {
         case PA_SINK_MESSAGE_GET_LATENCY:
-             *((int64_t*) data) = 0;
+             *((int64_t*) data) = pa_qal_sink_get_latency(sdata);
              return 0;
 
         default:
