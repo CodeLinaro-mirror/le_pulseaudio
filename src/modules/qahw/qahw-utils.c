@@ -996,3 +996,14 @@ pa_qahw_card_avoid_processing_config_id_t pa_qahw_utils_get_config_id_from_strin
 
     return config_id;
 }
+
+pa_qahw_card_qahw_processing_id_t pa_qahw_utils_get_qahw_processing_id_from_string(const char *config_str) {
+    pa_qahw_card_qahw_processing_id_t id = PA_QAHW_CARD_QAHW_PROCESSING_NONE;
+
+    if (pa_streq(config_str, "fluence"))
+        id = PA_QAHW_CARD_QAHW_PROCESSING_FLUENCE;
+    else if (pa_streq(config_str, "ffecns"))
+        id = PA_QAHW_CARD_QAHW_PROCESSING_FFECNS;
+
+    return id;
+}

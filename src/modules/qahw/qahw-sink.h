@@ -43,6 +43,7 @@ typedef struct {
     pa_channel_map default_map;
     uint32_t alternate_sample_rate;
     pa_qahw_card_avoid_processing_config_id_t avoid_config_processing;
+    pa_qahw_card_qahw_processing_id_t qahw_processing_id;
     pa_proplist *proplist;
 
     pa_idxset *formats;

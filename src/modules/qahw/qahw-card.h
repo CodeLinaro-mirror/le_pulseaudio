@@ -43,6 +43,12 @@ typedef enum {
                                              PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS),
 } pa_qahw_card_avoid_processing_config_id_t;
 
+typedef enum {
+    PA_QAHW_CARD_QAHW_PROCESSING_NONE = 0x0,
+    PA_QAHW_CARD_QAHW_PROCESSING_FLUENCE = 0x1,
+    PA_QAHW_CARD_QAHW_PROCESSING_FFECNS = 0x2,
+} pa_qahw_card_qahw_processing_id_t;
+
 typedef struct {
     char *name;
     char *description;
