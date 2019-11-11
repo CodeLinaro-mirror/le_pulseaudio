@@ -445,6 +445,13 @@ static int close_qal_source(qal_source_data *qal_sdata) {
     if (PA_UNLIKELY(qal_sdata->stream_handle == NULL)) {
         pa_log_error("Invalid source handle %p", qal_sdata->stream_handle);
     } else {
+        if (!qal_sdata->standby) {
+            rc = qal_stream_stop(qal_sdata->stream_handle);
+
+            if (PA_UNLIKELY(rc))
+                pa_log_error(" qal_stream_stop failed for %p error  %d", qal_sdata->stream_handle, rc);
+        }
+
         rc = qal_stream_close(qal_sdata->stream_handle);
         if (PA_UNLIKELY(rc)) {
             pa_log_error(" could not close source handle %p, error  %d", qal_sdata->stream_handle, rc);

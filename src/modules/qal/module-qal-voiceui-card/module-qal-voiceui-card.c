@@ -30,6 +30,7 @@
 #include "QalApi.h"
 #include "QalDefs.h"
 #include "qal-voiceui-utils.h"
+#include "agm/agm_api.h"
 
 #define OK 0
 #define QSTHW_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qsthw"
@@ -1063,6 +1064,11 @@ int pa__init(pa_module *m) {
         goto error;
     }
 
+    if (agm_init() != 0) {
+        pa_log_error("AGM Initialization failed\n");
+        goto error;
+    }
+
     m_data->dbus_protocol = pa_dbus_protocol_get(m->core);
     pa_assert_se(pa_dbus_protocol_add_interface(m_data->dbus_protocol,
             m_data->obj_path, &module_interface_info, m_data) >= 0);
@@ -1098,6 +1104,8 @@ void pa__done(pa_module *m) {
         pa_xfree(m_data->obj_path);
 
     qal_deinit();
+
+    agm_deinit();
 
     if (m_data->module_name)
         pa_xfree(m_data->module_name);
