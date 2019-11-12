@@ -540,8 +540,10 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
                     if ((new_port_config.active_jack == PA_QAHW_JACK_TYPE_HDMI_ARC) ||
                         (new_port_config.preemph_status != curr_hdmi_jack_config.preemph_status)) {
                         /* Raise PA_QAHW_JACK_CONFIG_UPDATE for HDMI-ARC */
-                        memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
-                        pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
+                        if (is_hdmi_config_update_event_valid(new_port_config, hdmi_jdata)) {
+                            memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
+                            pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
+                        }
                     }
                 }
             }
