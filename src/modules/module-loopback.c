@@ -792,12 +792,18 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
     }
     u->output_thread_info.first_pop_done = true;
 
-    if (pa_memblockq_peek(u->memblockq, chunk) < 0) {
-        pa_log_info("Could not peek into queue");
-        return -1;
+    if (nbytes != 0) {
+        if (pa_memblockq_peek(u->memblockq, chunk) < 0) {
+            pa_log_info("Could not peek into queue");
+            return -1;
+        }
+        chunk->length = PA_MIN(chunk->length, nbytes);
+    } else {
+        if (pa_memblockq_peek_one(u->memblockq, chunk) <0) {
+            pa_log_info("Could not peek_one into queue");
+            return -1;
+        }
     }
-
-    chunk->length = PA_MIN(chunk->length, nbytes);
     pa_memblockq_drop(u->memblockq, chunk->length);
 
     /* Adjust the memblockq to ensure that there is
@@ -806,6 +812,10 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
         memblockq_adjust(u, 0, true);
 
     return 0;
+}
+
+static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
+    return sink_input_pop_cb(i, 0, chunk) == 0;
 }
 
 /* Called from output thread context */
@@ -1417,6 +1427,7 @@ int pa__init(pa_module *m) {
 
     u->sink_input->parent.process_msg = sink_input_process_msg_cb;
     u->sink_input->pop = sink_input_pop_cb;
+    u->sink_input->pop_one = sink_input_pop_one_cb;
     u->sink_input->process_rewind = sink_input_process_rewind_cb;
     u->sink_input->kill = sink_input_kill_cb;
     u->sink_input->state_change = sink_input_state_change_cb;
