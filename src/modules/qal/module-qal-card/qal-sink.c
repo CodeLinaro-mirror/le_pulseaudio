@@ -639,6 +639,13 @@ static int close_qal_sink(pa_qal_sink_data *sdata) {
     if (PA_UNLIKELY(qal_sdata->stream_handle == NULL)) {
         pa_log_error("Invalid sink handle %p", qal_sdata->stream_handle);
     } else {
+        if (!qal_sdata->standby) {
+            rc = qal_stream_stop(qal_sdata->stream_handle);
+
+            if (PA_UNLIKELY(rc))
+                pa_log_error(" qal_stream_stop failed for %p error  %d", qal_sdata->stream_handle, rc);
+        }
+
         rc = qal_stream_close(qal_sdata->stream_handle);
         if (PA_UNLIKELY(rc))
             pa_log_error(" could not close sink sink handle %p, error  %d", qal_sdata->stream_handle, rc);

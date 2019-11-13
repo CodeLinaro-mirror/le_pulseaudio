@@ -888,6 +888,18 @@ AS_IF([test "x$with_qal" != "xno"], [QAL_CFLAGS="-I$with_qal"])
 
 AC_SUBST(QAL_CFLAGS)
 
+#### AGM Support (optional) ####
+AC_ARG_WITH([agm],
+    AS_HELP_STRING([--without-agm],[Disable optional AGM support]),[],[with_agm=no])
+AM_CONDITIONAL([HAVE_AGM], [test "x$with_agm" != "xno"])
+
+AGM_CFLAGS=
+AS_IF([test "x$with_agm" != "xno"], [HAVE_AGM=1])
+AS_IF([test "x$with_agm" != "xno"], [AGM_CFLAGS="-I$with_agm"])
+
+AC_SUBST(AGM_CFLAGS)
+
+
 #### EsounD support (optional) ####
 
 AC_ARG_ENABLE([esound],
