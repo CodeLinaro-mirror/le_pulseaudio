@@ -200,7 +200,6 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
             return 0;
         }
 
-        playback_time = ts_clock_now() + u->getLatency();
         res = u->ts_renderer->render(u->ts_renderer, &nchunk, chunk, nbytes, playback_time);
         if (res < 0) {
             return res;
