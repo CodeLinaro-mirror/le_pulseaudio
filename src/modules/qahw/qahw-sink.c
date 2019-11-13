@@ -99,6 +99,7 @@ typedef struct {
 
     int32_t buffer_duration;
     pa_atomic_t set_rt_prio_for_out_cb;
+    int32_t dsd_rate;
 } qahw_sink_data;
 
 typedef struct {
@@ -280,7 +281,7 @@ static int pa_qahw_sink_fill_info(qahw_sink_data *qahw_sdata, pa_encoding_t enco
     }
 
     /* DIRECT PCM uses offload structure */
-    if (flags & AUDIO_OUTPUT_FLAG_DIRECT_PCM || flags & AUDIO_OUTPUT_FLAG_DIRECT)  {
+    if (flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD || flags & AUDIO_OUTPUT_FLAG_DIRECT_PCM || flags & AUDIO_OUTPUT_FLAG_DIRECT)  {
         qahw_sdata->config.offload_info = AUDIO_INFO_INITIALIZER;
         qahw_sdata->config.offload_info.format = qahw_sdata->config.format;
         qahw_sdata->config.offload_info.sample_rate = qahw_sdata->config.sample_rate;
@@ -530,6 +531,7 @@ static bool pa_qahw_sink_set_format_cb(pa_sink *s, const pa_format_info *format)
     pa_encoding_t encoding;
     char ch_map_buf[PA_CHANNEL_MAP_SNPRINT_MAX];
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
+    char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
     int rc;
     bool ret = false;
 
@@ -566,6 +568,16 @@ static bool pa_qahw_sink_set_format_cb(pa_sink *s, const pa_format_info *format)
         if (rc) {
             pa_log_error("%s: Failed to obtain sample spec from format", __func__);
             goto exit;
+        }
+
+        pa_log_debug("Negotiated format: %s", pa_format_info_snprint(fmt, sizeof(fmt), format));
+        rc = pa_format_info_get_rate(format, &ss.rate);
+        rc = pa_format_info_get_channels(format, &ss.channels);
+        pa_qahw_util_channel_map_init(&map, ss.channels);
+
+        if (format->encoding == PA_ENCODING_DSD) {
+            pa_format_info_get_prop_int(format, "dsd-type", &(qahw_sdata->dsd_rate));
+            ss.format = PA_SAMPLE_S32LE;
         }
 
         rc = pa_qahw_util_set_qahw_metadata_from_pa_format(format);
@@ -932,6 +944,7 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
     qahw_param_payload payload;
     int ret = -1;
     const char *bt_sco_on = "BT_SCO=on";
+    const char *dsd_format = NULL;
 
 #ifdef SINK_DUMP_ENABLED
     char *file_name;
@@ -977,8 +990,20 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
 
     qahw_sdata->module_handle = module_handle;
 
-    if (qahw_sdata->config.format == AUDIO_FORMAT_DSD)
-        qahw_out_set_parameters(qahw_sdata->out_handle, "dsd_format=0");
+    if (qahw_sdata->config.format == AUDIO_FORMAT_DSD) {
+        if (qahw_sdata->dsd_rate == 64)
+            dsd_format = "dsd_format=0";
+        else if (qahw_sdata->dsd_rate == 128)
+            dsd_format = "dsd_format=1";
+        else if (qahw_sdata->dsd_rate == 256)
+            dsd_format = "dsd_format=2";
+        else if (qahw_sdata->dsd_rate == 512)
+            dsd_format = "dsd_format=3";
+        else
+            dsd_format = "dsd_format=0";
+
+        qahw_out_set_parameters(qahw_sdata->out_handle, dsd_format);
+    }
 
     pa_log_debug("qahw sink opened %p", qahw_sdata->out_handle);
 

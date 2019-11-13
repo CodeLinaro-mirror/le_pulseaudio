@@ -631,6 +631,7 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
     int rc;
     int ret = -1;
     const char *bt_sco_on = "BT_SCO=on";
+    const char *dsd_format = NULL;
 
 #ifdef SOURCE_DUMP_ENABLED
     char *file_name;
@@ -680,8 +681,20 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
     else if (qahw_sdata->source_type == AUDIO_SOURCE_UNPROCESSED)
         qahw_in_set_parameters(qahw_sdata->in_handle, "audio_stream_profile=record_unprocessed");
 
-    if (encoding == PA_ENCODING_DSD)
-        qahw_in_set_parameters(qahw_sdata->in_handle, "dsd_format=0");
+    if (encoding == PA_ENCODING_DSD) {
+        if (qahw_sdata->dsd_rate == 64)
+            dsd_format = "dsd_format=0";
+        else if (qahw_sdata->dsd_rate == 128)
+            dsd_format = "dsd_format=1";
+        else if (qahw_sdata->dsd_rate == 256)
+            dsd_format = "dsd_format=2";
+        else if (qahw_sdata->dsd_rate == 512)
+            dsd_format = "dsd_format=3";
+        else
+            dsd_format = "dsd_format=0";
+
+        qahw_in_set_parameters(qahw_sdata->in_handle, dsd_format);
+    }
 
     pa_log_debug("qahw source opened %p", qahw_sdata->in_handle);
 
@@ -818,6 +831,13 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_source_new_data_set_name(&new_data, source_name);
 
     pa_log_info("ss->rate %d ss->channels %d", ss->rate, ss->channels);
+
+    if (source_data->qahw_sdata->config.format == AUDIO_FORMAT_DSD) {
+        ss->channels = 1;
+        ss->format = PA_SAMPLE_U8;
+        pa_channel_map_init_auto(map, ss->channels, PA_CHANNEL_MAP_DEFAULT);
+    }
+
     pa_source_new_data_set_sample_spec(&new_data, ss);
     pa_source_new_data_set_channel_map(&new_data, map);
     if (alternate_sample_rate == PA_ALTERNATE_SOURCE_RATE)
