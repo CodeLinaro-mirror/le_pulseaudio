@@ -75,6 +75,7 @@ typedef struct {
     const char *power_on;
     const char *audio_path;
     const char *arc_enable;
+    const char *earc_enable;
 
     const char *arc_audio_state;
     const char *arc_audio_format;

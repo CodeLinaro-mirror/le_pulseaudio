@@ -855,6 +855,9 @@ void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qa
     if (config_port->arc_enable_node_path)
         jack_in_config->jack_sys_path.arc_enable = config_port->arc_enable_node_path;
 
+    if (config_port->earc_enable_node_path)
+        jack_in_config->jack_sys_path.earc_enable = config_port->earc_enable_node_path;
+
     if (config_port->arc_state_node_path)
         jack_in_config->jack_sys_path.arc_audio_state = config_port->arc_state_node_path;
 

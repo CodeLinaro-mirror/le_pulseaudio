@@ -93,6 +93,7 @@ typedef struct {
     char *poweron_node_path;
     char *audio_path_node_path;
     char *arc_enable_node_path;
+    char *earc_enable_node_path;
 
     char *arc_state_node_path;
     char *arc_sample_format_node_path;
