@@ -72,6 +72,12 @@ struct qal_voiceui_session_data {
     pa_cond *cond;
 };
 
+struct qal_doa {
+    int target_angle_L16[2];
+    int interf_angle_L16[2];
+    int8_t polarActivityGUI[360];
+};
+
 static int unload_sm(DBusConnection *conn, struct qal_voiceui_session_data *ses_data);
 static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -81,6 +87,7 @@ static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userda
 static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 enum module_handler_index {
     MODULE_HANDLER_LOAD_SOUND_MODEL,
@@ -95,6 +102,7 @@ enum session_handler_index {
     SESSION_HANDLER_READ_BUFFER,
     SESSION_HANDLER_STOP_BUFFERING,
     SESSION_HANDLER_REQUEST_READ_BUFFER,
+    SESSION_HANDLER_GET_PARAM_DATA,
     SESSION_HANDLER_MAX
 };
 
@@ -129,6 +137,11 @@ pa_dbus_arg_info stop_buffering_args[] = {
 
 pa_dbus_arg_info request_read_buffer_args[] = {
     {"bytes", "u", "in"},
+};
+
+pa_dbus_arg_info get_param_data_args[] = {
+    {"param", "s", "in"},
+    {"payload", "ay", "out"},
 };
 
 /* recognition config event.
@@ -190,6 +203,11 @@ static pa_dbus_method_handler qsthw_session_handlers[SESSION_HANDLER_MAX] = {
         .arguments = request_read_buffer_args,
         .n_arguments = sizeof(request_read_buffer_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = request_read_buffer},
+    [SESSION_HANDLER_GET_PARAM_DATA] = {
+        .method_name = "GetParamData",
+        .arguments = get_param_data_args,
+        .n_arguments = sizeof(get_param_data_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = get_param_data},
 };
 
 enum signal_index {
@@ -415,6 +433,71 @@ static void event_callback(struct qal_st_recognition_event *event, void *cookie)
     }
 
     dbus_message_unref(message);
+}
+
+static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct qal_voiceui_session_data *ses_data = userdata;
+    int status = 0;
+    DBusError error;
+    const char *param;
+    qal_param_id_type_t param_id;
+    qal_param_payload *payload = NULL;
+    size_t payload_size = 0;
+    DBusMessage *reply = NULL;
+    DBusMessageIter arg_i, array_i;
+    struct ffv_doa_tracking_monitor_t *doa = NULL;
+    struct qal_doa *doa_final = NULL;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    if (!dbus_message_get_args(msg, &error, DBUS_TYPE_STRING, &param,
+                               DBUS_TYPE_INVALID)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (strcmp("st_direction_of_arrival", param) == 0) {
+        param_id = QAL_PARAM_ID_DIRECTION_OF_ARRIVAL;
+        payload_size = sizeof(struct qal_doa);
+        doa_final = (struct qal_doa *)malloc(sizeof(struct qal_doa));
+    } else {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "get_param_data failed, unsupported param");
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_log_debug("get param data");
+    status = qal_stream_get_param(ses_data->ses_handle,
+                                  (uint32_t)param_id, &payload);
+
+    if (OK != status) {
+        free(payload);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "get_param_data failed");
+        dbus_error_free(&error);
+        return;
+    }
+
+    doa = (struct ffv_doa_tracking_monitor_t *)((void *)payload);
+    doa_final->target_angle_L16[0] = doa->target_angle_L16[0];
+    doa_final->target_angle_L16[1] = doa->target_angle_L16[1];
+    doa_final->interf_angle_L16[0] = doa->interf_angle_L16[0];
+    doa_final->interf_angle_L16[1] = doa->interf_angle_L16[1];
+    memcpy(doa_final->polarActivityGUI, doa->polarActivityGUI, sizeof(int8_t)*360);
+
+    pa_assert_se((reply = dbus_message_new_method_return(msg)));
+    dbus_message_iter_init_append(reply, &arg_i);
+    dbus_message_iter_open_container(&arg_i, DBUS_TYPE_ARRAY, "y", &array_i);
+    dbus_message_iter_append_fixed_array(&array_i, DBUS_TYPE_BYTE, (void **)&doa_final,
+                                         payload_size);
+    dbus_message_iter_close_container(&arg_i, &array_i);
+    pa_assert_se(dbus_connection_send(conn, reply, NULL));
+
+    dbus_message_unref(reply);
 }
 
 static DBusHandlerResult disconnection_filter_cb(DBusConnection *conn,
