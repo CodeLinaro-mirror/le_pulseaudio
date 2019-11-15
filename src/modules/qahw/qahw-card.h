@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -87,6 +87,7 @@ typedef struct {
     char *poweron_node_path;
     char *audio_path_node_path;
     char *arc_enable_node_path;
+    char *earc_enable_node_path;
 
     char *arc_state_node_path;
     char *arc_sample_format_node_path;
