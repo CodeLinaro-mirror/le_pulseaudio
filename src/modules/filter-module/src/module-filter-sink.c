@@ -624,10 +624,6 @@ static int sink_set_state_in_main_thread_cb(pa_sink *s, pa_sink_state_t state) {
             if (u->filter_hdl.pipeline) {
                 set_g_state(u, G_PAUSED);
 
-                if (u->filter_hdl.appsrc) {
-                    gst_app_src_set_caps(u->filter_hdl.appsrc, NULL);
-                }
-
                 if (gst_element_set_state(u->filter_hdl.pipeline, GST_STATE_READY) == GST_STATE_CHANGE_FAILURE) {
                     pa_log("Unable to set the pipeline to the Ready state");
                     gst_object_unref(u->filter_hdl.pipeline);
