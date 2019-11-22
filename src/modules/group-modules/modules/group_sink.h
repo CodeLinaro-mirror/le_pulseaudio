@@ -18,6 +18,7 @@
 #ifndef SRC_MODULES_GROUP_MODULES_MODULES_GROUP_SINK_H_
 #define SRC_MODULES_GROUP_MODULES_MODULES_GROUP_SINK_H_
 
+#include <pulse/channelmap.h>
 #include <pulse/sample.h>
 PA_C_DECL_BEGIN
 #include <pulsecore/memchunk.h>
@@ -61,14 +62,17 @@ struct GroupSink {
 // Returns a GroupSink struct filed with the appropriate function pointers.
 //
 // name is the name of the sink (for logging)
-// spec if the stream format
+// spec is the stream format
+// channel_map is the stream channel map
 // lead_latency is the latency to use when the current device is the group lead
 // and need to send the audio to the other group members (slaves)
 // slave_latency is the latency to use when the current device is a slave.
 // Currently this is mostly used to read chunks slightly ahead of the playback
 // allowing them the be buffered nearer to the local output sink instead of
 // pulseaudio core
-typedef GroupSink *(group_sink_init_proto)(const char *name, const pa_sample_spec *spec, pa_usec_t lead_latency, pa_usec_t slave_latency);
+typedef GroupSink *(group_sink_init_proto)(const char *name,
+    const pa_sample_spec *spec, const pa_channel_map *channel_map,
+    pa_usec_t lead_latency, pa_usec_t slave_latency);
 
 // Prototype for the release function.
 typedef void(group_sink_done_proto)(GroupSink *gs);

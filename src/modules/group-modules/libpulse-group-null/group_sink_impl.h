@@ -19,9 +19,7 @@
 #define SRC_MODULES_GROUP_MODULES_LIBPULSE_GROUP_NULL_GROUP_SINK_IMPL_H_
 
 #include <pulse/cdecl.h>
-PA_C_DECL_BEGIN
 #include <pulsecore/memchunk.h>
-PA_C_DECL_END
 #include <pulsemodules/group_sink.h>
 
 #define MOD_EXPORT __attribute__((visibility("default")))

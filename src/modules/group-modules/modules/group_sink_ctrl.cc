@@ -239,7 +239,7 @@ std::shared_ptr<GroupSinkCtrl> GroupSinkCtrl::create(pa_module *_module,
             pa_log("Failed to find 'group_sink_init' symbol");
             goto fail;
         }
-        u->group_sink = (*init)(name, &sample_spec, lead_latency, slave_latency);
+        u->group_sink = (*init)(name, &sample_spec, &channel_map, lead_latency, slave_latency);
     }
 
     if (pa_thread_mq_init(&u->thread_mq, u->module->core->mainloop, u->rtpoll) < 0) {
