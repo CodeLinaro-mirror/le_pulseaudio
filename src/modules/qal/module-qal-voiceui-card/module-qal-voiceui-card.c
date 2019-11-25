@@ -294,10 +294,10 @@ static void pa_qal_fill_stream_attributes(struct qal_stream_attributes *stream_a
 
     *no_of_devices = 1;
 
-    devices->id = QAL_DEVICE_IN_SPEAKER_MIC;
+    devices->id = QAL_DEVICE_IN_TRI_MIC;
     devices->config.sample_rate = 48000; /* Have to check with 16k by adding MFC module before SVA module*/
     devices->config.bit_width = 16;
-    devices->config.ch_info->channels = 2;
+    devices->config.ch_info->channels = 3;
 
 }
 
