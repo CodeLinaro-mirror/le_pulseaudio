@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -38,6 +38,7 @@
 #include <pulsecore/sink.h>
 #include <pulsecore/memchunk.h>
 #include <pulsecore/mutex.h>
+#include <pulse/util.h>
 
 #include <sys/time.h>
 #include <time.h>
@@ -834,15 +835,19 @@ static void pa_qahw_sink_thread_func(void *userdata) {
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)userdata;
     pa_sink_data *pa_sdata = sdata->pa_sdata;
     qahw_sink_data *qahw_sdata = sdata->qahw_sdata;
+    pa_usec_t timestamp;
 
     pa_memchunk chunk;
     qahw_out_buffer_t out_buf;
 
     void *data;
     bool wait;
-    int rc;
-    bool running;
+    int rc, ret;
+    bool running, ts_enable = false;
     size_t sink_buffer_size = qahw_sdata->sink_buffer_size;
+#ifdef SINK_DEBUG
+    pa_usec_t cur_qtimer, ticks = 0;
+#endif
 
     if ((pa_sdata->sink->core->realtime_scheduling)) {
         pa_log_info("%s:: Making io thread for %s as realtime with prio %d", __func__, pa_qahw_sink_get_name_from_flags(qahw_sdata->flags), pa_sdata->sink->core->realtime_priority);
@@ -852,6 +857,7 @@ static void pa_qahw_sink_thread_func(void *userdata) {
     pa_thread_mq_install(&pa_sdata->thread_mq);
 
     memset(&out_buf, 0, sizeof(qahw_out_buffer_t));
+    ts_enable = qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP;
 
     while (true) {
         wait = true;
@@ -860,8 +866,11 @@ static void pa_qahw_sink_thread_func(void *userdata) {
             pa_sink_process_rewind(pa_sdata->sink, 0);
 
         /* A compressed sink only renders in RUNNING, not in IDLE */
-        running = (!qahw_sdata->compressed && PA_SINK_IS_OPENED(pa_sdata->sink->thread_info.state)) ||
+        running = (!qahw_sdata->compressed && PA_SINK_IS_OPENED(pa_sdata->sink->thread_info.state) && !ts_enable) ||
                    PA_SINK_IS_RUNNING(pa_sdata->sink->thread_info.state);
+
+        if (ts_enable)
+            pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
 
         if (running && !pa_atomic_load(&qahw_sdata->wait_for_write_ready) && !pa_atomic_load(&qahw_sdata->restart_in_progress)) {
             /* Check if we need to resend previous buffer */
@@ -870,17 +879,49 @@ static void pa_qahw_sink_thread_func(void *userdata) {
                     pa_sink_render(pa_sdata->sink, qahw_sdata->sink_buffer_size, &chunk);
                     /* Handle no data scenario for compressed streams */
                     if (pa_memblock_is_silence(chunk.memblock)) {
+                        pa_memblock_unref(chunk.memblock);
                         pa_log_debug("Got silence, avoid writing the block");
                         goto poll;
                     }
                 } else {
-                    pa_sink_render_full(pa_sdata->sink, qahw_sdata->sink_buffer_size, &chunk);
-                    pa_assert(chunk.length == qahw_sdata->sink_buffer_size);
+                    if (ts_enable) {
+                        ret = pa_sink_render_one(pa_sdata->sink, &chunk);
+                        if (!ret) {
+#ifdef SINK_DEBUG
+                            pa_log_debug("render one returned empty chunk");
+#endif
+                            /* wait for 1msec */
+                            wait = true;
+                            pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, 1000);
+                            goto poll;
+                        }
+                        if (chunk.timestamp == PA_NSEC_INVALID) {
+                            pa_log_error("invalid timestamp");
+                            pa_memblock_unref(chunk.memblock);
+                            goto poll;
+                        }
+                    } else {
+                        pa_sink_render_full(pa_sdata->sink, qahw_sdata->sink_buffer_size, &chunk);
+                        pa_assert(chunk.length == qahw_sdata->sink_buffer_size);
+                    }
                 }
 
                 data = pa_memblock_acquire(chunk.memblock);
                 out_buf.buffer = (char*)data + chunk.index;
                 out_buf.bytes = chunk.length;
+                if (ts_enable) {
+                    timestamp =  chunk.timestamp / PA_NSEC_PER_USEC;
+                    out_buf.timestamp = (int64_t *)&timestamp;
+#ifdef SINK_DEBUG
+#if defined __aarch64__
+                    asm volatile("mrs %0, cntvct_el0" : "=r"(ticks));
+#else
+                    asm volatile("mrrc p15, 1, %Q0, %R0, c14" : "=r"(ticks));
+#endif
+                    cur_qtimer = ticks * 10/192;
+                    pa_log_error("write_timestamp %" PRId64 "usec write_cur_qtimer %" PRId64 "usec", timestamp, cur_qtimer);
+#endif
+                }
                 sink_buffer_size = chunk.length;
                 if (qahw_sdata->compressed) {
                     if (chunk.duration == PA_NSEC_INVALID)

@@ -26,6 +26,7 @@
 #include <unistd.h>
 
 #include <pulse/rtclock.h>
+#include <pulse/timeval.h>
 #include <pulsecore/device-port.h>
 #include <pulsecore/core-util.h>
 #include <pulsecore/modargs.h>
@@ -513,6 +514,9 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
     pa_qahw_source_data *source_data = (pa_qahw_source_data *)userdata;
     pa_source_data *pa_sdata = source_data->pa_sdata;
     qahw_source_data *qahw_sdata = source_data->qahw_sdata;
+#ifdef SOURCE_DUMP_ENABLED
+    pa_usec_t cur_qtimer, ticks = 0;
+#endif
 
     if ((pa_sdata->source->core->realtime_scheduling)) {
         pa_log_info("%s:: Making read thread for %s as realtime with prio %d", __func__,
@@ -539,6 +543,8 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
 
         in_buf.buffer = data;
         in_buf.bytes = chunk.length;
+        if (qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP)
+            in_buf.timestamp = (int64_t *)&chunk.timestamp;
 
         if (!pa_atomic_load(&qahw_sdata->stopped)) {
             if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) <= 0) {
@@ -546,6 +552,19 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
                         ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 pa_msleep(pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 ret = in_buf.bytes;
+            }
+
+            if (qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP) {
+                chunk.timestamp = chunk.timestamp * PA_NSEC_PER_USEC;
+#ifdef SOURCE_DUMP_ENABLED
+#if defined __aarch64__
+                asm volatile("mrs %0, cntvct_el0" : "=r"(ticks));
+#else
+                asm volatile("mrrc p15, 1, %Q0, %R0, c14" : "=r"(ticks));
+#endif
+                cur_qtimer = ticks * 10/192;
+                pa_log_debug("read_timestamp %" PRId64 "nsec read_cur_timestamp %" PRId64 "usec", chunk.timestamp, cur_qtimer);
+#endif
             }
             pa_atomic_store(&qahw_sdata->first_read, 1);
         } else {
