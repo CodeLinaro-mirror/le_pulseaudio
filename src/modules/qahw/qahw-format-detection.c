@@ -289,14 +289,13 @@ int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys
 
     /* Assign current active jack and based on current configs */
     if (arc_enable_value) {
+        new_config.sample_rate = arc_audio_rate_value;
+        new_config.channels = DEFAULT_NUM_CHANNELS;
+        new_config.mode = arc_audio_format_value;
+        new_config.preemph_status = arc_audio_preemph_value;
         if ((jack_type != PA_QAHW_JACK_TYPE_HDMI_ARC) || (arc_audio_state_value == 2)) {
             pa_log_debug("%s: HDMI audio interface SPDIF ARC", __func__);
             jack_config->active_jack = PA_QAHW_JACK_TYPE_HDMI_ARC;
-
-            new_config.sample_rate = arc_audio_rate_value;
-            new_config.channels = DEFAULT_NUM_CHANNELS;
-            new_config.mode = arc_audio_format_value;
-            new_config.preemph_status = arc_audio_preemph_value;
         }
     } else if (audio_state_value && (audio_layout_value == 0) && (audio_format_value == 1)) {
         if ((jack_type != PA_QAHW_JACK_TYPE_HDMI_ARC) || (arc_audio_state_value == 2)) {
