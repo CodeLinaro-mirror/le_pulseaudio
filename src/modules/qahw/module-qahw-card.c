@@ -239,10 +239,11 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
 
     if (config->encoding != PA_ENCODING_PCM) {
         pa_format_info_set_rate(requested_format, config->ss.rate);
-        pa_format_info_set_channels(requested_format, config->ss.channels);
 
-        if (config->encoding == PA_ENCODING_DSD)
+        if (config->encoding == PA_ENCODING_DSD) {
+            pa_format_info_set_channels(requested_format, config->ss.channels);
             pa_format_info_set_prop_int(requested_format, "dsd-type", (int32_t)config->dsd_rate);
+        }
     }
 
     pa_log_info("%s: requested source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &config->ss));
