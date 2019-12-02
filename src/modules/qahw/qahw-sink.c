@@ -431,7 +431,12 @@ static int pa_qahw_sink_pause(pa_qahw_sink_data *sdata, bool pause) {
     pa_assert(qahw_sdata);
     pa_assert(qahw_sdata->out_handle);
 
-    pa_log_info("%s: %s playback", __func__, pause ? "pause" : "resume");
+    if (!qahw_sdata->compressed) {
+        pa_log_debug("%s: Unsupported for non-compress playback", __func__);
+        return 0;
+    }
+    pa_log_info("%s: %s compress playback", __func__, pause ? "pause" : "resume");
+
     if (pause && (qahw_sdata->state == STATE_PLAYING)) {
         rc = qahw_out_pause(qahw_sdata->out_handle);
         if (!rc)
