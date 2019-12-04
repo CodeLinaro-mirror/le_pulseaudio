@@ -3,7 +3,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
-  Copyright (c) 2019 The Linux Foundation. All rights reserved.
+  Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -1072,14 +1072,21 @@ static unsigned fill_mix_info(pa_sink *s, size_t *length, pa_mix_info *info, uns
     pa_sink_assert_ref(s);
     pa_sink_assert_io_context(s);
     pa_assert(info);
+    pa_assert(mixlength > 0 || maxinfo == 1);
 
     while ((i = pa_hashmap_iterate(s->thread_info.inputs, &state, NULL)) && maxinfo > 0) {
         pa_sink_input_assert_ref(i);
 
         if (*length > 0)
             pa_sink_input_peek(i, *length, &info->chunk, &info->volume);
-        else if (!pa_sink_input_peek_one(i, &info->chunk, &info->volume)) {
-            continue;
+        else {
+            /* "render_one" -> need to check one, and only one, active
+             * input (the first one), even if it fails */
+            if (i->thread_info.state != PA_SINK_INPUT_RUNNING)
+                continue; /* Not active => check the next input */
+
+            if (!pa_sink_input_peek_one(i, &info->chunk, &info->volume))
+                break; /* First input found (and failed) => stop now */
         }
 
         if (mixlength == 0 || info->chunk.length < mixlength)
@@ -1500,8 +1507,8 @@ bool pa_sink_render_one(pa_sink *s, pa_memchunk *result) {
     pa_assert(!s->thread_info.rewind_requested);
     pa_assert(s->thread_info.rewind_nbytes == 0);
 
-    /* Can't do this if the sink is not running or has more than one stream */
-    if (!PA_SINK_IS_RUNNING(s->state) || pa_idxset_size(s->inputs) != 1)
+    /* Can't do this if the sink is not running */
+    if (!PA_SINK_IS_RUNNING(s->state))
         return false;
 
     pa_sink_ref(s);
