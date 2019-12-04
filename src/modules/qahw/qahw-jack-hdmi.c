@@ -157,6 +157,7 @@ static bool is_hdmi_no_stream_event_valid(pa_qahw_hdmi_jack_data_t *hdmi_jdata) 
     if (status) {
         hdmi_jdata->active_valid_port_type = PA_QAHW_JACK_TYPE_INVALID;
         memset(&curr_hdmi_jack_config, 0, sizeof(pa_qahw_jack_out_config));
+        curr_hdmi_jack_config.active_jack = PA_QAHW_JACK_TYPE_INVALID;
     }
 
     return status;
@@ -506,9 +507,9 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
                 } else {
                     if (is_hdmi_config_update_event_valid(new_port_config, hdmi_jdata))
                         pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
-                }
 
-                memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
+                    memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
+                }
             }
         } else if (hdmi_jdata->jack_plugin_status != PA_QAHW_JACK_AVAILABLE) {
             /* This situation can arrive when linkon_0 state is unset */
