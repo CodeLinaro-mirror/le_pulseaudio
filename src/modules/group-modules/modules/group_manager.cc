@@ -222,13 +222,26 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
             u->timestamp_ = chunk->timestamp + chunk->duration;
         } else {
             pa_nsec_t now = ts_clock_now();
-            pa_nsec_t target_latency = ((u->sink_->thread_info.min_latency + u->sink_->thread_info.max_latency) / 2) * PA_NSEC_PER_USEC;
+            pa_nsec_t target_latency =
+                (((u->sink_->flags & PA_SINK_DYNAMIC_LATENCY) == 0)
+                        ? u->sink_->thread_info.fixed_latency
+                        : ((u->sink_->thread_info.min_latency + u->sink_->thread_info.max_latency) / 2))
+                * PA_NSEC_PER_USEC;
             if (u->timestamp_ == PA_NSEC_INVALID) {
                 // No timestamp yet => initialize it
+                pa_log_info("Initializing packet latency to %" PRIu64 "us (fixed: %" PRIu64 ", range %" PRIu64 "-%" PRIu64 ")",
+                    target_latency / PA_NSEC_PER_USEC,
+                    u->sink_->thread_info.fixed_latency,
+                    u->sink_->thread_info.min_latency, u->sink_->thread_info.max_latency);
                 u->timestamp_ = now + target_latency;
-            } else if (static_cast<int64_t>(u->timestamp_ - now) < static_cast<int64_t>(target_latency / 2)) {
-                // We are getting the data too late, reset the timestamp
-                u->timestamp_ = now + target_latency;
+            } else {
+                int64_t current_latency = static_cast<int64_t>(u->timestamp_ - now);
+                if (current_latency <= 0) {
+                    // We are getting the data too late, reset the timestamp
+                    pa_log_info("Packet latency %" PRId64 "usec, resetting timestamp for %" PRIu64 "us latency",
+                        current_latency / static_cast<int64_t>(PA_NSEC_PER_USEC), target_latency / PA_NSEC_PER_USEC);
+                    u->timestamp_ = now + target_latency;
+                }
             }
 
             chunk->timestamp = u->timestamp_;
@@ -294,6 +307,7 @@ static void sink_input_update_sink_latency_range_cb(pa_sink_input *i) {
     pa_sink_input_assert_ref(i);
     pa_assert_se(u = reinterpret_cast<GroupManager *>(i->userdata));
 
+    pa_log_debug("Latency range update: %" PRIu64 ", %" PRIu64, i->sink->thread_info.min_latency, i->sink->thread_info.max_latency);
     pa_sink_set_latency_range_within_thread(u->sink_, i->sink->thread_info.min_latency, i->sink->thread_info.max_latency);
 }
 
@@ -308,6 +322,7 @@ static void sink_input_update_sink_fixed_latency_cb(pa_sink_input *i) {
      * BLOCK MINUS ONE SAMPLE HERE. pa_usec_to_bytes_round_up() IS
      * USEFUL FOR THAT. */
 
+    pa_log_debug("Fixed latency update: %" PRIu64, i->sink->thread_info.fixed_latency);
     pa_sink_set_fixed_latency_within_thread(u->sink_, i->sink->thread_info.fixed_latency);
 }
 
@@ -337,6 +352,9 @@ static void sink_input_attach_cb(pa_sink_input *i) {
     /* (8.1) IF YOU NEED A FIXED BLOCK SIZE ADD THE LATENCY FOR ONE
      * BLOCK MINUS ONE SAMPLE HERE. SEE (7) */
     pa_sink_set_fixed_latency_within_thread(u->sink_, i->sink->thread_info.fixed_latency);
+    pa_log_debug("Attached latency, fixed: %" PRIu64 ",  range: %" PRIu64 "-%" PRIu64,
+        u->sink_->thread_info.fixed_latency,
+        u->sink_->thread_info.min_latency, u->sink_->thread_info.max_latency);
 
     /* (8.2) IF YOU NEED A FIXED BLOCK SIZE ROUND
      * pa_sink_input_get_max_request(i) UP TO MULTIPLES OF IT
