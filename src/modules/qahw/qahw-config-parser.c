@@ -900,6 +900,29 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_max_sink_gain(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink;
+
+    int ret = 0;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        if (pa_atod(state->rvalue, &sink->max_gain) < 0) {
+            pa_log_debug("%s: invalid sink gain", __func__);
+            ret = -1;
+        }
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        ret = -1;
+    }
+
+    return ret;
+}
+
 static int pa_qahw_config_parse_port_sys_path(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_card_port_config *port = NULL;
@@ -1995,6 +2018,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "in-port-names",               pa_qahw_config_parse_port_names,                          NULL, NULL },
 
         { "out-port-names",              pa_qahw_config_parse_port_names,                          NULL, NULL },
+        { "max-sink-gain",               pa_qahw_config_parse_max_sink_gain,                       NULL, NULL },
 
         {  NULL, NULL, NULL, NULL }
     };

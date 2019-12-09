@@ -52,6 +52,7 @@ typedef struct {
     char **port_conf_string;
     pa_qahw_card_usecase_type_t usecase_type;
     int32_t buffer_duration;
+    double max_gain;
 } pa_qahw_sink_config;
 
 typedef size_t pa_qahw_sink_handle_t;
