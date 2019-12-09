@@ -36,7 +36,6 @@ PA_C_DECL_END
 #include "enums.h"
 
 static constexpr pa_usec_t kMaxSilence = 1 * PA_USEC_PER_MSEC;  // 1ms
-static constexpr pa_usec_t kLogDelay = 1 * PA_USEC_PER_SEC;
 
 enum {
     GROUP_SINK_ENABLE = PA_SINK_MESSAGE_MAX,
@@ -134,9 +133,6 @@ static void thread_func(GroupSinkCtrl *u) {
 
     pa_rtpoll_set_timer_disabled(u->rtpoll);
 
-    size_t invalid_chunk_count = 0;
-    pa_usec_t last_invalid_chunk_log = pa_rtclock_now();
-
     for (;;) {
         // There is no event for new audio packet so don't block if we expect one
         int ret = pa_rtpoll_run(u->rtpoll, true);
@@ -170,30 +166,6 @@ static void thread_func(GroupSinkCtrl *u) {
         if (!pa_sink_render_one(u->sink, &chunk)) {
             pa_rtpoll_set_timer_relative(u->rtpoll, kMaxSilence);
             continue;
-        }
-
-        // We must have a valid timestamp, so skip the chunk if we don't
-        if ((chunk.timestamp == PA_NSEC_INVALID)
-            || (chunk.duration == PA_NSEC_INVALID)) {
-            pa_memblock_unref(chunk.memblock);
-            pa_rtpoll_set_timer_relative(u->rtpoll, kMaxSilence);
-
-            pa_usec_t now = pa_rtclock_now();
-            if (invalid_chunk_count == 0) {
-                last_invalid_chunk_log = now;
-            }
-            invalid_chunk_count++;
-            if ((now - last_invalid_chunk_log) >= kLogDelay) {
-                last_invalid_chunk_log = now;
-                pa_log_error("Invalid timestamp or duration, skipped %zu chunks", invalid_chunk_count);
-            }
-
-            continue;
-        }
-
-        if (invalid_chunk_count > 0) {
-            pa_log_error("Invalid timestamp or duration (end), skipped %zu chunks", invalid_chunk_count);
-            invalid_chunk_count = 0;
         }
 
         u->group_sink->send(u->group_sink, &chunk);
