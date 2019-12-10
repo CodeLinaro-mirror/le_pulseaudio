@@ -39,6 +39,7 @@
 #include <pulsecore/memchunk.h>
 #include <pulsecore/mutex.h>
 #include <pulse/util.h>
+#include <pulsecore/trace_log.h>
 
 #include <sys/time.h>
 #include <time.h>
@@ -102,6 +103,8 @@ typedef struct {
     double max_gain;
     pa_atomic_t set_rt_prio_for_out_cb;
     int32_t dsd_rate;
+
+    trace_log ts_log;
 } qahw_sink_data;
 
 typedef struct {
@@ -392,6 +395,7 @@ static int pa_qahw_sink_start(pa_qahw_sink_data *sdata, pa_sink_state_t new_stat
     if (new_state == PA_SINK_RUNNING)
         r = pa_qahw_sink_pause(sdata, false);
 
+    trace_open(&sdata->qahw_sdata->ts_log);
     return r;
 }
 
@@ -533,9 +537,11 @@ static int pa_qahw_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t ne
         r = pa_qahw_sink_start(sdata, new_state);
     else if (new_state == PA_SINK_SUSPENDED)
         r = pa_qahw_sink_standby(sdata->qahw_sdata);
-    else if (PA_SINK_IS_RUNNING(new_state) && (s->thread_info.state == PA_SINK_IDLE))
-       r = pa_qahw_sink_pause(sdata, false);
-    else if (PA_SINK_IS_RUNNING(s->thread_info.state) && (new_state == PA_SINK_IDLE))
+    else if (PA_SINK_IS_RUNNING(new_state) && (s->thread_info.state == PA_SINK_IDLE)) {
+        r = pa_qahw_sink_pause(sdata, false);
+        trace_open(&sdata->qahw_sdata->ts_log);
+        trace_newstream(&sdata->qahw_sdata->ts_log, s->name);
+    } else if (PA_SINK_IS_RUNNING(s->thread_info.state) && (new_state == PA_SINK_IDLE))
         r = pa_qahw_sink_pause(sdata, true);
 
     return r;
@@ -921,6 +927,7 @@ static void pa_qahw_sink_thread_func(void *userdata) {
                     cur_qtimer = ticks * 10/192;
                     pa_log_error("write_timestamp %" PRId64 "usec write_cur_qtimer %" PRId64 "usec", timestamp, cur_qtimer);
 #endif
+                    trace_ts(&qahw_sdata->ts_log, pa_sdata->sink->name, chunk.timestamp, chunk.duration);
                 }
                 sink_buffer_size = chunk.length;
                 if (qahw_sdata->compressed) {
@@ -1108,6 +1115,8 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
     pa_xfree(file_name);
 #endif
 
+    qahw_sdata->ts_log = TRACE_LOG_STATIC_INIT;
+
 exit:
     return rc;
 }
@@ -1141,6 +1150,8 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
 #ifdef SINK_DUMP_ENABLED
     close(qahw_sdata->write_fd);
 #endif
+
+    trace_close(&qahw_sdata->ts_log);
 
     /* Turn BT_SCO off if bt_sco recording */
     if(audio_is_bluetooth_sco_device(qahw_sdata->devices)) {

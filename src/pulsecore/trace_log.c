@@ -15,9 +15,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
  */
-#include "pulsecore_config.h"
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
 
-#include "ts_logging.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -26,59 +27,56 @@
 #include <unistd.h>
 
 #include <pulse/timeval.h>
-extern "C" {
 #include <pulsecore/ts_clock.h>
-}
 
-#include <chrono>
-
-#if !defined(__cplusplus)
-#    define nullptr NULL
-#endif  // !__cplusplus
+#include "trace_log.h"
 
 static bool trace_is_valid(trace_log *log) {
-    return ((log != nullptr) && (log->fd >= 0));
+    return ((log != NULL) && (log->fd >= 0));
 }
 
 trace_log trace_open(trace_log *old_log) {
+    trace_log new_log = TRACE_LOG_STATIC_INIT;
     if (trace_is_valid(old_log)) {
         // Already opened
         return *old_log;
     }
-    trace_log new_log = TRACE_LOG_STATIC_INIT;
     new_log.fd = open("/sys/kernel/debug/tracing/trace_marker", O_WRONLY);
-    if (old_log != nullptr) {
+    if (old_log != NULL) {
         *old_log = new_log;
     }
     return new_log;
 }
 void trace_close(trace_log *log) {
     if (trace_is_valid(log)) {
-        ::close(log->fd);
+        close(log->fd);
         log->fd = -1;
     }
 }
 ssize_t trace_write(trace_log *log, const char *fmt, ...) {
+    va_list ap;
+    char buf[256];
+    int len;
+    ssize_t count;
+
     if (!trace_is_valid(log)) {
         errno = EBADF;
         return -1;
     }
 
-    va_list ap;
     va_start(ap, fmt);
 
-    char buf[256];
     errno = 0;
-    int len = vsnprintf(buf, sizeof(buf), fmt, ap);
+    len = vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     if (len < 0) {
         // Assumes errno was set by printf
         return -1;
     }
-    if (static_cast<size_t>(len) > sizeof(buf)) {
+    if (((size_t)len) > sizeof(buf)) {
         len = sizeof(buf);
     }
-    ssize_t count = ::write(log->fd, buf, static_cast<size_t>(len));
+    count = write(log->fd, buf, (size_t)len);
     if (count < 0) {
         int old_errno = errno;
         trace_close(log);

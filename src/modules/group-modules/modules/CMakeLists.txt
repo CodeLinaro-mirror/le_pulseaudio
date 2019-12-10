@@ -102,8 +102,6 @@ add_library(${PROJECT_LIBNAME} OBJECT
     ts_renderer_ctrl.cc
     ts_renderer_ctrl.h
     pulsecore_config.h
-    ts_logging.cc
-    ts_logging.h
     )
 target_include_directories(${PROJECT_LIBNAME} SYSTEM PUBLIC
     ${PA_INCLUDE_DIRS}

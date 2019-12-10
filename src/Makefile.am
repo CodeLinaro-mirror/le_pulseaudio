@@ -3,6 +3,7 @@
 # Copyright 2004-2006 Lennart Poettering
 # Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
 # Copyright 2006 Diego Pettenò
+# Copyright 2019 The Linux Foundation. All rights reserved.
 #
 # PulseAudio is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License as published by
@@ -1034,7 +1035,8 @@ libpulsecore_@PA_MAJORMINOR@_la_SOURCES = \
 		pulsecore/source.c pulsecore/source.h \
 		pulsecore/start-child.c pulsecore/start-child.h \
 		pulsecore/thread-mq.c pulsecore/thread-mq.h \
-		pulsecore/database.h
+		pulsecore/database.h \
+		pulsecore/trace_log.c pulsecore/trace_log.h
 
 libpulsecore_@PA_MAJORMINOR@_la_CFLAGS = $(AM_CFLAGS) $(SERVER_CFLAGS) $(LIBSNDFILE_CFLAGS) $(WINSOCK_CFLAGS)
 libpulsecore_@PA_MAJORMINOR@_la_LDFLAGS = $(AM_LDFLAGS) $(AM_LIBLDFLAGS) -avoid-version
