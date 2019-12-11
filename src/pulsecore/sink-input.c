@@ -1120,8 +1120,12 @@ bool pa_sink_input_peek_one(pa_sink_input *i, pa_memchunk *chunk, pa_cvolume *vo
             return false;
         }
 
-        pa_assert(tchunk.length > 0);
-        pa_assert(tchunk.memblock);
+        pa_assert(tchunk.length == 0 || tchunk.memblock);
+        if (tchunk.length == 0) {
+            pa_log_warn("Empty chunk to sink '%s'", i->sink->name);
+            /* memblock is null, so continue now to skip call to unref */
+            continue;
+        }
 
         i->thread_info.underrun_for = 0;
         i->thread_info.underrun_for_sink = 0;
