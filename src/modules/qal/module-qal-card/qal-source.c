@@ -128,7 +128,7 @@ static int pa_qal_source_fill_info(qal_source_data *qal_sdata, pa_encoding_t enc
 
     channel_count = pa_qal_get_channel_count(map);
     qal_sdata->stream_attributes->in_media_config.ch_info = (struct qal_channel_info *)malloc(sizeof(uint16_t) + sizeof(uint8_t)*channel_count);
-    if (!pa_qal_channel_map_to_qal(map, qal_sdata->stream_attributes->in_media_config.ch_info)) {
+    if (!pa_qal_channel_map_to_qal(&port_device_data->default_map, qal_sdata->stream_attributes->in_media_config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
         pa_xfree(qal_sdata->stream_attributes->in_media_config.ch_info);
         return -1;

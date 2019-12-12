@@ -347,7 +347,7 @@ static void read_thread_func(void *userdata) {
 }
 
 /* As of now qal is not filling event and cookie data. Hence just a log */
-static void event_callback(struct qal_st_recognition_event *event, void *cookie) {
+static int32_t event_callback(qal_stream_handle_t *stream_handle, uint32_t event_id, uint32_t *event_data, void *cookie) {
     DBusMessage *message = NULL;
     DBusMessageIter arg_i, struct_i, struct_ii, array_i, array_ii;
     dbus_uint32_t i, j;
@@ -355,6 +355,7 @@ static void event_callback(struct qal_st_recognition_event *event, void *cookie)
 
     struct qal_voiceui_session_data *ses_data = (struct qal_voiceui_session_data *)cookie;
     pa_qal_st_phrase_recognition_event *qsthw_event;
+    struct qal_st_recognition_event *event;
     struct qal_st_phrase_recognition_event *phrase_event;
     int n_elements = 0;
     char *value = NULL;
@@ -362,16 +363,17 @@ static void event_callback(struct qal_st_recognition_event *event, void *cookie)
     dbus_bool_t trigger_in_data;
     uint32_t channels;
 
-    pa_assert(event);
+    pa_assert(event_data);
     pa_assert(ses_data);
 
+    qsthw_event = (pa_qal_st_phrase_recognition_event *)((void *)event_data);
+    phrase_event = &qsthw_event->phrase_event;
+    event = &phrase_event->common;
     capture_available = event->capture_available;
     trigger_in_data = event->trigger_in_data;
     channels = event->media_config.ch_info->channels;
 
     pa_log_info("Callback event received: %d", event->status);
-    qsthw_event = (pa_qal_st_phrase_recognition_event *)((void *)event);
-    phrase_event = &qsthw_event->phrase_event;
 
     pa_assert_se(message = dbus_message_new_signal(ses_data->obj_path,
             session_interface_info.name,
@@ -435,6 +437,7 @@ static void event_callback(struct qal_st_recognition_event *event, void *cookie)
     }
 
     dbus_message_unref(message);
+    return 0;
 }
 
 static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdata) {
@@ -787,7 +790,7 @@ static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *user
     memcpy(rc_config, &config, sizeof(struct qal_st_recognition_config));
     memcpy((char *)rc_config + rc_config->data_offset,
            value, n_elements);
-    rc_config->callback = event_callback;
+    rc_config->callback = NULL;
     rc_config->cookie = (void *)ses_data;
 
     status = qal_stream_set_param(ses_data->ses_handle, QAL_PARAM_ID_START_RECOGNITION, (qal_param_payload *)rc_config);
@@ -923,9 +926,13 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     memcpy(&sound_model.vendor_uuid.node[0], value, n_elements);
 
     pa_qal_fill_stream_attributes(stream_attr, &no_of_devices, devices);
+    ses_data = pa_xnew0(struct qal_voiceui_session_data, 1);
+    ses_data->common = (struct qal_voiceui_module_data *)userdata;
 
-    rc = qal_stream_open(stream_attr, no_of_devices, devices, no_of_modifiers, modifiers, NULL, NULL, &stream_handle);
+    rc = qal_stream_open(stream_attr, no_of_devices, devices, no_of_modifiers, modifiers, event_callback, ses_data, &stream_handle);
     if (rc != 0) {
+        free(ses_data);
+        ses_data = NULL;
         pa_log_error("qal stream open failed\n");
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "load_sound_model failed");
         dbus_error_free(&error);
@@ -1006,14 +1013,14 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
 
     pa_xfree(common_sound_model);
     if (status != 0) {
+        free(ses_data);
+        ses_data = NULL;
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "load_sound_model failed");
         dbus_error_free(&error);
         return;
     }
 
    /* After successful load sound model, allocate session data */
-    ses_data = pa_xnew0(struct qal_voiceui_session_data, 1);
-    ses_data->common = (struct qal_voiceui_module_data *)userdata;
     ses_data->common->session_id++;
     ses_data->ses_handle = stream_handle;
     ses_data->obj_path = pa_sprintf_malloc("%s/ses_%d", m_data->obj_path, ses_data->common->session_id);
@@ -1059,13 +1066,13 @@ int pa__init(pa_module *m) {
     m_data->obj_path = pa_sprintf_malloc("%s/%s", QSTHW_DBUS_OBJECT_PATH_PREFIX,
                          "primary");
 
-    if (qal_init() != 0) {
-        pa_log_error("QAL Initialization failed\n");
+    if (agm_init() != 0) {
+        pa_log_error("AGM Initialization failed\n");
         goto error;
     }
 
-    if (agm_init() != 0) {
-        pa_log_error("AGM Initialization failed\n");
+    if (qal_init() != 0) {
+        pa_log_error("QAL Initialization failed\n");
         goto error;
     }
 
