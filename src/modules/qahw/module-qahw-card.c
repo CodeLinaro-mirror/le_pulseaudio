@@ -1177,10 +1177,17 @@ int pa__init(pa_module *m) {
         u->config_data->default_profile = (char *)DEFAULT_PROFILE;
     }
 
-    pa_qahw_sink_module_init();
-    if (pa_hashmap_size(u->config_data->sinks)) {
+    /* Initialize sink & source hashmap before enabling jack detection */
+    if (pa_hashmap_size(u->config_data->sinks))
         u->sinks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
+    if (pa_hashmap_size(u->config_data->sources))
+        u->sources = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+
+    pa_qahw_card_enable_jack_detection(u);
+
+    pa_qahw_sink_module_init();
+    if (pa_hashmap_size(u->config_data->sinks)) {
         if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
             goto fail;
 
@@ -1190,12 +1197,9 @@ int pa__init(pa_module *m) {
     pa_log_info("%s: use_dolby_hw_loopback %d", __func__, u->config_data->use_dolby_hw_loopback);
 
     if (pa_hashmap_size(u->config_data->sources)) {
-        u->sources = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
         if (PA_UNLIKELY(pa_qahw_card_create_sources(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
             goto fail;
     }
-
-    pa_qahw_card_enable_jack_detection(u);
 
     pa_qahw_module_extn_init(u->core, u->card, u->module_handle);
 
