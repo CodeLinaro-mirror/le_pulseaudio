@@ -69,44 +69,9 @@ static int sink_process_msg_cb(pa_msgobject *o, int code, void *data, int64_t of
             return 0;
 
         case PA_SINK_MESSAGE_ADD_INPUT: {
-            // TODO(jbing): what if there are multiple inputs?
-            pa_sink_input *i = PA_SINK_INPUT(data);
-
-            const char *name = pa_proplist_gets(i->proplist, "media.name");
-            if (name && (strcmp(name, "pulsesink probe") == 0)) {
-                // Temporary stream => ignore
-                break;
-            }
-
-            // Enable or not group sinks, so they use a high latency (lead) or
-            // a low one (slave).
-            // (Assumes one input, which is required to properly handle
-            // timestamps)
-            const char *client_str = pa_proplist_gets(i->proplist, "slave");
-            for (auto sink : u->group_sinks_) {
-                // TODO(jbing): support disabling some groups (e.g. multiroom)
-                // while keeping others enable (e.g. multichannel). Requires
-                // propert handling of latency (i.e. slaves must have
-                // lower latency than lead) or fix for underrun.
-                bool enable = ((client_str == nullptr)
-                    /*|| (strcmp(client_str, sink->sink->name) != 0)*/);
-                pa_log_info("%s %s group sink (client '%s')",
-                    (enable ? "Enabling" : "Disabling"),
-                    sink->sink->name, client_str);
-                sink->enable(enable);
-            }
-
             trace_open(&(u->ts_logging_));  // reopen in case tracing was disabled before
             trace_newstream(&(u->ts_logging_), u->sink_->name);
 
-            break;
-        }
-        case PA_SINK_MESSAGE_REMOVE_INPUT: {
-            // (Assumes one input, which is required to properly handle timestamps)
-            pa_log_info("Disabling group sinks (remove input)");
-            for (auto sink : u->group_sinks_) {
-                sink->enable(false);
-            }
             break;
         }
 
@@ -162,6 +127,11 @@ static int sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state,
         u->resetTimestamp();
     } else if ((new_state != PA_SINK_RUNNING) && (u->sink_->thread_info.state == PA_SINK_RUNNING)) {
         u->resetTimestamp();  // Mostly for logging when stopping
+
+        pa_log_info("Disabling group sinks (idle/suspended)");
+        for (auto sink : u->group_sinks_) {
+            sink->enable(false);
+        }
     }
 
     return 0;
@@ -222,18 +192,39 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
 
         // Reset the timestamp computation if the active sink-input has changed
         {
-            uint32_t current_input = GroupManager::kNoInput;
+            pa_sink_input *upstream;
             void *state = nullptr;
-            for (pa_sink_input *upstream = reinterpret_cast<pa_sink_input *>(pa_hashmap_iterate(u->sink_->thread_info.inputs, &state, nullptr));
+            for (upstream = reinterpret_cast<pa_sink_input *>(pa_hashmap_iterate(u->sink_->thread_info.inputs, &state, nullptr));
                  upstream != nullptr;
                  upstream = reinterpret_cast<pa_sink_input *>(pa_hashmap_iterate(u->sink_->thread_info.inputs, &state, nullptr))) {
                 if (upstream->thread_info.state == PA_SINK_INPUT_RUNNING) {
-                    current_input = upstream->index;
                     break;
                 }
             }
-            if (current_input != u->active_input_) {
-                u->resetTimestamp(current_input);
+            if ((!upstream) && (u->active_input_ != GroupManager::kNoInput)) {
+                // No more active input
+                u->resetTimestamp(GroupManager::kNoInput);
+
+                // No point in disabling the group sinks yet. Lets wait for the
+                // suspended state or for a new active input
+            } else if (upstream && (u->active_input_ != upstream->index)) {
+                // Input has changed
+                u->resetTimestamp(upstream->index);
+
+                const char *client_str = pa_proplist_gets(upstream->proplist, "slave");
+                const char *app_binary = pa_proplist_gets(upstream->proplist, "application.process.binary");
+                for (auto sink : u->group_sinks_) {
+                    // TODO(jbing): support disabling some groups (e.g. multiroom)
+                    // while keeping others enable (e.g. multichannel). Requires
+                    // propert handling of latency (i.e. slaves must have
+                    // lower latency than lead) or fix for underrun.
+                    bool enable = (client_str == nullptr);
+                    pa_log_info("%s %s group sink (active int %u-%s)",
+                        (enable ? "Enabling" : "Disabling"),
+                        sink->sink->name, u->active_input_,
+                        (app_binary ? app_binary : "<unknown>"));
+                    sink->enable(enable);
+                }
             }
         }
 
