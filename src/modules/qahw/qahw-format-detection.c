@@ -196,9 +196,9 @@ static int pa_qahw_format_detection_read_from_fd(const char* path) {
 }
 
 static int pa_qahw_format_detection_get_num_channels(int infoframe_channels) {
-    if (infoframe_channels > 0 && infoframe_channels < 8) {
+    if (infoframe_channels > 0 && infoframe_channels <= 8) {
         /* refer CEA-861-D Table 17 Audio InfoFrame Data Byte 1 */
-        return (infoframe_channels + 1);
+        return (infoframe_channels);
     }
 
     /* Return default value when infoframe channels is out of bound */
@@ -276,7 +276,7 @@ int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys
         if (new_config.layout == 1) {
             if (new_config.mode == PA_QAHW_JACK_INPUT_MODE_DSD)
                 audio_channel_value = 6;
-            else
+            else if (new_config.mode == PA_QAHW_JACK_INPUT_MODE_COMPRESS)
                 audio_channel_value = 8;
         } else {
             if (new_config.mode != PA_QAHW_JACK_INPUT_MODE_DSD)
@@ -328,8 +328,15 @@ int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys
 
     rc = pa_qahw_format_detection_config_to_jack_config(&new_config, jack_config);
 
-    if ((sys_path.audio_channel_alloc) && (arc_enable_value == 0))
+    if ((sys_path.audio_channel_alloc) && (arc_enable_value == 0)) {
+        if (new_config.layout == 1 && jack_config->encoding == PA_ENCODING_PCM) {
+            new_config.channels = (uint32_t)audio_channel_value;
+            jack_config->ss.channels = new_config.channels;
+            jack_config->map.channels = jack_config->ss.channels;
+        }
+
         pa_qahw_util_channel_allocation_to_pa_channel_map(&(jack_config->map), new_config.channel_allocation);
+    }
 
     /* When there is no device switch, set active jack as current jack */
     if (jack_config->active_jack == PA_QAHW_JACK_TYPE_INVALID)
