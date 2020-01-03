@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -67,6 +67,7 @@ pa_qahw_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_QAHW_JACK_TYPE_SPDIF, (char *)"spdif-in"},
     { PA_QAHW_JACK_TYPE_BTSCO_IN, (char *)"btsco-in"},
     { PA_QAHW_JACK_TYPE_BTSCO_OUT, (char *)"btsco-out"},
+    { PA_QAHW_JACK_TYPE_HDMI_OUT, (char *)"hdmi-out"},
 };
 
 pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
@@ -87,6 +88,7 @@ pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
     { (char *)"btsco-out",       AUDIO_DEVICE_OUT_BLUETOOTH_SCO,        (char *)"AUDIO_DEVICE_OUT_BLUETOOTH_SCO" },
     { (char*)"speaker2",         QAHW_AUDIO_DEVICE_OUT_SPEAKER2,        (char *)"QAHW_AUDIO_DEVICE_OUT_SPEAKER2" },
     { (char*)"speaker3",         QAHW_AUDIO_DEVICE_OUT_SPEAKER3,        (char *)"QAHW_AUDIO_DEVICE_OUT_SPEAKER3" },
+    { (char*)"hdmi-out",         AUDIO_DEVICE_OUT_HDMI,                 (char *)"AUDIO_DEVICE_OUT_HDMI" },
 };
 
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {
@@ -870,6 +872,9 @@ void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qa
 
     if (config_port->dsd_rate_node_path)
         jack_in_config->jack_sys_path.dsd_rate = config_port->dsd_rate_node_path;
+
+    if (config_port->hdmi_tx_state_path)
+        jack_in_config->jack_sys_path.hdmi_tx_state = config_port->hdmi_tx_state_path;
 }
 
 /* With reference to the translation table from "Dolby Atmos to Sound Bar Product

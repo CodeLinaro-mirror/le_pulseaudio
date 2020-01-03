@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -99,6 +99,8 @@ typedef struct {
     char *arc_sample_rate_node_path;
     char *bus;
     char *arc_audio_preemph_node_path;
+
+    char *hdmi_tx_state_path;
 
     char *detection;
 } pa_qahw_card_port_config;

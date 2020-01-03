@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -34,7 +34,8 @@ typedef enum {
     PA_QAHW_JACK_TYPE_SPDIF = 0x100,
     PA_QAHW_JACK_TYPE_BTSCO_IN = 0x200,
     PA_QAHW_JACK_TYPE_BTSCO_OUT = 0x400,
-    PA_QAHW_JACK_TYPE_LAST = PA_QAHW_JACK_TYPE_BTSCO_OUT,
+    PA_QAHW_JACK_TYPE_HDMI_OUT = 0x800,
+    PA_QAHW_JACK_TYPE_LAST = PA_QAHW_JACK_TYPE_HDMI_OUT,
     PA_QAHW_JACK_TYPE_MAX = PA_QAHW_JACK_TYPE_LAST,
 } pa_qahw_jack_type_t;
 
@@ -79,6 +80,8 @@ typedef struct {
     const char *arc_audio_format;
     const char *arc_audio_rate;
     const char *arc_audio_preemph;
+
+    const char *hdmi_tx_state;
 } pa_qahw_jack_sys_path;
 
 typedef struct {
