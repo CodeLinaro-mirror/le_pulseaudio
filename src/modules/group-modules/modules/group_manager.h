@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -74,6 +74,7 @@ class GroupManager {
 
     uint32_t active_input_{kNoInput};
     bool has_timestamps_{false};
+    bool in_underrun_{false};
     pa_nsec_t timestamp_{PA_NSEC_INVALID};
 
     trace_log ts_logging_ = TRACE_LOG_STATIC_INIT;

@@ -3,7 +3,7 @@
 
     Copyright 2010 Intel Corporation
     Contributor: Pierre-Louis Bossart <pierre-louis.bossart@intel.com>
-    Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+    Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
 
     PulseAudio is free software; you can redistribute it and/or modify
     it under the terms of the GNU Lesser General Public License as published
@@ -187,6 +187,25 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
 
     for (;;) {
         if (!pa_sink_render_one(u->sink_, chunk)) {
+            if ((!u->in_underrun_) && (!u->has_timestamps_)) {
+                // Underrun for a non-timestamped stream => either because
+                // lost packet that reduced the end-to-end latency, or because
+                // the end-to-end latency was not high enough, or because we
+                // are paused => reset the computation.
+                // FIXME: check if the active input as timestamps and call
+                // pa_sink_render or pa_sink_render_one accordingly, so we can
+                // benefit from PA's latency management for the non-timestamp
+                // case (i.e. classic PA behavior)
+                pa_log_info("Underrun in non-timestamped stream (sink-input #%zu)", u->active_input_);
+                u->in_underrun_ = true;
+                // We do not reset the timestamp because the underrun might
+                // be caused by the end of the stream and the source might
+                // rely on the latency (computed from timestamp) to know when
+                // all the audio has been drained. If we reset the timestamp,
+                // the latency will go back to the target latency, making the
+                // the source believe that up to <target latency> of audio still
+                // need to be played.
+            }
             return false;
         }
 
@@ -243,21 +262,25 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
                         ? u->sink_->thread_info.fixed_latency
                         : ((u->sink_->thread_info.min_latency + u->sink_->thread_info.max_latency) / 2))
                 * PA_NSEC_PER_USEC;
+
+            bool recompute_timestamp = false;
             if (u->timestamp_ == PA_NSEC_INVALID) {
                 // No timestamp yet => initialize it
                 pa_log_info("Initializing packet latency to %" PRIu64 "us (fixed: %" PRIu64 ", range %" PRIu64 "-%" PRIu64 ")",
                     target_latency / PA_NSEC_PER_USEC,
                     u->sink_->thread_info.fixed_latency,
                     u->sink_->thread_info.min_latency, u->sink_->thread_info.max_latency);
+                recompute_timestamp = true;
+            } else if (u->in_underrun_) {
+                pa_log_info("Recovering from underrun, resetting timestamp for %" PRIu64 "us latency",
+                    target_latency / PA_NSEC_PER_USEC);
+
+                recompute_timestamp = true;
+            }
+
+            if (recompute_timestamp) {
                 u->timestamp_ = now + target_latency;
-            } else {
-                int64_t current_latency = static_cast<int64_t>(u->timestamp_ - now);
-                if (current_latency <= 0) {
-                    // We are getting the data too late, reset the timestamp
-                    pa_log_info("Packet latency %" PRId64 "usec, resetting timestamp for %" PRIu64 "us latency",
-                        current_latency / static_cast<int64_t>(PA_NSEC_PER_USEC), target_latency / PA_NSEC_PER_USEC);
-                    u->timestamp_ = now + target_latency;
-                }
+                u->in_underrun_ = false;
             }
 
             chunk->timestamp = u->timestamp_;
