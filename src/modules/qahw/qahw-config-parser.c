@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -1293,6 +1293,7 @@ static int pa_qahw_config_parse_priority(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_card_profile_config *profile;
     pa_qahw_card_port_config *port;
+    pa_qahw_source_config *source = NULL;
 
     int ret = 0;
 
@@ -1307,6 +1308,10 @@ static int pa_qahw_config_parse_priority(pa_config_parser_state *state) {
     } else if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
         if (pa_atou(state->rvalue, &port->priority) < 0) {
             pa_log("%s: Invalid port priority", __func__);
+        }
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        if (pa_atou(state->rvalue, &source->priority) < 0) {
+            pa_log("%s: Invalid source priority", __func__);
         }
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
