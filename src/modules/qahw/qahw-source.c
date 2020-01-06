@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -785,7 +785,7 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t
 
 static int create_pa_source(pa_module *m, char *source_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map,
                             uint32_t alternate_sample_rate, pa_qahw_card_avoid_processing_config_id_t avoid_config_processing, pa_card *card,
-                            pa_hashmap *ports, const char *driver, pa_qahw_source_data *source_data, pa_proplist *proplist) {
+                            pa_hashmap *ports, const char *driver, pa_qahw_source_data *source_data, pa_proplist *proplist, uint32_t priority) {
     pa_source_new_data new_data;
     pa_source_data *pa_sdata = NULL;
 
@@ -857,6 +857,7 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_sdata->source->parent.process_msg = pa_qahw_source_process_msg;
     pa_sdata->source->set_state_in_io_thread = pa_qahw_source_set_state_in_io_thread_cb;
     pa_sdata->source->set_port = pa_qahw_source_set_port_cb;
+    pa_sdata->source->priority = priority;
 
     /* FIXME: check reconfigure needed for non pcm */
     pa_sdata->source->reconfigure = pa_qahw_source_reconfigure_cb;
@@ -1022,7 +1023,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     }
 
     rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate,
-                          source->avoid_config_processing, card, ports, driver, sdata, source->proplist);
+                          source->avoid_config_processing, card, ports, driver, sdata, source->proplist, source->priority);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", source->name, rc);
         free_qahw_source(sdata->qahw_sdata);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -51,6 +51,8 @@ typedef struct {
     pa_qahw_card_usecase_type_t usecase_type;
     int32_t buffer_duration;
     int32_t preemph_status;
+
+    uint32_t priority;
 } pa_qahw_source_config;
 
 /*create qahw session and pa source */
