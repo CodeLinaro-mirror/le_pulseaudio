@@ -42,6 +42,10 @@ enum {
     GROUP_MANAGER_SINK_SET_MASTER_ID = PA_SINK_MESSAGE_MAX
 };
 
+static std::string get_sink_input_index_str(const pa_sink_input *input) {
+    return input ? std::to_string(input->index) : "<none>";
+}
+
 /* Called from I/O thread context */
 static int sink_process_msg_cb(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
     GroupManager *u = reinterpret_cast<GroupManager *>(PA_SINK(o)->userdata);
@@ -71,6 +75,16 @@ static int sink_process_msg_cb(pa_msgobject *o, int code, void *data, int64_t of
         case PA_SINK_MESSAGE_ADD_INPUT: {
             trace_open(&(u->ts_logging_));  // reopen in case tracing was disabled before
             trace_newstream(&(u->ts_logging_), u->sink_->name);
+
+            break;
+        }
+
+        case PA_SINK_MESSAGE_REMOVE_INPUT: {
+            pa_sink_input *i = PA_SINK_INPUT(data);
+            if (i == u->active_input_) {
+                // Input has changed
+                u->resetTimestamp();
+            }
 
             break;
         }
@@ -196,7 +210,8 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
                 // pa_sink_render or pa_sink_render_one accordingly, so we can
                 // benefit from PA's latency management for the non-timestamp
                 // case (i.e. classic PA behavior)
-                pa_log_info("Underrun in non-timestamped stream (sink-input #%zu)", u->active_input_);
+                pa_log_info("Underrun in non-timestamped stream (sink-input %s)",
+                    get_sink_input_index_str(u->active_input_).c_str());
                 u->in_underrun_ = true;
                 // We do not reset the timestamp because the underrun might
                 // be caused by the end of the stream and the source might
@@ -220,15 +235,15 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
                     break;
                 }
             }
-            if ((!upstream) && (u->active_input_ != GroupManager::kNoInput)) {
+            if ((!upstream) && (u->active_input_ != nullptr)) {
                 // No more active input
-                u->resetTimestamp(GroupManager::kNoInput);
+                u->resetTimestamp(nullptr);
 
                 // No point in disabling the group sinks yet. Lets wait for the
                 // suspended state or for a new active input
-            } else if (upstream && (u->active_input_ != upstream->index)) {
+            } else if (upstream && (u->active_input_ != upstream)) {
                 // Input has changed
-                u->resetTimestamp(upstream->index);
+                u->resetTimestamp(upstream);
 
                 const char *client_str = pa_proplist_gets(upstream->proplist, "slave");
                 const char *app_binary = pa_proplist_gets(upstream->proplist, "application.process.binary");
@@ -238,9 +253,10 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
                     // propert handling of latency (i.e. slaves must have
                     // lower latency than lead) or fix for underrun.
                     bool enable = (client_str == nullptr);
-                    pa_log_info("%s %s group sink (active int %u-%s)",
+                    pa_log_info("%s %s group sink (active input %s, app %s)",
                         (enable ? "Enabling" : "Disabling"),
-                        sink->sink->name, u->active_input_,
+                        sink->sink->name,
+                        get_sink_input_index_str(u->active_input_).c_str(),
                         (app_binary ? app_binary : "<unknown>"));
                     sink->enable(enable);
                 }
@@ -597,13 +613,13 @@ void GroupManager::setMasterId(const std::string &master_id) {
         master_id_str, 0, nullptr, pa_xfree);
 }
 
-void GroupManager::resetTimestamp(uint32_t active_input) {
-    if (active_input_ == active_input) {
+void GroupManager::resetTimestamp(pa_sink_input *new_input) {
+    if (active_input_ == new_input) {
         return;
     }
 
-    pa_log_info("Resetting timestamps computation (new sink_input: %d)", static_cast<int32_t>(active_input));
-    active_input_ = active_input;
+    pa_log_info("Resetting timestamps computation (new sink_input: %s)", get_sink_input_index_str(new_input).c_str());
+    active_input_ = new_input;
     has_timestamps_ = false;
     timestamp_ = PA_NSEC_INVALID;
 }
