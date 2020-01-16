@@ -25,9 +25,12 @@ PA_C_DECL_BEGIN
 #include <pulsecore/sink.h>
 PA_C_DECL_END
 
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <adk/message-service/adk-message-service.h>
 
 #include "group_sink.h"
 
@@ -45,6 +48,14 @@ class GroupSinkCtrl {
     void enable(bool enable);
 
  public:  // TODO(jbing): should all be private
+    void updateLowLatencyMode(pa_sink_state_t state);
+
+    void setPeersCount(size_t peers_count) { peers_count_ = peers_count; }
+    size_t getPeersCount() const { return peers_count_; }
+
+ public:  // TODO(jbing): should all be private
+    std::shared_ptr<adk::msg::AdkMessageService> message_service_;
+
     pa_module *module{nullptr};
     pa_sink *sink{nullptr};
     std::thread thread;
@@ -53,6 +64,8 @@ class GroupSinkCtrl {
 
     lt_dlhandle dl{nullptr};
     GroupSink *group_sink{nullptr};
+
+    size_t peers_count_{0};
 };
 
 #endif  // SRC_MODULES_GROUP_MODULES_MODULES_GROUP_SINK_CTRL_H_

@@ -22,6 +22,9 @@ find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(DBUS REQUIRED dbus-1)
 pkg_check_modules(LIBPULSE REQUIRED libpulse)
+pkg_check_modules(ADK_MESSAGE_SERVICE adk-message-service REQUIRED)
+pkg_check_modules(ADK_MESSAGES adk-messages REQUIRED)
+pkg_check_modules(ADK_IPC adk-ipc REQUIRED)
 pkg_get_variable(LIBPULSE_MODDIR libpulse modlibexecdir)
 
 set(PA_SRC_ROOT "" CACHE PATH "Location of the PulseAudio project. If unset,
@@ -106,6 +109,9 @@ add_library(${PROJECT_LIBNAME} OBJECT
 target_include_directories(${PROJECT_LIBNAME} SYSTEM PUBLIC
     ${PA_INCLUDE_DIRS}
     ${DBUS_INCLUDE_DIRS}
+    ${ADK_IPC_INCLUDE_DIRS}
+    ${ADK_MESSAGES_INCLUDE_DIRS}
+    ${ADK_MESSAGE_SERVICE_INCLUDE_DIRS}
     )
 install(FILES group_sink.h ts_renderer.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/pulsemodules)
@@ -118,6 +124,8 @@ add_library(module-group-sink SHARED
 target_include_directories(module-group-sink PRIVATE $<TARGET_PROPERTY:${PROJECT_LIBNAME},INCLUDE_DIRECTORIES>)
 target_link_libraries(module-group-sink
     Threads::Threads
+    ${ADK_MESSAGES_LIBRARIES}
+    ${ADK_MESSAGE_SERVICE_LIBRARIES}
     )
 target_compile_definitions(module-group-sink PRIVATE PA_MODULE_NAME=module_group_sink)
 set_target_properties(module-group-sink PROPERTIES PREFIX "")
@@ -144,6 +152,8 @@ add_library(module-group-manager SHARED
 target_include_directories(module-group-manager PRIVATE $<TARGET_PROPERTY:${PROJECT_LIBNAME},INCLUDE_DIRECTORIES>)
 target_link_libraries(module-group-manager
     Threads::Threads
+    ${ADK_MESSAGES_LIBRARIES}
+    ${ADK_MESSAGE_SERVICE_LIBRARIES}
     )
 target_compile_definitions(module-group-manager PRIVATE PA_MODULE_NAME=module_group_manager)
 set_target_properties(module-group-manager PROPERTIES PREFIX "")
