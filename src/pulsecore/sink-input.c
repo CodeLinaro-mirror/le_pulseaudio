@@ -1113,10 +1113,14 @@ bool pa_sink_input_peek_one(pa_sink_input *i, pa_memchunk *chunk, pa_cvolume *vo
         /* There's nothing in our render queue. We need to fill it up
          * with data from the implementor. */
 
-        if (i->thread_info.state == PA_SINK_INPUT_CORKED || !i->pop_one(i, &tchunk)) {
+        if (i->thread_info.state == PA_SINK_INPUT_CORKED) {
             i->thread_info.underrun_for = (uint64_t)-1;
             i->thread_info.underrun_for_sink = 0;
             i->thread_info.playing_for = 0;
+            return false;
+        }
+
+        if (!i->pop_one(i, &tchunk)) {
             return false;
         }
 
