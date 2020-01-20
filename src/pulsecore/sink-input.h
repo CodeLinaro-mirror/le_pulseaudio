@@ -6,6 +6,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright (c) 2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -135,6 +136,11 @@ struct pa_sink_input {
      * block. If more data is already ready, it is better to return
      * the full block. */
     int (*pop) (pa_sink_input *i, size_t request_nbytes, pa_memchunk *chunk); /* may NOT be NULL */
+
+    /* Returns a whole chunk of audio data and drops it from the
+     * queue. Returns false on failure or if no chunk is available.
+     * Called from IO thread context. */
+    bool (*pop_one) (pa_sink_input *i, pa_memchunk *chunk); /* may NOT be NULL */
 
     /* This is called when the playback buffer has actually played back
        all available data. Return true unless there is more data to play back.
@@ -408,6 +414,7 @@ pa_usec_t pa_sink_input_get_requested_latency(pa_sink_input *i);
 /* To be used exclusively by the sink driver IO thread */
 
 void pa_sink_input_peek(pa_sink_input *i, size_t length, pa_memchunk *chunk, pa_cvolume *volume);
+bool pa_sink_input_peek_one(pa_sink_input *i, pa_memchunk *chunk, pa_cvolume *volume);
 void pa_sink_input_drop(pa_sink_input *i, size_t length);
 void pa_sink_input_process_rewind(pa_sink_input *i, size_t nbytes /* in the sink's sample spec */);
 void pa_sink_input_update_max_rewind(pa_sink_input *i, size_t nbytes  /* in the sink's sample spec */);

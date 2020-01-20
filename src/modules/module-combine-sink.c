@@ -2,7 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2008 Lennart Poettering
-  Copyright (c) 2018, The Linux Foundation. All rights reserved.
+  Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -398,7 +398,11 @@ static void render_memblock(struct userdata *u, struct output *o, size_t length)
         pa_memchunk chunk;
 
         /* Render data! */
-        pa_sink_render(u->sink, length, &chunk);
+        if (length != 0) {
+            pa_sink_render(u->sink, length, &chunk);
+        } else if (!pa_sink_render_one(u->sink, &chunk)) {
+            return;
+        }
 
         u->thread_info.counter += chunk.length;
 
@@ -460,6 +464,11 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
     pa_memblockq_drop(o->memblockq, chunk->length);
 
     return 0;
+}
+
+/* Called from I/O thread context */
+static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
+    return (sink_input_pop_cb(i, 0, chunk) == 0);
 }
 
 /* Called from I/O thread context */
@@ -1013,6 +1022,7 @@ static int output_create_sink_input(struct output *o) {
 
     o->sink_input->parent.process_msg = sink_input_process_msg;
     o->sink_input->pop = sink_input_pop_cb;
+    o->sink_input->pop_one = sink_input_pop_one_cb;
     o->sink_input->process_rewind = sink_input_process_rewind_cb;
     o->sink_input->update_max_rewind = sink_input_update_max_rewind_cb;
     o->sink_input->update_max_request = sink_input_update_max_request_cb;

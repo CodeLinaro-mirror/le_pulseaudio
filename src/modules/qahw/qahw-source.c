@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -26,6 +26,7 @@
 #include <unistd.h>
 
 #include <pulse/rtclock.h>
+#include <pulse/timeval.h>
 #include <pulsecore/device-port.h>
 #include <pulsecore/core-util.h>
 #include <pulsecore/modargs.h>
@@ -81,6 +82,7 @@ typedef struct {
 
     int32_t buffer_duration;
     int32_t preemph_status;
+    uint32_t dsd_rate;
     pa_atomic_t first_read;
     pa_qahw_card_qahw_processing_id_t qahw_processing_id;
 } qahw_source_data;
@@ -115,9 +117,8 @@ pa_qahw_source_name_to_enum_mapping source_name_to_enum[] = {
 static int restart_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                               audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata);
 static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                              audio_input_flags_t flags, int source_id, pa_qahw_source_data *sdata, audio_source_t source_type,
-                              int32_t buffer_duration, int32_t preemph_status, pa_qahw_card_qahw_processing_id_t qahw_processing_id);
-
+                                                    audio_input_flags_t flags, int source_id, pa_qahw_source_data *sdata, audio_source_t source_type,
+                            int32_t buffer_duration, int32_t preemph_status, pa_qahw_card_qahw_processing_id_t qahw_processing_id, uint32_t dsd_rate);
 static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                            audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata, audio_source_t source_type,
                            int32_t buffer_duration, pa_qahw_card_qahw_processing_id_t qahw_processing_id);
@@ -513,6 +514,9 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
     pa_qahw_source_data *source_data = (pa_qahw_source_data *)userdata;
     pa_source_data *pa_sdata = source_data->pa_sdata;
     qahw_source_data *qahw_sdata = source_data->qahw_sdata;
+#ifdef SOURCE_DUMP_ENABLED
+    pa_usec_t cur_qtimer, ticks = 0;
+#endif
 
     if ((pa_sdata->source->core->realtime_scheduling)) {
         pa_log_info("%s:: Making read thread for %s as realtime with prio %d", __func__,
@@ -539,6 +543,8 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
 
         in_buf.buffer = data;
         in_buf.bytes = chunk.length;
+        if (qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP)
+            in_buf.timestamp = (int64_t *)&chunk.timestamp;
 
         if (!pa_atomic_load(&qahw_sdata->stopped)) {
             if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) <= 0) {
@@ -546,6 +552,19 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
                         ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 pa_msleep(pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 ret = in_buf.bytes;
+            }
+
+            if (qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP) {
+                chunk.timestamp = chunk.timestamp * PA_NSEC_PER_USEC;
+#ifdef SOURCE_DUMP_ENABLED
+#if defined __aarch64__
+                asm volatile("mrs %0, cntvct_el0" : "=r"(ticks));
+#else
+                asm volatile("mrrc p15, 1, %Q0, %R0, c14" : "=r"(ticks));
+#endif
+                cur_qtimer = ticks * 10/192;
+                pa_log_debug("read_timestamp %" PRId64 "nsec read_cur_timestamp %" PRId64 "usec", chunk.timestamp, cur_qtimer);
+#endif
             }
             pa_atomic_store(&qahw_sdata->first_read, 1);
         } else {
@@ -636,6 +655,7 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
     int rc;
     int ret = -1;
     const char *bt_sco_on = "BT_SCO=on";
+    const char *dsd_format = NULL;
 
 #ifdef SOURCE_DUMP_ENABLED
     char *file_name;
@@ -688,6 +708,21 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
         qahw_in_set_parameters(qahw_sdata->in_handle, "audio_stream_profile=record_fluence");
     else if (qahw_sdata->qahw_processing_id & PA_QAHW_CARD_QAHW_PROCESSING_FFECNS)
         qahw_in_set_parameters(qahw_sdata->in_handle, "audio_stream_profile=record_ffecns");
+
+    if (encoding == PA_ENCODING_DSD) {
+        if (qahw_sdata->dsd_rate == 64)
+            dsd_format = "dsd_format=0";
+        else if (qahw_sdata->dsd_rate == 128)
+            dsd_format = "dsd_format=1";
+        else if (qahw_sdata->dsd_rate == 256)
+            dsd_format = "dsd_format=2";
+        else if (qahw_sdata->dsd_rate == 512)
+            dsd_format = "dsd_format=3";
+        else
+            dsd_format = "dsd_format=0";
+
+        qahw_in_set_parameters(qahw_sdata->in_handle, dsd_format);
+    }
 
     pa_log_debug("qahw source opened %p", qahw_sdata->in_handle);
 
@@ -776,12 +811,13 @@ static int free_qahw_source(qahw_source_data *qahw_sdata) {
 }
 
 static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                      audio_input_flags_t flags, int source_id, pa_qahw_source_data *sdata, audio_source_t source_type, int32_t buffer_duration,
-                      int32_t preemph_status, pa_qahw_card_qahw_processing_id_t qahw_processing_id) {
+                                                    audio_input_flags_t flags, int source_id, pa_qahw_source_data *sdata, audio_source_t source_type,
+                            int32_t buffer_duration, int32_t preemph_status, pa_qahw_card_qahw_processing_id_t qahw_processing_id, uint32_t dsd_rate) {
    int rc;
 
    sdata->qahw_sdata = pa_xnew0(qahw_source_data, 1);
    sdata->qahw_sdata->preemph_status = preemph_status;
+   sdata->qahw_sdata->dsd_rate = dsd_rate;
 
    rc = open_qahw_source(module_handle, encoding, ss, map, devices, flags, source_id, sdata->qahw_sdata, source_type, buffer_duration, qahw_processing_id);
    if (rc) {
@@ -795,7 +831,7 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t
 
 static int create_pa_source(pa_module *m, char *source_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map,
                             uint32_t alternate_sample_rate, pa_qahw_card_avoid_processing_config_id_t avoid_config_processing, pa_card *card,
-                            pa_hashmap *ports, const char *driver, pa_qahw_source_data *source_data, pa_proplist *proplist) {
+                            pa_hashmap *ports, const char *driver, pa_qahw_source_data *source_data, pa_proplist *proplist, uint32_t priority) {
     pa_source_new_data new_data;
     pa_source_data *pa_sdata = NULL;
 
@@ -823,6 +859,13 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_source_new_data_set_name(&new_data, source_name);
 
     pa_log_info("ss->rate %d ss->channels %d", ss->rate, ss->channels);
+
+    if (source_data->qahw_sdata->config.format == AUDIO_FORMAT_DSD) {
+        ss->channels = 1;
+        ss->format = PA_SAMPLE_U8;
+        pa_channel_map_init_auto(map, ss->channels, PA_CHANNEL_MAP_DEFAULT);
+    }
+
     pa_source_new_data_set_sample_spec(&new_data, ss);
     pa_source_new_data_set_channel_map(&new_data, map);
     if (alternate_sample_rate == PA_ALTERNATE_SOURCE_RATE)
@@ -867,6 +910,7 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_sdata->source->parent.process_msg = pa_qahw_source_process_msg;
     pa_sdata->source->set_state_in_io_thread = pa_qahw_source_set_state_in_io_thread_cb;
     pa_sdata->source->set_port = pa_qahw_source_set_port_cb;
+    pa_sdata->source->priority = priority;
 
     /* FIXME: check reconfigure needed for non pcm */
     pa_sdata->source->reconfigure = pa_qahw_source_reconfigure_cb;
@@ -1023,7 +1067,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     pa_log_info("%s: creating source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &source->default_spec));
 
     rc = create_qahw_source(module_handle, source->default_encoding, &source->default_spec, &source->default_map,  port_device_data->device, source->flags,
-                            source->id, sdata, source->source_type, source->buffer_duration, source->preemph_status, source->qahw_processing_id);
+                     source->id, sdata, source->source_type, source->buffer_duration, source->preemph_status, source->qahw_processing_id, source->dsd_rate);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could not open qahw source, error %d", rc);
         pa_xfree(sdata);
@@ -1032,7 +1076,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     }
 
     rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate,
-                          source->avoid_config_processing, card, ports, driver, sdata, source->proplist);
+                          source->avoid_config_processing, card, ports, driver, sdata, source->proplist, source->priority);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", source->name, rc);
         free_qahw_source(sdata->qahw_sdata);

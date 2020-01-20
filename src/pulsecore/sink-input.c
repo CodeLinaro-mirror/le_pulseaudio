@@ -3,6 +3,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright (c) 2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -280,6 +281,7 @@ static void reset_callbacks(pa_sink_input *i) {
     pa_assert(i);
 
     i->pop = NULL;
+    i->pop_one = NULL;
     i->process_underrun = NULL;
     i->process_rewind = NULL;
     i->update_max_rewind = NULL;
@@ -497,7 +499,7 @@ int pa_sink_input_new(
                           data->resample_method,
                           ((data->flags & PA_SINK_INPUT_VARIABLE_RATE) ? PA_RESAMPLER_VARIABLE_RATE : 0) |
                           ((data->flags & PA_SINK_INPUT_NO_REMAP) ? PA_RESAMPLER_NO_REMAP : 0) |
-                          (core->disable_remixing || (data->flags & PA_SINK_INPUT_NO_REMIX) ? PA_RESAMPLER_NO_REMIX : 0) |
+                          (core->disable_remixing || (data->flags & PA_SINK_INPUT_NO_REMIX) || (data->sink->flags & PA_SINK_NO_REMIX_OVERRIDE) ? PA_RESAMPLER_NO_REMIX : 0) |
                           (core->remixing_use_all_sink_channels ? 0 : PA_RESAMPLER_NO_FILL_SINK) |
                           (core->disable_lfe_remixing ? PA_RESAMPLER_NO_LFE : 0)))) {
                 pa_log_warn("Unsupported resampling operation.");
@@ -831,7 +833,7 @@ void pa_sink_input_put(pa_sink_input *i) {
     pa_assert(i->state == PA_SINK_INPUT_INIT);
 
     /* The following fields must be initialized properly */
-    pa_assert(i->pop);
+    pa_assert(i->pop || i->pop_one);
     pa_assert(i->process_rewind);
     pa_assert(i->kill);
 
@@ -901,6 +903,7 @@ void pa_sink_input_peek(pa_sink_input *i, size_t slength /* in sink bytes */, pa
 
     pa_sink_input_assert_ref(i);
     pa_sink_input_assert_io_context(i);
+    pa_assert(i->pop);
     pa_assert(PA_SINK_INPUT_IS_LINKED(i->thread_info.state));
     pa_assert(pa_frame_aligned(slength, &i->sink->sample_spec));
     pa_assert(chunk);
@@ -1019,9 +1022,8 @@ void pa_sink_input_peek(pa_sink_input *i, size_t slength /* in sink bytes */, pa
                 pa_resampler_run(i->thread_info.resampler, &wchunk, &rchunk);
 
 #ifdef SINK_INPUT_DEBUG
-                if ((wchunk.timestamp != PA_NSEC_INVALID || wchunk.duration != PA_NSEC_INVALID || wchunk.flags != PA_BUFFER_NOFLAGS) &&
-                    (rchunk.timestamp == PA_NSEC_INVALID || rchunk.duration == PA_NSEC_INVALID || rchunk.flags == PA_BUFFER_NOFLAGS))
-                pa_log_debug("Invaliding timestamps due to resampling");
+                if ((wchunk.timestamp != PA_NSEC_INVALID || wchunk.duration != PA_NSEC_INVALID || wchunk.flags != PA_BUFFER_NOFLAGS) && (rchunk.timestamp == PA_NSEC_INVALID || rchunk.duration == PA_NSEC_INVALID || rchunk.flags == PA_BUFFER_NOFLAGS))
+                    pa_log_debug("Invalidating timestamps due to resampling");
 #endif
 
 #ifdef SINK_INPUT_DEBUG
@@ -1072,6 +1074,157 @@ void pa_sink_input_peek(pa_sink_input *i, size_t slength /* in sink bytes */, pa
         pa_cvolume_mute(volume, i->sink->sample_spec.channels);
     else
         *volume = i->thread_info.soft_volume;
+}
+
+/* Called from thread context */
+bool pa_sink_input_peek_one(pa_sink_input *i, pa_memchunk *chunk, pa_cvolume *volume) {
+    bool do_volume_adj_here, need_volume_factor_sink;
+    bool volume_is_norm;
+    size_t block_size_max_sink, block_size_max_sink_input;
+
+    pa_sink_input_assert_ref(i);
+    pa_sink_input_assert_io_context(i);
+    pa_assert(PA_SINK_INPUT_IS_LINKED(i->thread_info.state));
+    pa_assert(i->pop_one);
+    pa_assert(chunk);
+    pa_assert(volume);
+
+#ifdef SINK_INPUT_DEBUG
+    pa_log_debug("peek_one");
+#endif
+
+    block_size_max_sink_input = i->thread_info.resampler
+        ? pa_resampler_max_block_size(i->thread_info.resampler)
+        : pa_frame_align(pa_mempool_block_size_max(i->core->mempool), &i->sample_spec);
+
+    block_size_max_sink = pa_frame_align(pa_mempool_block_size_max(i->core->mempool), &i->sink->sample_spec);
+
+    /* If the channel maps of the sink and this stream differ, we need
+     * to adjust the volume *before* we resample. Otherwise we can do
+     * it after and leave it for the sink code */
+
+    do_volume_adj_here = !pa_channel_map_equal(&i->channel_map, &i->sink->channel_map);
+    volume_is_norm = pa_cvolume_is_norm(&i->thread_info.soft_volume) && !i->thread_info.muted;
+    need_volume_factor_sink = !pa_cvolume_is_norm(&i->volume_factor_sink);
+
+    while (!pa_memblockq_is_readable(i->thread_info.render_memblockq)) {
+        pa_memchunk tchunk;
+
+        /* There's nothing in our render queue. We need to fill it up
+         * with data from the implementor. */
+
+        if (i->thread_info.state == PA_SINK_INPUT_CORKED || !i->pop_one(i, &tchunk)) {
+            i->thread_info.underrun_for = (uint64_t)-1;
+            i->thread_info.underrun_for_sink = 0;
+            i->thread_info.playing_for = 0;
+            return false;
+        }
+
+        pa_assert(tchunk.length > 0);
+        pa_assert(tchunk.memblock);
+
+        i->thread_info.underrun_for = 0;
+        i->thread_info.underrun_for_sink = 0;
+        i->thread_info.playing_for += tchunk.length;
+
+        while (tchunk.length > 0) {
+            pa_memchunk wchunk;
+            bool nvfs = need_volume_factor_sink;
+
+            wchunk = tchunk;
+            pa_memblock_ref(wchunk.memblock);
+
+            if (wchunk.length > block_size_max_sink_input)
+                wchunk.length = block_size_max_sink_input;
+
+            /* It might be necessary to adjust the volume here */
+            if (do_volume_adj_here && !volume_is_norm) {
+                pa_memchunk_make_writable(&wchunk, 0);
+
+                if (i->thread_info.muted) {
+                    pa_silence_memchunk(&wchunk, &i->thread_info.sample_spec);
+                    nvfs = false;
+
+                } else if (!i->thread_info.resampler && nvfs) {
+                    pa_cvolume v;
+
+                    /* If we don't need a resampler we can merge the
+                     * post and the pre volume adjustment into one */
+
+                    pa_sw_cvolume_multiply(&v, &i->thread_info.soft_volume, &i->volume_factor_sink);
+                    pa_volume_memchunk(&wchunk, &i->thread_info.sample_spec, &v);
+                    nvfs = false;
+
+                } else
+                    pa_volume_memchunk(&wchunk, &i->thread_info.sample_spec, &i->thread_info.soft_volume);
+            }
+
+            if (!i->thread_info.resampler) {
+                if (nvfs) {
+                    pa_memchunk_make_writable(&wchunk, 0);
+                    pa_volume_memchunk(&wchunk, &i->sink->sample_spec, &i->volume_factor_sink);
+                }
+
+                pa_memblockq_push_align(i->thread_info.render_memblockq, &wchunk);
+            } else {
+                pa_memchunk rchunk;
+                pa_resampler_run(i->thread_info.resampler, &wchunk, &rchunk);
+
+#ifdef SINK_INPUT_DEBUG
+                if ((wchunk.timestamp != PA_NSEC_INVALID || wchunk.duration != PA_NSEC_INVALID || wchunk.flags != PA_BUFFER_NOFLAGS)
+                    && (rchunk.timestamp == PA_NSEC_INVALID || rchunk.duration == PA_NSEC_INVALID || rchunk.flags == PA_BUFFER_NOFLAGS))
+                    pa_log_debug("Invalidating timestamps due to resampling");
+#endif
+
+#ifdef SINK_INPUT_DEBUG
+                pa_log_debug("pushing %lu", (unsigned long)rchunk.length);
+#endif
+
+                if (rchunk.memblock) {
+                    if (nvfs) {
+                        pa_memchunk_make_writable(&rchunk, 0);
+                        pa_volume_memchunk(&rchunk, &i->sink->sample_spec, &i->volume_factor_sink);
+                    }
+
+                    pa_memblockq_push_align(i->thread_info.render_memblockq, &rchunk);
+                    pa_memblock_unref(rchunk.memblock);
+                }
+            }
+
+            pa_memblock_unref(wchunk.memblock);
+
+            tchunk.index += wchunk.length;
+            tchunk.length -= wchunk.length;
+        }
+
+        pa_memblock_unref(tchunk.memblock);
+    }
+
+    pa_assert_se(pa_memblockq_peek(i->thread_info.render_memblockq, chunk) >= 0);
+
+    pa_assert(chunk->length > 0);
+    pa_assert(chunk->memblock);
+
+#ifdef SINK_INPUT_DEBUG
+    pa_log_debug("peeking %lu", (unsigned long)chunk->length);
+#endif
+
+    if (chunk->length > block_size_max_sink)
+        chunk->length = block_size_max_sink;
+
+    /* Let's see if we had to apply the volume adjustment ourselves,
+     * or if this can be done by the sink for us */
+
+    if (do_volume_adj_here)
+        /* We had different channel maps, so we already did the adjustment */
+        pa_cvolume_reset(volume, i->sink->sample_spec.channels);
+    else if (i->thread_info.muted)
+        /* We've both the same channel map, so let's have the sink do the adjustment for us*/
+        pa_cvolume_mute(volume, i->sink->sample_spec.channels);
+    else
+        *volume = i->thread_info.soft_volume;
+
+    return true;
 }
 
 /* Called from thread context */
@@ -2356,7 +2509,7 @@ int pa_sink_input_update_rate(pa_sink_input *i) {
                                      i->requested_resample_method,
                                      ((i->flags & PA_SINK_INPUT_VARIABLE_RATE) ? PA_RESAMPLER_VARIABLE_RATE : 0) |
                                      ((i->flags & PA_SINK_INPUT_NO_REMAP) ? PA_RESAMPLER_NO_REMAP : 0) |
-                                     (i->core->disable_remixing || (i->flags & PA_SINK_INPUT_NO_REMIX) ? PA_RESAMPLER_NO_REMIX : 0) |
+                                     (i->core->disable_remixing || (i->flags & PA_SINK_INPUT_NO_REMIX) || (i->sink->flags & PA_SINK_NO_REMIX_OVERRIDE) ? PA_RESAMPLER_NO_REMIX : 0) |
                                      (i->core->remixing_use_all_sink_channels ? 0 : PA_RESAMPLER_NO_FILL_SINK) |
                                      (i->core->disable_lfe_remixing ? PA_RESAMPLER_NO_LFE : 0));
 

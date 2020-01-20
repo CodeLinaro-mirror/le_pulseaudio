@@ -30,6 +30,7 @@
 
 #include <QalApi.h>
 #include <QalDefs.h>
+#include <agm/agm_api.h>
 
 #include "qal-source.h"
 #include "qal-sink.h"
@@ -414,6 +415,12 @@ int pa__init(pa_module *m) {
         goto fail;
     }
 
+    ret = agm_init();
+    if (ret) {
+        pa_log_error("%s: agm init failed\n", __func__);
+        goto fail;
+    }
+
     ret = qal_init();
     if (ret) {
         pa_log_error("%s: qal init failed\n", __func__);
@@ -481,6 +488,8 @@ void pa__done(pa_module *m) {
     }
 
     qal_deinit();
+
+    agm_deinit();
 
     pa_qal_card_free(u);
 

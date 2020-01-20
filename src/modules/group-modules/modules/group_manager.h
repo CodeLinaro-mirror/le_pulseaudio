@@ -30,9 +30,8 @@ PA_C_DECL_BEGIN
 #include <pulsecore/memblockq.h>
 #include <pulsecore/module.h>
 #include <pulsecore/sink.h>
+#include <pulsecore/trace_log.h>
 PA_C_DECL_END
-
-#include "ts_logging.h"
 
 class GroupSinkCtrl;
 

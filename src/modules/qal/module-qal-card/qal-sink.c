@@ -207,7 +207,7 @@ static int pa_qal_sink_fill_info(qal_sink_data *qal_sdata, pa_encoding_t encodin
     qal_sdata->qal_device->config.bit_width = 16;
     channel_count = pa_qal_get_channel_count(&port_device_data->default_map);
     qal_sdata->qal_device->config.ch_info = (struct qal_channel_info *) malloc(sizeof(uint16_t) + sizeof(uint8_t)*channel_count);
-    if (!pa_qal_channel_map_to_qal(map, qal_sdata->qal_device->config.ch_info)) {
+    if (!pa_qal_channel_map_to_qal(&port_device_data->default_map, qal_sdata->qal_device->config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
         pa_xfree(qal_sdata->qal_device->config.ch_info);
         return -1;
@@ -639,6 +639,13 @@ static int close_qal_sink(pa_qal_sink_data *sdata) {
     if (PA_UNLIKELY(qal_sdata->stream_handle == NULL)) {
         pa_log_error("Invalid sink handle %p", qal_sdata->stream_handle);
     } else {
+        if (!qal_sdata->standby) {
+            rc = qal_stream_stop(qal_sdata->stream_handle);
+
+            if (PA_UNLIKELY(rc))
+                pa_log_error(" qal_stream_stop failed for %p error  %d", qal_sdata->stream_handle, rc);
+        }
+
         rc = qal_stream_close(qal_sdata->stream_handle);
         if (PA_UNLIKELY(rc))
             pa_log_error(" could not close sink sink handle %p, error  %d", qal_sdata->stream_handle, rc);

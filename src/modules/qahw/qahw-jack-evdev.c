@@ -59,9 +59,13 @@ typedef struct {
 
 static struct pa_qahw_jack_info supported_jacks[] = {
     {PA_QAHW_JACK_TYPE_WIRED_HEADSET, (char *)"snd-card Headset Jack"},
+    {PA_QAHW_JACK_TYPE_WIRED_HEADSET, (char *)"snd-card-tdm Headset Jack"},
     {PA_QAHW_JACK_TYPE_WIRED_HEADPHONE, (char *)"snd-card Headset Jack"},
+    {PA_QAHW_JACK_TYPE_WIRED_HEADPHONE, (char *)"snd-card-tdm Headset Jack"},
     {PA_QAHW_JACK_TYPE_LINEOUT, (char *)"snd-card Headset Jack"},
-    {PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS, (char *)"snd-card Button Jack"}
+    {PA_QAHW_JACK_TYPE_LINEOUT, (char *)"snd-card-tdm Headset Jack"},
+    {PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS, (char *)"snd-card Button Jack"},
+    {PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS, (char *)"snd-card-tdm Button Jack"}
 };
 
 static void report_jack_state(pa_qahw_evdev_jack_data_t *evdev_jdata) {

@@ -23,11 +23,13 @@
 #include "group_manager.h"
 
 #include <fcntl.h>
+extern "C" {
+#include <pulsecore/ts_clock.h>
+}
 
 #include <iomanip>
 #include <sstream>
 
-#include "clock.h"
 #include "enums.h"
 #include "group_sink_ctrl.h"
 
@@ -197,7 +199,7 @@ static void sink_set_mute_cb(pa_sink *s) {
 }
 
 /* Called from I/O thread context */
-static int sink_input_pop_cb(pa_sink_input *i, size_t /*nbytes*/, pa_memchunk *chunk) {
+static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
     GroupManager *u;
 
     pa_sink_input_assert_ref(i);
@@ -205,15 +207,17 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t /*nbytes*/, pa_memchunk *c
     pa_assert_se(u = reinterpret_cast<GroupManager *>(i->userdata));
 
     if (!PA_SINK_IS_LINKED(u->sink_->thread_info.state)) {
-        return -1;
+        return false;
     }
 
     /* Hmm, process any rewind request that might be queued up */
     pa_sink_process_rewind(u->sink_, 0);
 
-    size_t block_size_max_sink = pa_frame_align(pa_mempool_block_size_max(i->core->mempool), &u->sink_->sample_spec);
-    pa_sink_render(u->sink_, block_size_max_sink, chunk);
-    if (!pa_memblock_is_silence(chunk->memblock)) {
+    for (;;) {
+        if (!pa_sink_render_one(u->sink_, chunk)) {
+            return false;
+        }
+
         if (chunk->timestamp != PA_NSEC_INVALID) {
             u->timestamp_ = chunk->timestamp + chunk->duration;
         } else {
@@ -222,7 +226,7 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t /*nbytes*/, pa_memchunk *c
             if (u->timestamp_ == PA_NSEC_INVALID) {
                 // No timestamp yet => initialize it
                 u->timestamp_ = now + target_latency;
-            } else if ((u->timestamp_ - now) < (target_latency / 2)) {
+            } else if (static_cast<int64_t>(u->timestamp_ - now) < static_cast<int64_t>(target_latency / 2)) {
                 // We are getting the data too late, reset the timestamp
                 u->timestamp_ = now + target_latency;
             }
@@ -236,12 +240,24 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t /*nbytes*/, pa_memchunk *c
             // any gap/overlap (i.e. the user won't notice)
             u->timestamp_ += chunk->duration;
         }
-        trace_ts(&(u->ts_logging_), u->sink_->name, chunk->timestamp, chunk->duration);
+
+        if (!pa_memblock_is_silence(chunk->memblock)) {
+            // Found a valid chunk
+            break;
+        }
+
+        // Since we call render_one, a silent chunk means a "hole" in the
+        // stream, so we should account for it in the timestamp computation (to
+        // maintain the overall latency) but we don't need to play it. And we
+        // can immediately ask for the next chunk since we know there is one
+        // waiting (it wouldn't be a "hole" otherwise).
+        pa_memblock_unref(chunk->memblock);
     }
+    trace_ts(&(u->ts_logging_), u->sink_->name, chunk->timestamp, chunk->duration);
 
     // TODO(jbing): recompute start time if "discontinuity flag" is set.
 
-    return 0;
+    return true;
 }
 
 /* Called from I/O thread context */
@@ -483,7 +499,8 @@ bool GroupManager::init(pa_module *m, pa_sink *master,
         return false;
     }
 
-    sink_input_->pop = sink_input_pop_cb;
+    // no pop callback, this is not supposed to be used with TS rendering
+    sink_input_->pop_one = sink_input_pop_one_cb;
     sink_input_->process_rewind = sink_input_process_rewind_cb;
     sink_input_->update_max_request = sink_input_update_max_request_cb;
     sink_input_->update_sink_latency_range = sink_input_update_sink_latency_range_cb;

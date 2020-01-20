@@ -17,9 +17,9 @@
  */
 #include "pulsecore/config.h"
 
-#include "clock.h"
 #include "group_sink_impl.h"
 #include "pulse/timeval.h"
+#include "pulsecore/ts_clock.h"
 
 typedef struct GroupSinkImpl {
     GroupSink group_sink;
@@ -67,7 +67,9 @@ static pa_usec_t group_sink_getCurrentLatency(GroupSink *gs) {
     return latency / PA_NSEC_PER_USEC;
 }
 
-GroupSink *group_sink_init(const char *name PA_GCC_UNUSED, const pa_sample_spec *spec PA_GCC_UNUSED, pa_usec_t lead_latency, pa_usec_t slave_latency) {
+GroupSink *group_sink_init(const char *name PA_GCC_UNUSED,
+    const pa_sample_spec *spec PA_GCC_UNUSED, const pa_channel_map *channel_map PA_GCC_UNUSED,
+    pa_usec_t lead_latency, pa_usec_t slave_latency) {
     GroupSinkImpl *gs_impl = pa_xmalloc0(sizeof(GroupSinkImpl));
 
     gs_impl->group_sink.enable = &group_sink_enable;

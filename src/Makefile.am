@@ -3,6 +3,7 @@
 # Copyright 2004-2006 Lennart Poettering
 # Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
 # Copyright 2006 Diego Pettenò
+# Copyright 2019 The Linux Foundation. All rights reserved.
 #
 # PulseAudio is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License as published by
@@ -1034,7 +1035,8 @@ libpulsecore_@PA_MAJORMINOR@_la_SOURCES = \
 		pulsecore/source.c pulsecore/source.h \
 		pulsecore/start-child.c pulsecore/start-child.h \
 		pulsecore/thread-mq.c pulsecore/thread-mq.h \
-		pulsecore/database.h
+		pulsecore/database.h \
+		pulsecore/trace_log.c pulsecore/trace_log.h
 
 libpulsecore_@PA_MAJORMINOR@_la_CFLAGS = $(AM_CFLAGS) $(SERVER_CFLAGS) $(LIBSNDFILE_CFLAGS) $(WINSOCK_CFLAGS)
 libpulsecore_@PA_MAJORMINOR@_la_LDFLAGS = $(AM_LDFLAGS) $(AM_LIBLDFLAGS) -avoid-version
@@ -1416,7 +1418,9 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/qcs405-csra6-snd-card.conf \
       modules/qahw/configs/qcs405-csra8-snd-card.conf \
       modules/qahw/configs/qcs405-csra8plus2-snd-card.conf \
-      modules/qahw/configs/qcs405-amic-snd-card.conf
+      modules/qahw/configs/qcs405-amic-snd-card.conf \
+      modules/qahw/configs/sm6150-idp-snd-card.conf \
+      modules/qahw/configs/apq8009-tashalite-snd-card-tdm.conf
 endif
 
 if HAVE_QAL
@@ -1698,14 +1702,14 @@ module_qal_card_la_SOURCES = \
         modules/qal/module-qal-card/qal-source.c modules/qal/module-qal-card/qal-source.h \
         modules/qal/module-qal-card/qal-utils.c modules/qal/module-qal-card/qal-utils.h \
         modules/qal/module-qal-card/qal-config-parser.c modules/qal/module-qal-card/qal-config-parser.h
-module_qal_card_la_CFLAGS = $(QAL_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qal_card
+module_qal_card_la_CFLAGS = $(QAL_CFLAGS) $(AGM_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qal_card
 module_qal_card_la_LDFLAGS = $(MODULE_LDFLAGS)
-module_qal_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqal
+module_qal_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqal -lagm
 
 module_qal_voiceui_card_la_SOURCES = modules/qal/module-qal-voiceui-card/module-qal-voiceui-card.c
-module_qal_voiceui_card_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) $(QAL_CFLAGS) -Werror -DPA_MODULE_NAME=module_qal_voiceui_card
+module_qal_voiceui_card_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) $(QAL_CFLAGS) $(AGM_CFLAGS) -Werror -DPA_MODULE_NAME=module_qal_voiceui_card
 module_qal_voiceui_card_la_LDFLAGS = $(MODULE_LDFLAGS)
-module_qal_voiceui_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqal
+module_qal_voiceui_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqal -lagm
 endif
 
 

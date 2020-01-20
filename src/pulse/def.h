@@ -6,6 +6,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright (c) 2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as
@@ -848,6 +849,10 @@ typedef enum pa_sink_flags {
     /**< The sink allows setting what formats are supported by the connected
      * hardware. The actual functionality to do this might be provided by an
      * extension. \since 1.0 */
+
+    PA_SINK_NO_REMIX_OVERRIDE = 0x0200U,
+    /**< Disable remixing from upstream, regardless of the sink-input's
+     * PA_SINK_INPUT_NO_REMIX flag. */
 
 #ifdef __INCLUDED_FROM_PULSE_AUDIO
 /** \cond fulldocs */

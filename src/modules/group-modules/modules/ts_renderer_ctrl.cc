@@ -33,12 +33,12 @@ PA_C_DECL_BEGIN
 #include <pulsecore/ltdl-helper.h>
 #include <pulsecore/module.h>
 #include <pulsecore/sink.h>
+#include <pulsecore/ts_clock.h>
 PA_C_DECL_END
 
 #include <iomanip>
 #include <sstream>
 
-#include "clock.h"
 #include "enums.h"
 
 static constexpr pa_usec_t kMaxSilence = 1 * 1000;  // 1ms
@@ -186,21 +186,16 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
         return res;
     }
     while (chunk->length <= 0) {
-        size_t block_size_max_sink = pa_frame_align(pa_mempool_block_size_max(i->core->mempool), &u->sink->sample_spec);
         pa_memchunk nchunk;
-        pa_sink_render(u->sink, block_size_max_sink, &nchunk);
-
-        // Pass chunks without a timestamp (likely a silent chunk) directly
-        if (nchunk.timestamp == PA_NSEC_INVALID) {
-            // Pass silence directly
-            *chunk = nchunk;
+        if (!pa_sink_render_one(u->sink, &nchunk)) {
+            *chunk = u->sink->silence;
+            pa_memblock_ref(chunk->memblock);
             // Since we asked for as big a chunk as possible, we got a huge
             // silent block, so reduce the size to something more reasonable
             chunk->length = std::min(nbytes, pa_usec_to_bytes(kMaxSilence, &u->sink->sample_spec));
             return 0;
         }
 
-        playback_time = ts_clock_now() + u->getLatency();
         res = u->ts_renderer->render(u->ts_renderer, &nchunk, chunk, nbytes, playback_time);
         if (res < 0) {
             return res;
@@ -441,7 +436,7 @@ std::shared_ptr<TsRendererCtrl> TsRendererCtrl::create(pa_module *m,
     pa_proplist_sets(sink_input_data.proplist, PA_PROP_MEDIA_ROLE, "filter");
     pa_sink_input_new_data_set_sample_spec(&sink_input_data, &u->sink->sample_spec);
     pa_sink_input_new_data_set_channel_map(&sink_input_data, &u->sink->channel_map);
-    sink_input_data.flags |= PA_SINK_INPUT_START_CORKED | PA_SINK_INPUT_NO_REMIX;
+    sink_input_data.flags |= PA_SINK_INPUT_START_CORKED;
 
     pa_sink_input_new(&u->sink_input, m->core, &sink_input_data);
     pa_sink_input_new_data_done(&sink_input_data);

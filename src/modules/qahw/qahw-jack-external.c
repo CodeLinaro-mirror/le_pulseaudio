@@ -37,6 +37,11 @@ typedef struct {
     pa_qahw_jack_type_t jack_type;
 } pa_qahw_external_jack_data;
 
+typedef struct {
+    char *key;
+    int32_t value;
+} pa_qahw_external_jack_kv_pair;
+
 enum module_method_handler_index {
     METHOD_HANDLER_START_STREAM = 0,
     METHOD_HANDLER_START_COMPRESS_STREAM,
@@ -56,7 +61,7 @@ static pa_dbus_arg_info start_stream_args[] = {
 };
 
 static pa_dbus_arg_info start_compress_stream_args[] = {
-    {"stream_config", "(sussu)", "in"},
+    {"stream_config", "(sussa{su})", "in"},
 };
 
 static pa_dbus_arg_info stop_stream_args[] = {
@@ -100,6 +105,17 @@ static pa_dbus_interface_info module_interface_info = {
     .n_signals = 0
 };
 
+static dbus_uint32_t qahw_jack_external_get_array_size(DBusMessageIter array) {
+    dbus_uint32_t cnt = 0;
+    int arg_type;
+
+    while ((arg_type = dbus_message_iter_get_arg_type(&array)) != DBUS_TYPE_INVALID) {
+        cnt++;
+        dbus_message_iter_next(&array);
+    }
+
+    return cnt;
+}
 
 static void qahw_jack_external_start_stream(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     pa_qahw_jack_out_config config;
@@ -153,8 +169,10 @@ static void qahw_jack_external_start_stream(DBusConnection *conn, DBusMessage *m
                             pa_qahw_util_get_port_name_from_jack_type(external_jdata->jack_type),
                                                             encoding_str, rate, format_str, map);
 
-    /* Set default preempt status as 0 */
+    /* Initialize extra parameters to default values */
     config.preemph_status = 0;
+    config.dsd_rate = 64;
+
     config.ss.format = PA_SAMPLE_S16LE;
     config.encoding = pa_encoding_from_string(encoding_str);
     if (config.encoding == PA_ENCODING_INVALID) {
@@ -197,9 +215,11 @@ static void qahw_jack_external_start_compress_stream(DBusConnection *conn, DBusM
     char *format_str = NULL;
     char *map = NULL;
     uint32_t rate;
-    uint32_t preemph_status;
+    int32_t num_kv_pairs = 0;
+    pa_qahw_external_jack_kv_pair *kv_pairs;
+    int32_t iter = 0;
 
-    DBusMessageIter struct_i, arg_i;
+    DBusMessageIter struct_i, arg_i, array_i, dict_i;
     DBusError error;
 
     pa_assert(conn);
@@ -225,6 +245,10 @@ static void qahw_jack_external_start_compress_stream(DBusConnection *conn, DBusM
         return;
     }
 
+    /* Initialize extra parameters to default values */
+    config.preemph_status = 0;
+    config.dsd_rate = 64;
+
     dbus_message_iter_recurse(&arg_i, &struct_i);
     dbus_message_iter_get_basic(&struct_i, &encoding_str);
 
@@ -238,13 +262,34 @@ static void qahw_jack_external_start_compress_stream(DBusConnection *conn, DBusM
     dbus_message_iter_get_basic(&struct_i, &map);
 
     dbus_message_iter_next(&struct_i);
-    dbus_message_iter_get_basic(&struct_i, &preemph_status);
+    dbus_message_iter_recurse(&struct_i, &array_i);
 
-    pa_log_info("%s: external source port %s, encoding %s, rate %d, format  %s map %s preemph status %d", __func__,
-                                              pa_qahw_util_get_port_name_from_jack_type(external_jdata->jack_type),
-                                                               encoding_str, rate, format_str, map, preemph_status);
+    /* FIXME: Use dbus_message_iter_get_element_count() when we move to newer Yocto */
+    num_kv_pairs = qahw_jack_external_get_array_size(array_i);
+    /* Get the Key Value pairs */
+    if (num_kv_pairs)
+        kv_pairs = pa_xnew0(pa_qahw_external_jack_kv_pair, num_kv_pairs);
 
-    config.preemph_status = preemph_status;
+    for (iter = 0; iter < num_kv_pairs; iter++) {
+        dbus_message_iter_recurse(&array_i, &dict_i);
+
+        dbus_message_iter_get_basic(&dict_i, &(kv_pairs[iter].key));
+        dbus_message_iter_next(&dict_i);
+        dbus_message_iter_get_basic(&dict_i, &(kv_pairs[iter].value));
+
+        pa_log_info("%s: key %s value %u", __func__, kv_pairs[iter].key, kv_pairs[iter].value);
+        if (pa_streq(kv_pairs[iter].key, "dsd-rate"))
+            config.dsd_rate = kv_pairs[iter].value;
+        else if (pa_streq(kv_pairs[iter].key, "preemph-status"))
+            config.preemph_status = kv_pairs[iter].value;
+
+        dbus_message_iter_next(&array_i);
+    }
+
+    pa_log_info("%s: external source port %s, encoding %s, rate %d, format  %s map %s preemph status %d dsd rate %d",
+                                      __func__, pa_qahw_util_get_port_name_from_jack_type(external_jdata->jack_type),
+                                        encoding_str, rate, format_str, map, config.preemph_status, config.dsd_rate);
+
     config.ss.format = PA_SAMPLE_S16LE;
     config.encoding = pa_encoding_from_string(encoding_str);
     if (config.encoding == PA_ENCODING_INVALID) {

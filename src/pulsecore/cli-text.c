@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2006 Lennart Poettering
+  Copyright (c) 2019, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -221,7 +222,7 @@ char *pa_sink_list_to_string(pa_core *c) {
             "  %c index: %u\n"
             "\tname: <%s>\n"
             "\tdriver: <%s>\n"
-            "\tflags: %s%s%s%s%s%s%s%s\n"
+            "\tflags: %s%s%s%s%s%s%s%s%s\n"
             "\tstate: %s\n"
             "\tsuspend cause: %s\n"
             "\tpriority: %u\n"
@@ -249,7 +250,8 @@ char *pa_sink_list_to_string(pa_core *c) {
             sink->flags & PA_SINK_DECIBEL_VOLUME ? "DECIBEL_VOLUME " : "",
             sink->flags & PA_SINK_LATENCY ? "LATENCY " : "",
             sink->flags & PA_SINK_FLAT_VOLUME ? "FLAT_VOLUME " : "",
-            sink->flags & PA_SINK_DYNAMIC_LATENCY ? "DYNAMIC_LATENCY" : "",
+            sink->flags & PA_SINK_DYNAMIC_LATENCY ? "DYNAMIC_LATENCY " : "",
+            sink->flags & PA_SINK_NO_REMIX_OVERRIDE ? "NO_REMIX_OVERRIDE" : "",
             pa_sink_state_to_string(sink->state),
             pa_suspend_cause_to_string(sink->suspend_cause, suspend_cause_buf),
             sink->priority,

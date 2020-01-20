@@ -457,6 +457,9 @@ static pa_qahw_util_pa_qahw_channel_map pa_qahw_channel_map[] = {
     { PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE, QAHW_PCM_CHANNEL_RW },
     { PA_CHANNEL_POSITION_TOP_SIDE_LEFT, QAHW_PCM_CHANNEL_TSL },
     { PA_CHANNEL_POSITION_TOP_SIDE_RIGHT, QAHW_PCM_CHANNEL_TSR },
+    /*
+     * Use AUX0 - AUX3 for Dolby Atmos 1.7.1 Ltf,Rtf,Ltr,Rtr
+     */
     { PA_CHANNEL_POSITION_AUX0, QAHW_PCM_CHANNEL_TFL },
     { PA_CHANNEL_POSITION_AUX1, QAHW_PCM_CHANNEL_TFR },
     { PA_CHANNEL_POSITION_AUX2, QAHW_PCM_CHANNEL_TBL },
@@ -474,8 +477,12 @@ static pa_qahw_util_pa_qahw_channel_map pa_qahw_channel_map[] = {
     { PA_CHANNEL_POSITION_AUX28, QAHW_PCM_CUSTOM_CHANNEL_MAP_13 },
     { PA_CHANNEL_POSITION_AUX29, QAHW_PCM_CUSTOM_CHANNEL_MAP_14 },
     { PA_CHANNEL_POSITION_AUX30, QAHW_PCM_CUSTOM_CHANNEL_MAP_15 },
-    { PA_CHANNEL_POSITION_AUX31, QAHW_PCM_CUSTOM_CHANNEL_MAP_16 }
+    { PA_CHANNEL_POSITION_AUX31, QAHW_PCM_CUSTOM_CHANNEL_MAP_16 },
 
+    /*
+     * Use AUX14 for Dolby Atmos 1.7.1 single height channel.
+     */
+    { PA_CHANNEL_POSITION_AUX14, QAHW_PCM_CHANNEL_TSL }
     /* FIXME: mapping for is missing in PA
        #define QAHW_PCM_CHANNEL_LFE2 17
        #define QAHW_PCM_CHANNEL_BFC  28
@@ -860,6 +867,9 @@ void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qa
 
     if (config_port->arc_audio_preemph_node_path)
         jack_in_config->jack_sys_path.arc_audio_preemph = config_port->arc_audio_preemph_node_path;
+
+    if (config_port->dsd_rate_node_path)
+        jack_in_config->jack_sys_path.dsd_rate = config_port->dsd_rate_node_path;
 }
 
 /* With reference to the translation table from "Dolby Atmos to Sound Bar Product

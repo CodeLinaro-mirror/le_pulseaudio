@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -52,6 +52,7 @@ typedef struct {
     char **port_conf_string;
     pa_qahw_card_usecase_type_t usecase_type;
     int32_t buffer_duration;
+    double max_gain;
 } pa_qahw_sink_config;
 
 typedef size_t pa_qahw_sink_handle_t;
@@ -129,6 +130,8 @@ static inline audio_output_flags_t pa_qahw_sink_get_flags_from_string(const char
         flag = AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD;
     } else if (pa_streq(flag_name, "AUDIO_OUTPUT_FLAG_NON_BLOCKING")) {
         flag = AUDIO_OUTPUT_FLAG_NON_BLOCKING;
+    } else if (pa_streq(flag_name, "QAHW_OUTPUT_FLAG_TIMESTAMP")) {
+        flag = QAHW_OUTPUT_FLAG_TIMESTAMP;
     } else {
         flag = AUDIO_OUTPUT_FLAG_NONE;
         pa_log_error("%s: Unsupported flag_name %s", __func__, flag_name);

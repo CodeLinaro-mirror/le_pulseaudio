@@ -68,6 +68,7 @@ typedef struct {
     const char *audio_channel;
     const char *audio_channel_alloc;
     const char *audio_preemph;
+    const char *dsd_rate;
 
     const char *linkon_0;
     const char *power_on;

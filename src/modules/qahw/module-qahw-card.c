@@ -239,6 +239,11 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
 
     if (config->encoding != PA_ENCODING_PCM) {
         pa_format_info_set_rate(requested_format, config->ss.rate);
+
+        if (config->encoding == PA_ENCODING_DSD) {
+            pa_format_info_set_channels(requested_format, config->ss.channels);
+            pa_format_info_set_prop_int(requested_format, "dsd-type", (int32_t)config->dsd_rate);
+        }
     }
 
     pa_log_info("%s: requested source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &config->ss));
@@ -254,7 +259,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
         }
 
         /* For pcm get the media config as pcm source doesn't only add encoding in format*/
-        if (config->encoding == PA_ENCODING_PCM) {
+        if ((config->encoding == PA_ENCODING_PCM) || (config->encoding == PA_ENCODING_DSD)) {
             rc = pa_qahw_source_get_media_config(source_info->handle, &ss, &map, &encoding);
             if (rc) {
                 pa_log_error("%s: pa_qahw_source_get_media_config failed, error %d", __func__, rc);
@@ -311,6 +316,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
     new_source.formats = requested_formats;
     new_source.default_encoding = config->encoding;
     new_source.preemph_status = config->preemph_status;
+    new_source.dsd_rate = config->dsd_rate;
 
     source_info = pa_xnew0(pa_qahw_card_source_info, 1);
     rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, &new_source, &(source_info->handle));
@@ -1194,25 +1200,28 @@ int pa__init(pa_module *m) {
         u->config_data->default_profile = (char *)DEFAULT_PROFILE;
     }
 
-    pa_qahw_sink_module_init();
-    if (pa_hashmap_size(u->config_data->sinks)) {
+    /* Initialize sink & source hashmap before enabling jack detection */
+    if (pa_hashmap_size(u->config_data->sinks))
         u->sinks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
+    if (pa_hashmap_size(u->config_data->sources))
+        u->sources = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+
+    pa_qahw_card_enable_jack_detection(u);
+
+    pa_qahw_sink_module_init();
+    if (pa_hashmap_size(u->config_data->sinks)) {
         if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
             goto fail;
-
     }
 
     pa_log_info("%s: using default profile %s", __func__, u->config_data->default_profile);
     pa_log_info("%s: use_dolby_hw_loopback %d", __func__, u->config_data->use_dolby_hw_loopback);
 
     if (pa_hashmap_size(u->config_data->sources)) {
-        u->sources = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
         if (PA_UNLIKELY(pa_qahw_card_create_sources(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
             goto fail;
     }
-
-    pa_qahw_card_enable_jack_detection(u);
 
     pa_qahw_module_extn_init(u->core, u->card, u->module_handle);
 
