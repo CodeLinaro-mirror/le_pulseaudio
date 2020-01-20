@@ -3,6 +3,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright (c) 2019 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -1660,7 +1661,7 @@ int pa_stream_write_ts(
     return pa_stream_write_ext_free_ts(s, data, length, free_cb, (void*) data, offset, seek, timestamp, duration, flags);
 }
 
-int pa_stream_peek(pa_stream *s, const void **data, size_t *length) {
+static int pa_stream_peek_internal(pa_stream *s, const void **data, size_t *length, pa_nsec_t *ts) {
     pa_assert(s);
     pa_assert(PA_REFCNT_VALUE(s) >= 1);
     pa_assert(data);
@@ -1676,6 +1677,7 @@ int pa_stream_peek(pa_stream *s, const void **data, size_t *length) {
             /* record_memblockq is empty. */
             *data = NULL;
             *length = 0;
+            *ts = PA_NSEC_INVALID;
             return 0;
 
         } else if (!s->peek_memchunk.memblock) {
@@ -1683,6 +1685,7 @@ int pa_stream_peek(pa_stream *s, const void **data, size_t *length) {
              * the current read index. */
             *data = NULL;
             *length = s->peek_memchunk.length;
+            *ts = s->peek_memchunk.timestamp;
             return 0;
         }
 
@@ -1692,7 +1695,17 @@ int pa_stream_peek(pa_stream *s, const void **data, size_t *length) {
     pa_assert(s->peek_data);
     *data = (uint8_t*) s->peek_data + s->peek_memchunk.index;
     *length = s->peek_memchunk.length;
+    *ts = s->peek_memchunk.timestamp;
     return 0;
+}
+
+int pa_stream_peek(pa_stream *s, const void **data, size_t *length) {
+    pa_nsec_t ts;
+    return pa_stream_peek_internal(s, data, length, &ts);
+}
+
+int pa_stream_peek_ts(pa_stream *s, const void **data, size_t *length, pa_nsec_t *ts) {
+    return pa_stream_peek_internal(s, data, length, ts);
 }
 
 int pa_stream_drop(pa_stream *s) {
