@@ -1510,24 +1510,25 @@ bool pa_sink_render_one(pa_sink *s, pa_memchunk *result) {
     if (n == 0) {
         /* No data available */
         pa_assert(length == 0);
-        return false;
+    } else {
+        pa_assert(n == 1);
+
+        *result = info.chunk;
+        pa_memblock_ref(result->memblock);
+
+        pa_sw_cvolume_multiply(&volume, &s->thread_info.soft_volume, &info.volume);
+
+        if (!pa_cvolume_is_norm(&volume)) {
+            pa_memchunk_make_writable(result, 0);
+            pa_volume_memchunk(result, &s->sample_spec, &volume);
+        }
+
+        inputs_drop(s, &info, n, result);
     }
-
-    *result = info.chunk;
-    pa_memblock_ref(result->memblock);
-
-    pa_sw_cvolume_multiply(&volume, &s->thread_info.soft_volume, &info.volume);
-
-    if (!pa_cvolume_is_norm(&volume)) {
-        pa_memchunk_make_writable(result, 0);
-        pa_volume_memchunk(result, &s->sample_spec, &volume);
-    }
-
-    inputs_drop(s, &info, n, result);
 
     pa_sink_unref(s);
 
-    return true;
+    return (n > 0);
 }
 
 /* Called from main thread */
