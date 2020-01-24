@@ -159,7 +159,9 @@ static int sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state,
     // When resuming from non-RUNNING, since there has been a discontinuity,
     // restart the computation of the timestamps
     if ((new_state == PA_SINK_RUNNING) && (u->sink_->thread_info.state != PA_SINK_RUNNING)) {
-        u->timestamp_ = PA_NSEC_INVALID;
+        u->resetTimestamp();
+    } else if ((new_state != PA_SINK_RUNNING) && (u->sink_->thread_info.state == PA_SINK_RUNNING)) {
+        u->resetTimestamp();  // Mostly for logging when stopping
     }
 
     return 0;
@@ -218,17 +220,53 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
             return false;
         }
 
-        if (chunk->timestamp != PA_NSEC_INVALID) {
-            u->timestamp_ = chunk->timestamp + chunk->duration;
+        // Reset the timestamp computation if the active sink-input has changed
+        {
+            uint32_t current_input = GroupManager::kNoInput;
+            void *state = nullptr;
+            for (pa_sink_input *upstream = reinterpret_cast<pa_sink_input *>(pa_hashmap_iterate(u->sink_->thread_info.inputs, &state, nullptr));
+                 upstream != nullptr;
+                 upstream = reinterpret_cast<pa_sink_input *>(pa_hashmap_iterate(u->sink_->thread_info.inputs, &state, nullptr))) {
+                if (upstream->thread_info.state == PA_SINK_INPUT_RUNNING) {
+                    current_input = upstream->index;
+                    break;
+                }
+            }
+            if (current_input != u->active_input_) {
+                u->resetTimestamp(current_input);
+            }
+        }
+
+        if (u->has_timestamps_) {
+            // We expect the stream to provide timestamps => don't compute any.
+            // But still keep track of the timestamp for get_latency()
+            u->timestamp_ = chunk->timestamp;
+        } else if (chunk->timestamp != PA_NSEC_INVALID) {
+            pa_log_info("Stream with timestamps");
+            u->has_timestamps_ = true;
+            u->timestamp_ = chunk->timestamp;
         } else {
             pa_nsec_t now = ts_clock_now();
-            pa_nsec_t target_latency = ((u->sink_->thread_info.min_latency + u->sink_->thread_info.max_latency) / 2) * PA_NSEC_PER_USEC;
+            pa_nsec_t target_latency =
+                (((u->sink_->flags & PA_SINK_DYNAMIC_LATENCY) == 0)
+                        ? u->sink_->thread_info.fixed_latency
+                        : ((u->sink_->thread_info.min_latency + u->sink_->thread_info.max_latency) / 2))
+                * PA_NSEC_PER_USEC;
             if (u->timestamp_ == PA_NSEC_INVALID) {
                 // No timestamp yet => initialize it
+                pa_log_info("Initializing packet latency to %" PRIu64 "us (fixed: %" PRIu64 ", range %" PRIu64 "-%" PRIu64 ")",
+                    target_latency / PA_NSEC_PER_USEC,
+                    u->sink_->thread_info.fixed_latency,
+                    u->sink_->thread_info.min_latency, u->sink_->thread_info.max_latency);
                 u->timestamp_ = now + target_latency;
-            } else if (static_cast<int64_t>(u->timestamp_ - now) < static_cast<int64_t>(target_latency / 2)) {
-                // We are getting the data too late, reset the timestamp
-                u->timestamp_ = now + target_latency;
+            } else {
+                int64_t current_latency = static_cast<int64_t>(u->timestamp_ - now);
+                if (current_latency <= 0) {
+                    // We are getting the data too late, reset the timestamp
+                    pa_log_info("Packet latency %" PRId64 "usec, resetting timestamp for %" PRIu64 "us latency",
+                        current_latency / static_cast<int64_t>(PA_NSEC_PER_USEC), target_latency / PA_NSEC_PER_USEC);
+                    u->timestamp_ = now + target_latency;
+                }
             }
 
             chunk->timestamp = u->timestamp_;
@@ -294,6 +332,7 @@ static void sink_input_update_sink_latency_range_cb(pa_sink_input *i) {
     pa_sink_input_assert_ref(i);
     pa_assert_se(u = reinterpret_cast<GroupManager *>(i->userdata));
 
+    pa_log_debug("Latency range update: %" PRIu64 ", %" PRIu64, i->sink->thread_info.min_latency, i->sink->thread_info.max_latency);
     pa_sink_set_latency_range_within_thread(u->sink_, i->sink->thread_info.min_latency, i->sink->thread_info.max_latency);
 }
 
@@ -308,6 +347,7 @@ static void sink_input_update_sink_fixed_latency_cb(pa_sink_input *i) {
      * BLOCK MINUS ONE SAMPLE HERE. pa_usec_to_bytes_round_up() IS
      * USEFUL FOR THAT. */
 
+    pa_log_debug("Fixed latency update: %" PRIu64, i->sink->thread_info.fixed_latency);
     pa_sink_set_fixed_latency_within_thread(u->sink_, i->sink->thread_info.fixed_latency);
 }
 
@@ -337,6 +377,9 @@ static void sink_input_attach_cb(pa_sink_input *i) {
     /* (8.1) IF YOU NEED A FIXED BLOCK SIZE ADD THE LATENCY FOR ONE
      * BLOCK MINUS ONE SAMPLE HERE. SEE (7) */
     pa_sink_set_fixed_latency_within_thread(u->sink_, i->sink->thread_info.fixed_latency);
+    pa_log_debug("Attached latency, fixed: %" PRIu64 ",  range: %" PRIu64 "-%" PRIu64,
+        u->sink_->thread_info.fixed_latency,
+        u->sink_->thread_info.min_latency, u->sink_->thread_info.max_latency);
 
     /* (8.2) IF YOU NEED A FIXED BLOCK SIZE ROUND
      * pa_sink_input_get_max_request(i) UP TO MULTIPLES OF IT
@@ -528,7 +571,7 @@ bool GroupManager::init(pa_module *m, pa_sink *master,
 }
 
 void GroupManager::play() {
-    timestamp_ = PA_NSEC_INVALID;
+    resetTimestamp();
 }
 
 void GroupManager::stop() {
@@ -538,4 +581,15 @@ void GroupManager::setMasterId(const std::string &master_id) {
     auto master_id_str = pa_xstrdup(master_id.c_str());
     pa_asyncmsgq_post(sink_->asyncmsgq, PA_MSGOBJECT(sink_), GROUP_MANAGER_SINK_SET_MASTER_ID,
         master_id_str, 0, nullptr, pa_xfree);
+}
+
+void GroupManager::resetTimestamp(uint32_t active_input) {
+    if (active_input_ == active_input) {
+        return;
+    }
+
+    pa_log_info("Resetting timestamps computation (new sink_input: %d)", static_cast<int32_t>(active_input));
+    active_input_ = active_input;
+    has_timestamps_ = false;
+    timestamp_ = PA_NSEC_INVALID;
 }
