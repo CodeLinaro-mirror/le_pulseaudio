@@ -311,6 +311,7 @@ pa_stream_new;
 pa_stream_new_extended;
 pa_stream_new_with_proplist;
 pa_stream_peek;
+pa_stream_peek_ts;
 pa_stream_prebuf;
 pa_stream_proplist_remove;
 pa_stream_proplist_update;
