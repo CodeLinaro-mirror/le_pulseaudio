@@ -1138,8 +1138,12 @@ bool pa_sink_input_peek_one(pa_sink_input *i, pa_memchunk *chunk, pa_cvolume *vo
             wchunk = tchunk;
             pa_memblock_ref(wchunk.memblock);
 
-            if (wchunk.length > block_size_max_sink_input)
-                wchunk.length = block_size_max_sink_input;
+            if (wchunk.length > block_size_max_sink_input) {
+                // Try to avoid unbalanced splits (which can create chunks that
+                // are too small for lower layers, like a DSP).
+                size_t split_count = wchunk.length / block_size_max_sink_input + 1;
+                wchunk.length = pa_frame_align(wchunk.length / split_count, &i->sample_spec);
+            }
 
             /* It might be necessary to adjust the volume here */
             if (do_volume_adj_here && !volume_is_norm) {
