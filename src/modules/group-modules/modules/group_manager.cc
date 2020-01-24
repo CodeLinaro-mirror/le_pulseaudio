@@ -3,7 +3,7 @@
 
     Copyright 2010 Intel Corporation
     Contributor: Pierre-Louis Bossart <pierre-louis.bossart@intel.com>
-    Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+    Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
 
     PulseAudio is free software; you can redistribute it and/or modify
     it under the terms of the GNU Lesser General Public License as published
@@ -69,44 +69,9 @@ static int sink_process_msg_cb(pa_msgobject *o, int code, void *data, int64_t of
             return 0;
 
         case PA_SINK_MESSAGE_ADD_INPUT: {
-            // TODO(jbing): what if there are multiple inputs?
-            pa_sink_input *i = PA_SINK_INPUT(data);
-
-            const char *name = pa_proplist_gets(i->proplist, "media.name");
-            if (name && (strcmp(name, "pulsesink probe") == 0)) {
-                // Temporary stream => ignore
-                break;
-            }
-
-            // Enable or not group sinks, so they use a high latency (lead) or
-            // a low one (slave).
-            // (Assumes one input, which is required to properly handle
-            // timestamps)
-            const char *client_str = pa_proplist_gets(i->proplist, "slave");
-            for (auto sink : u->group_sinks_) {
-                // TODO(jbing): support disabling some groups (e.g. multiroom)
-                // while keeping others enable (e.g. multichannel). Requires
-                // propert handling of latency (i.e. slaves must have
-                // lower latency than lead) or fix for underrun.
-                bool enable = ((client_str == nullptr)
-                    /*|| (strcmp(client_str, sink->sink->name) != 0)*/);
-                pa_log_info("%s %s group sink (client '%s')",
-                    (enable ? "Enabling" : "Disabling"),
-                    sink->sink->name, client_str);
-                sink->enable(enable);
-            }
-
             trace_open(&(u->ts_logging_));  // reopen in case tracing was disabled before
             trace_newstream(&(u->ts_logging_), u->sink_->name);
 
-            break;
-        }
-        case PA_SINK_MESSAGE_REMOVE_INPUT: {
-            // (Assumes one input, which is required to properly handle timestamps)
-            pa_log_info("Disabling group sinks (remove input)");
-            for (auto sink : u->group_sinks_) {
-                sink->enable(false);
-            }
             break;
         }
 
@@ -162,6 +127,11 @@ static int sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state,
         u->resetTimestamp();
     } else if ((new_state != PA_SINK_RUNNING) && (u->sink_->thread_info.state == PA_SINK_RUNNING)) {
         u->resetTimestamp();  // Mostly for logging when stopping
+
+        pa_log_info("Disabling group sinks (idle/suspended)");
+        for (auto sink : u->group_sinks_) {
+            sink->enable(false);
+        }
     }
 
     return 0;
@@ -217,23 +187,63 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
 
     for (;;) {
         if (!pa_sink_render_one(u->sink_, chunk)) {
+            if ((!u->in_underrun_) && (!u->has_timestamps_)) {
+                // Underrun for a non-timestamped stream => either because
+                // lost packet that reduced the end-to-end latency, or because
+                // the end-to-end latency was not high enough, or because we
+                // are paused => reset the computation.
+                // FIXME: check if the active input as timestamps and call
+                // pa_sink_render or pa_sink_render_one accordingly, so we can
+                // benefit from PA's latency management for the non-timestamp
+                // case (i.e. classic PA behavior)
+                pa_log_info("Underrun in non-timestamped stream (sink-input #%zu)", u->active_input_);
+                u->in_underrun_ = true;
+                // We do not reset the timestamp because the underrun might
+                // be caused by the end of the stream and the source might
+                // rely on the latency (computed from timestamp) to know when
+                // all the audio has been drained. If we reset the timestamp,
+                // the latency will go back to the target latency, making the
+                // the source believe that up to <target latency> of audio still
+                // need to be played.
+            }
             return false;
         }
 
         // Reset the timestamp computation if the active sink-input has changed
         {
-            uint32_t current_input = GroupManager::kNoInput;
+            pa_sink_input *upstream;
             void *state = nullptr;
-            for (pa_sink_input *upstream = reinterpret_cast<pa_sink_input *>(pa_hashmap_iterate(u->sink_->thread_info.inputs, &state, nullptr));
+            for (upstream = reinterpret_cast<pa_sink_input *>(pa_hashmap_iterate(u->sink_->thread_info.inputs, &state, nullptr));
                  upstream != nullptr;
                  upstream = reinterpret_cast<pa_sink_input *>(pa_hashmap_iterate(u->sink_->thread_info.inputs, &state, nullptr))) {
                 if (upstream->thread_info.state == PA_SINK_INPUT_RUNNING) {
-                    current_input = upstream->index;
                     break;
                 }
             }
-            if (current_input != u->active_input_) {
-                u->resetTimestamp(current_input);
+            if ((!upstream) && (u->active_input_ != GroupManager::kNoInput)) {
+                // No more active input
+                u->resetTimestamp(GroupManager::kNoInput);
+
+                // No point in disabling the group sinks yet. Lets wait for the
+                // suspended state or for a new active input
+            } else if (upstream && (u->active_input_ != upstream->index)) {
+                // Input has changed
+                u->resetTimestamp(upstream->index);
+
+                const char *client_str = pa_proplist_gets(upstream->proplist, "slave");
+                const char *app_binary = pa_proplist_gets(upstream->proplist, "application.process.binary");
+                for (auto sink : u->group_sinks_) {
+                    // TODO(jbing): support disabling some groups (e.g. multiroom)
+                    // while keeping others enable (e.g. multichannel). Requires
+                    // propert handling of latency (i.e. slaves must have
+                    // lower latency than lead) or fix for underrun.
+                    bool enable = (client_str == nullptr);
+                    pa_log_info("%s %s group sink (active int %u-%s)",
+                        (enable ? "Enabling" : "Disabling"),
+                        sink->sink->name, u->active_input_,
+                        (app_binary ? app_binary : "<unknown>"));
+                    sink->enable(enable);
+                }
             }
         }
 
@@ -252,21 +262,25 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
                         ? u->sink_->thread_info.fixed_latency
                         : ((u->sink_->thread_info.min_latency + u->sink_->thread_info.max_latency) / 2))
                 * PA_NSEC_PER_USEC;
+
+            bool recompute_timestamp = false;
             if (u->timestamp_ == PA_NSEC_INVALID) {
                 // No timestamp yet => initialize it
                 pa_log_info("Initializing packet latency to %" PRIu64 "us (fixed: %" PRIu64 ", range %" PRIu64 "-%" PRIu64 ")",
                     target_latency / PA_NSEC_PER_USEC,
                     u->sink_->thread_info.fixed_latency,
                     u->sink_->thread_info.min_latency, u->sink_->thread_info.max_latency);
+                recompute_timestamp = true;
+            } else if (u->in_underrun_) {
+                pa_log_info("Recovering from underrun, resetting timestamp for %" PRIu64 "us latency",
+                    target_latency / PA_NSEC_PER_USEC);
+
+                recompute_timestamp = true;
+            }
+
+            if (recompute_timestamp) {
                 u->timestamp_ = now + target_latency;
-            } else {
-                int64_t current_latency = static_cast<int64_t>(u->timestamp_ - now);
-                if (current_latency <= 0) {
-                    // We are getting the data too late, reset the timestamp
-                    pa_log_info("Packet latency %" PRId64 "usec, resetting timestamp for %" PRIu64 "us latency",
-                        current_latency / static_cast<int64_t>(PA_NSEC_PER_USEC), target_latency / PA_NSEC_PER_USEC);
-                    u->timestamp_ = now + target_latency;
-                }
+                u->in_underrun_ = false;
             }
 
             chunk->timestamp = u->timestamp_;
