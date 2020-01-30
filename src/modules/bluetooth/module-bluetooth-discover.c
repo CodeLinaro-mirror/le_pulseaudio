@@ -2,6 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2013 João Paulo Rechi Vita
+  Copyright (c) 2020, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as
@@ -32,6 +33,7 @@ PA_MODULE_LOAD_ONCE(true);
 PA_MODULE_USAGE(
     "headset=ofono|native|auto (bluez 5 only)"
     "autodetect_mtu=<boolean> (bluez 5 only)"
+    "timestamp_mode=<boolean> (bluez 5 only)"
 );
 
 struct userdata {
