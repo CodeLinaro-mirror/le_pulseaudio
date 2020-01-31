@@ -3,7 +3,6 @@
 # Copyright 2004-2006 Lennart Poettering
 # Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
 # Copyright 2006 Diego Pettenò
-# Copyright 2019 The Linux Foundation. All rights reserved.
 #
 # PulseAudio is free software; you can redistribute it and/or modify
 # it under the terms of the GNU Lesser General Public License as published by
