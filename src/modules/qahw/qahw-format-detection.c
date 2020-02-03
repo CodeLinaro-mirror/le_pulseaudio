@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -291,6 +291,7 @@ int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys
     if (arc_enable_value) {
         new_config.sample_rate = arc_audio_rate_value;
         new_config.channels = DEFAULT_NUM_CHANNELS;
+        new_config.layout = 0;
         new_config.mode = arc_audio_format_value;
         new_config.preemph_status = arc_audio_preemph_value;
         if ((jack_type != PA_QAHW_JACK_TYPE_HDMI_ARC) || (arc_audio_state_value == 2)) {
