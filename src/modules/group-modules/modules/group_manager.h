@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -36,6 +36,9 @@ PA_C_DECL_END
 class GroupSinkCtrl;
 
 class GroupManager {
+ public:
+    static constexpr uint32_t kNoInput = static_cast<uint32_t>(-1);
+
  private:
     GroupManager() = default;
 
@@ -52,6 +55,8 @@ class GroupManager {
 
     void setMasterId(const std::string &master_id);
 
+    void resetTimestamp(uint32_t active_input = GroupManager::kNoInput);
+
  private:
     bool init(pa_module *m, pa_sink *master,
         std::set<GroupSinkCtrl *> group,
@@ -67,6 +72,9 @@ class GroupManager {
 
     std::set<GroupSinkCtrl *> group_sinks_;
 
+    uint32_t active_input_{kNoInput};
+    bool has_timestamps_{false};
+    bool in_underrun_{false};
     pa_nsec_t timestamp_{PA_NSEC_INVALID};
 
     trace_log ts_logging_ = TRACE_LOG_STATIC_INIT;
