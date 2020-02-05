@@ -146,6 +146,7 @@ static void handle_set_group_peers(DBusConnection *conn, DBusMessage *msg, void 
     if (iter == d->group_sinks.end()) {
         pa_log("Invalid group %s", group);
         pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "Invalid group %s", group);
+        return;
     }
 
     iter->second->setPeers(std::move(peers_vec));
