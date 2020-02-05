@@ -271,6 +271,7 @@ pa_sink* pa_sink_new(
     s->default_sample_spec = s->sample_spec;
     pa_sample_spec_init(&s->saved_spec);
     pa_channel_map_init(&s->saved_map);
+    s->prev_requested_spec = s->sample_spec;
 
     if (data->alternate_sample_rate_is_set)
         s->alternate_sample_rate = data->alternate_sample_rate;
@@ -1560,6 +1561,11 @@ int pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, b
 
     if (!restore && !passthrough && pa_sample_spec_equal(spec, &s->sample_spec))
         return 0;
+
+    if (!restore && !passthrough && pa_sample_spec_equal(spec, &s->prev_requested_spec))
+        return 0;
+
+    s->prev_requested_spec = *spec;
 
     if (!s->reconfigure)
         return -1;
