@@ -386,8 +386,8 @@ static int sco_process_push(struct userdata *u) {
     pa_assert(u->source);
     pa_assert(u->read_smoother);
 
+    pa_memchunk_reset(&memchunk);
     memchunk.memblock = pa_memblock_new(u->core->mempool, u->read_block_size);
-    memchunk.index = memchunk.length = 0;
 
     for (;;) {
         void *p;
@@ -623,8 +623,8 @@ static int a2dp_process_push(struct userdata *u) {
     pa_assert(u->source);
     pa_assert(u->read_smoother);
 
+    pa_memchunk_reset(&memchunk);
     memchunk.memblock = pa_memblock_new(u->core->mempool, u->read_block_size);
-    memchunk.index = memchunk.length = 0;
 
     for (;;) {
         bool found_tstamp = false;
