@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -74,6 +74,7 @@ typedef struct {
     const char *power_on;
     const char *audio_path;
     const char *arc_enable;
+    const char *earc_enable;
 
     const char *arc_audio_state;
     const char *arc_audio_format;
