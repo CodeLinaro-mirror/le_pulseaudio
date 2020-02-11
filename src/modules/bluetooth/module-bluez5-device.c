@@ -3,6 +3,7 @@
 
   Copyright 2008-2013 João Paulo Rechi Vita
   Copyright 2011-2013 BMW Car IT GmbH.
+  Copyright (c) 2020, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as
@@ -44,6 +45,7 @@
 #include <pulsecore/thread.h>
 #include <pulsecore/thread-mq.h>
 #include <pulsecore/time-smoother.h>
+#include <pulsecore/ts_clock.h>
 
 #include "a2dp-codecs.h"
 #include "bluez5-util.h"
@@ -53,8 +55,11 @@ PA_MODULE_AUTHOR("João Paulo Rechi Vita");
 PA_MODULE_DESCRIPTION("BlueZ 5 Bluetooth audio sink and source");
 PA_MODULE_VERSION(PACKAGE_VERSION);
 PA_MODULE_LOAD_ONCE(false);
-PA_MODULE_USAGE("path=<device object path>"
-                "autodetect_mtu=<boolean>");
+PA_MODULE_USAGE(
+    "path=<device object path>"
+    "autodetect_mtu=<boolean>"
+    "timestamp_mode=<boolean>"
+);
 
 #define FIXED_LATENCY_PLAYBACK_A2DP (25 * PA_USEC_PER_MSEC)
 #define FIXED_LATENCY_PLAYBACK_SCO  (25 * PA_USEC_PER_MSEC)
@@ -65,9 +70,12 @@ PA_MODULE_USAGE("path=<device object path>"
 #define BITPOOL_DEC_STEP 5
 #define HSP_MAX_GAIN 15
 
+#define MEMBLOCKQ_MAXLENGTH (16 * 1024 * 1024)
+
 static const char* const valid_modargs[] = {
     "path",
     "autodetect_mtu",
+    "timestamp_mode",
     NULL
 };
 
@@ -146,6 +154,9 @@ struct userdata {
     pa_memchunk write_memchunk;
     pa_sample_spec sample_spec;
     struct sbc_info sbc_info;
+
+    bool timestamp_mode;
+    pa_memblockq *render_one_queue;
 };
 
 typedef enum pa_bluetooth_form_factor {
@@ -250,6 +261,50 @@ static void connect_ports(struct userdata *u, void *new_data, pa_direction_t dir
 }
 
 /* Run from IO thread */
+static void bt_render(struct userdata *u, size_t length, pa_memchunk *memchunk) {
+    if (!u->timestamp_mode) {
+        pa_sink_render_full(u->sink, length, memchunk);
+        return;
+    }
+
+    /* If there isn't enough data in the queue, ask for more from upstream */
+    while (pa_memblockq_get_length(u->render_one_queue) < length) {
+        pa_memchunk tchunk;
+        if (!pa_sink_render_one(u->sink, &tchunk)) {
+            break;
+        }
+
+        /* Drop the packet if it's too old */
+        if (tchunk.timestamp != PA_NSEC_INVALID) {
+            pa_nsec_t duration;
+            if (tchunk.duration != PA_NSEC_INVALID) {
+                duration = tchunk.duration;
+            } else {
+                duration = pa_bytes_to_nsec(tchunk.length, &u->sink->sample_spec);
+            }
+            if ((tchunk.timestamp + duration) < ts_clock_now()) {
+                pa_memblock_unref(tchunk.memblock);
+                continue;
+            }
+        }
+
+        pa_memblockq_push(u->render_one_queue, &tchunk);
+        pa_memblock_unref(tchunk.memblock);
+    }
+
+    /* Read the desired amount of data */
+    if (pa_memblockq_peek_fixed_size(u->render_one_queue, length, memchunk) >= 0) {
+        memchunk->length = PA_MIN(memchunk->length, length);
+        pa_memblockq_drop(u->render_one_queue, memchunk->length);
+    } else {
+        /* Couldn't get a chunk, return silence instead */
+        *memchunk = u->sink->silence;
+        memchunk->length = PA_MIN(memchunk->length, length);
+        pa_memblock_ref(memchunk->memblock);
+    }
+}
+
+/* Run from IO thread */
 static int sco_process_render(struct userdata *u) {
     ssize_t l;
     pa_memchunk memchunk;
@@ -260,7 +315,7 @@ static int sco_process_render(struct userdata *u) {
                 u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY);
     pa_assert(u->sink);
 
-    pa_sink_render_full(u->sink, u->write_block_size, &memchunk);
+    bt_render(u, u->write_block_size, &memchunk);
 
     pa_assert(memchunk.length == u->write_block_size);
 
@@ -331,8 +386,8 @@ static int sco_process_push(struct userdata *u) {
     pa_assert(u->source);
     pa_assert(u->read_smoother);
 
+    pa_memchunk_reset(&memchunk);
     memchunk.memblock = pa_memblock_new(u->core->mempool, u->read_block_size);
-    memchunk.index = memchunk.length = 0;
 
     for (;;) {
         void *p;
@@ -443,7 +498,7 @@ static int a2dp_process_render(struct userdata *u) {
 
     /* First, render some data */
     if (!u->write_memchunk.memblock)
-        pa_sink_render_full(u->sink, u->write_block_size, &u->write_memchunk);
+        bt_render(u, u->write_block_size, &u->write_memchunk);
 
     pa_assert(u->write_memchunk.length == u->write_block_size);
 
@@ -568,8 +623,8 @@ static int a2dp_process_push(struct userdata *u) {
     pa_assert(u->source);
     pa_assert(u->read_smoother);
 
+    pa_memchunk_reset(&memchunk);
     memchunk.memblock = pa_memblock_new(u->core->mempool, u->read_block_size);
-    memchunk.index = memchunk.length = 0;
 
     for (;;) {
         bool found_tstamp = false;
@@ -791,6 +846,11 @@ static void teardown_stream(struct userdata *u) {
         pa_memchunk_reset(&u->write_memchunk);
     }
 
+    if (u->render_one_queue) {
+        pa_memblockq_free(u->render_one_queue);
+        u->render_one_queue = NULL;
+    }
+
     pa_log_debug("Audio stream torn down");
     u->stream_setup_done = false;
 }
@@ -921,6 +981,9 @@ static void setup_stream(struct userdata *u) {
 
     if (u->source)
         u->read_smoother = pa_smoother_new(PA_USEC_PER_SEC, 2*PA_USEC_PER_SEC, true, true, 10, pa_rtclock_now(), true);
+
+    if (u->sink)
+        u->render_one_queue = pa_memblockq_new("bluez5 queue", 0, MEMBLOCKQ_MAXLENGTH, 0, &u->sample_spec, 1, 1, 0, &u->sink->silence);
 }
 
 /* Called from I/O thread, returns true if the transport was acquired or
@@ -1644,7 +1707,7 @@ static void thread_func(void *userdata) {
                                 else
                                     bytes_to_render = skip_bytes;
 
-                                pa_sink_render_full(u->sink, bytes_to_render, &tmp);
+                                bt_render(u, bytes_to_render, &tmp);
                                 pa_memblock_unref(tmp.memblock);
                                 u->write_index += bytes_to_render;
                                 skip_bytes -= bytes_to_render;
@@ -2377,6 +2440,7 @@ int pa__init(pa_module* m) {
     const char *path;
     pa_modargs *ma;
     bool autodetect_mtu;
+    bool timestamp_mode;
 
     pa_assert(m);
 
@@ -2412,7 +2476,14 @@ int pa__init(pa_module* m) {
         goto fail_free_modargs;
     }
 
+    timestamp_mode = false;
+    if (pa_modargs_get_value_boolean(ma, "timestamp_mode", &timestamp_mode) < 0) {
+        pa_log("Invalid boolean value for timestamp_mode parameter");
+        goto fail_free_modargs;
+    }
+
     u->device->autodetect_mtu = autodetect_mtu;
+    u->timestamp_mode = timestamp_mode;
 
     pa_modargs_free(ma);
 
