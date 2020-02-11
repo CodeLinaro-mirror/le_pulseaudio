@@ -489,6 +489,7 @@ static void pa_qahw_sink_set_volume_cb(pa_sink *s) {
 
 static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     pa_qahw_card_port_device_data *port_device_data;
+    pa_qahw_card_port_device_data *active_port_device_data;
     char *kvpair;
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)s->userdata;
     int rc;
@@ -500,12 +501,27 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     port_device_data = PA_DEVICE_PORT_DATA(p);
     pa_assert(port_device_data);
 
-    if (port_device_data->device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) {
+    active_port_device_data = PA_DEVICE_PORT_DATA(s->active_port);
+    pa_assert(active_port_device_data);
+
+    if (active_port_device_data->device & AUDIO_DEVICE_OUT_HDMI) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_DISCONNECT, active_port_device_data->device);
+
+        rc = qahw_set_parameters(sdata->qahw_sdata->module_handle, kvpair);
+        if (rc)
+            pa_log_error("qahw set parameters failed %d",rc);
+
+        pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, active_port_device_data->device);
+
+        pa_xfree(kvpair);
+    }
+
+    if ((port_device_data->device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) || (port_device_data->device & AUDIO_DEVICE_OUT_HDMI)) {
         kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_CONNECT, port_device_data->device);
 
         rc = qahw_set_parameters(sdata->qahw_sdata->module_handle, kvpair);
         if (rc)
-            pa_log_error("qahw routing failed %d",rc);
+            pa_log_error("qahw set parameters failed %d",rc);
 
         pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
 
@@ -1126,6 +1142,7 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
     int rc = -1;
     int ret = -1;
     const char *bt_sco_off = "BT_SCO=off";
+    char *kvpair = NULL;
 
     pa_assert(sdata);
     pa_assert(sdata->qahw_sdata);
@@ -1157,6 +1174,16 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
     if(audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
         ret = qahw_set_parameters(qahw_sdata->module_handle, bt_sco_off);
         pa_log_info("%s: param %s set to hal with return value %d", __func__, bt_sco_off, ret);
+    }
+
+    if (qahw_sdata->devices & AUDIO_DEVICE_OUT_HDMI) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_DISCONNECT, qahw_sdata->devices);
+
+        rc = qahw_set_parameters(qahw_sdata->module_handle, kvpair);
+        if (rc)
+            pa_log_error("qahw_set_parameters failed %d",rc);
+
+        pa_xfree(kvpair);
     }
 
     return rc;

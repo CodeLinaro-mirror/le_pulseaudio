@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -96,7 +96,7 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
             jdata = pa_qahw_evdev_jack_device_open(jack_type, m, &(u->hook_slot), callback, client_data);
         }  else if  ((jack_type ==  PA_QAHW_JACK_TYPE_HDMI_IN) || (jack_type ==  PA_QAHW_JACK_TYPE_HDMI_ARC)) {
             if (!is_external)
-                jdata = pa_qahw_hdmi_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data);
+                jdata = pa_qahw_hdmi_in_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data);
             else
                 jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
         } else if  (jack_type == PA_QAHW_JACK_TYPE_BTA2DP_OUT) {
@@ -112,6 +112,8 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
             jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
         } else if (jack_type == PA_QAHW_JACK_TYPE_BTSCO_OUT) {
             jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
+        } else if (jack_type == PA_QAHW_JACK_TYPE_HDMI_OUT) {
+            jdata = pa_qahw_hdmi_out_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data);
         }
 
         if (!(pa_qahw_jack_check_enable_status(jdata, port_name, jack_type)))
@@ -159,7 +161,7 @@ bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *jack_handle, 
         } else if ((jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI_IN) || (jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI_ARC)) {
             pa_hashmap_remove(registered_jacks, port_name);
             if (!is_external)
-                pa_qahw_hdmi_jack_detection_disable(jdata, m);
+                pa_qahw_hdmi_in_jack_detection_disable(jdata, m);
             else
                 pa_qahw_external_jack_detection_disable(jdata, m);
             toggle_jack_status_bits(jdata->jack_type);
@@ -186,6 +188,10 @@ bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *jack_handle, 
             pa_hashmap_remove(registered_jacks, port_name);
             pa_qahw_external_jack_detection_disable(jdata, m);
             toggle_jack_status_bits(PA_QAHW_JACK_TYPE_BTSCO_OUT);
+        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI_OUT) {
+            pa_hashmap_remove(registered_jacks, port_name);
+            pa_qahw_hdmi_out_jack_detection_disable(jdata, m);
+            toggle_jack_status_bits(PA_QAHW_JACK_TYPE_HDMI_OUT);
         }
     }
 
