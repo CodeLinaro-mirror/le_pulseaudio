@@ -62,6 +62,7 @@
 #define PA_DEFAULT_SINK_FORMAT PA_SAMPLE_S16LE
 #define PA_DEFAULT_SINK_RATE 48000
 #define PA_DEFAULT_SINK_CHANNELS 2
+#define SET_CONTINUE_FLAG  0x00
 
 typedef enum {
     PA_QAHW_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
@@ -860,6 +861,7 @@ static void pa_qahw_sink_thread_func(void *userdata) {
     pa_usec_t timestamp;
 
     pa_memchunk chunk;
+    pa_memchunk pending_chunk;
     qahw_out_buffer_t out_buf;
 
     void *data;
@@ -880,6 +882,8 @@ static void pa_qahw_sink_thread_func(void *userdata) {
 
     memset(&out_buf, 0, sizeof(qahw_out_buffer_t));
     ts_enable = qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP;
+
+    pa_memchunk_reset(&pending_chunk);
 
     while (true) {
         wait = true;
@@ -907,20 +911,49 @@ static void pa_qahw_sink_thread_func(void *userdata) {
                     }
                 } else {
                     if (ts_enable) {
-                        ret = pa_sink_render_one(pa_sdata->sink, &chunk);
-                        if (!ret) {
+                        /* If we have a pending chunk (chunk was too* big), use
+                         * that, otherwise request a new one */
+                        if (pending_chunk.memblock) {
+                            chunk = pending_chunk;
+                            pa_memchunk_reset(&pending_chunk);
+                        } else {
+                            ret = pa_sink_render_one(pa_sdata->sink, &chunk);
+                            if (!ret) {
 #ifdef SINK_DEBUG
-                            pa_log_debug("render one returned empty chunk");
+                                pa_log_debug("render one returned empty chunk");
 #endif
-                            /* wait for 1msec */
-                            wait = true;
-                            pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, 1000);
-                            goto poll;
+                                /* wait for 1msec */
+                                wait = true;
+                                pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, 1000);
+                                goto poll;
+                            }
+                            if (chunk.timestamp == PA_NSEC_INVALID) {
+                                pa_log_error("invalid timestamp");
+                                pa_memblock_unref(chunk.memblock);
+                                goto poll;
+                            }
                         }
-                        if (chunk.timestamp == PA_NSEC_INVALID) {
-                            pa_log_error("invalid timestamp");
-                            pa_memblock_unref(chunk.memblock);
-                            goto poll;
+
+                        /* Split the chunk if it's too big */
+                        if (chunk.length > sdata->qahw_sdata->sink_buffer_size) {
+                            size_t split_count = (chunk.length / sdata->qahw_sdata->sink_buffer_size) + 1;
+                            size_t split_length = pa_frame_align(chunk.length / split_count, &pa_sdata->sink->sample_spec);
+
+#ifdef SINK_DEBUG
+                            pa_log_debug("Splitting chunk (%zu/%zu)", chunk.length, split_length);
+#endif
+
+                            pending_chunk = chunk;
+                            pa_memblock_ref(pending_chunk.memblock);
+
+                            chunk.duration = (chunk.duration / chunk.length) * split_length;
+                            chunk.length = split_length;
+
+                            pending_chunk.timestamp = SET_CONTINUE_FLAG;
+                            pending_chunk.duration -= chunk.duration;
+
+                            pending_chunk.index += split_length;
+                            pending_chunk.length -= split_length;
                         }
                     } else {
                         pa_sink_render_full(pa_sdata->sink, qahw_sdata->sink_buffer_size, &chunk);
@@ -934,6 +967,11 @@ static void pa_qahw_sink_thread_func(void *userdata) {
                 if (ts_enable) {
                     timestamp =  chunk.timestamp / PA_NSEC_PER_USEC;
                     out_buf.timestamp = (int64_t *)&timestamp;
+
+                    if (timestamp == SET_CONTINUE_FLAG)
+                        out_buf.flags = QAHW_META_DATA_FLAGS_TIMESTAMP_CONTINUE;
+                    else
+                        out_buf.flags = QAHW_META_DATA_FLAGS_TIMESTAMP_VALID;
 #ifdef SINK_DEBUG
 #if defined __aarch64__
                     asm volatile("mrs %0, cntvct_el0" : "=r"(ticks));
@@ -996,8 +1034,13 @@ static void pa_qahw_sink_thread_func(void *userdata) {
                     qahw_sdata->state = STATE_PLAYING;
             }
         } else if (pa_sdata->sink->thread_info.state == PA_SINK_SUSPENDED) {
-            /* if sink is suspended state then reset buffer otherwise it might end up sending incorrect buffer to qahw_write */
+            /* if sink is suspended state then reset buffer and pending chunk
+             * otherwise it might end up sending incorrect buffer to qahw_write */
             memset(&out_buf, 0, sizeof(qahw_out_buffer_t));
+            if (pending_chunk.memblock) {
+                pa_memblock_unref(pending_chunk.memblock);
+                pa_memchunk_reset(&pending_chunk);
+            }
         }
 
 poll:
