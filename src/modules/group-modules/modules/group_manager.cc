@@ -24,6 +24,8 @@
 
 #include <fcntl.h>
 extern "C" {
+#include <pulsecore/dbus-shared.h>
+#include <pulsecore/dbus-util.h>
 #include <pulsecore/ts_clock.h>
 }
 
@@ -40,9 +42,50 @@ struct is_flags<pa_sink_input_flags> : std::true_type {};
 template <>
 struct is_flags<pa_sink_flags_t> : std::true_type {};
 
+template <typename T, size_t S>
+constexpr size_t arraySize(T (&)[S]) {
+    return S;
+}
+
 enum {
     GROUP_MANAGER_SINK_SET_MASTER_ID = PA_SINK_MESSAGE_MAX
 };
+static void handleDbusGetMinimumLatency(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void handleDbusSetAllocatedLatency(DBusConnection *conn, DBusMessage *msg, void *userdata);
+
+static constexpr const char kGroupSinkDbusPathPrefix[] = "/org/pulseaudio/ext/latency/sink";
+static constexpr const char kGroupSinkDbusIntf[] = "org.PulseAudio.Ext.Latency.Sink";
+
+static pa_dbus_arg_info dbus_get_minimum_latency_args[] = {
+    {"latency", DBUS_TYPE_UINT64_AS_STRING, "out"},
+    {"name", DBUS_TYPE_STRING_AS_STRING, "out"}};
+
+static pa_dbus_arg_info dbus_set_allocated_latency_args[] = {
+    {"latency", DBUS_TYPE_UINT64_AS_STRING, "in"}};
+
+static pa_dbus_arg_info dbus_minimum_latency_update_args[] = {
+    {"latency", DBUS_TYPE_UINT64_AS_STRING, nullptr},
+    {"name", DBUS_TYPE_STRING_AS_STRING, nullptr}};
+
+static pa_dbus_method_handler method_handlers[] = {
+    {"GetMinimumLatency",
+        dbus_get_minimum_latency_args, arraySize(dbus_get_minimum_latency_args),
+        handleDbusGetMinimumLatency},
+    {"SetAllocatedLatency",
+        dbus_set_allocated_latency_args, arraySize(dbus_set_allocated_latency_args),
+        handleDbusSetAllocatedLatency}};
+
+static constexpr const char kDbusMinimumLatencyUpdateSignal[] = "MinimumLatencyUpdate";
+static pa_dbus_signal_info signals[] = {
+    {kDbusMinimumLatencyUpdateSignal,
+        dbus_minimum_latency_update_args, arraySize(dbus_minimum_latency_update_args)}};
+
+static pa_dbus_interface_info interface_info = {
+    kGroupSinkDbusIntf,
+    method_handlers, arraySize(method_handlers),
+    nullptr, 0,
+    nullptr,
+    signals, arraySize(signals)};
 
 static std::string get_sink_input_index_str(const pa_sink_input *input) {
     return input ? std::to_string(input->index) : "<none>";
@@ -64,8 +107,8 @@ static int sink_process_msg_cb(pa_msgobject *o, int code, void *data, int64_t of
                 return 0;
             }
             if (u->timestamp_ == PA_NSEC_INVALID) {
-                *reinterpret_cast<int64_t *>(data) = static_cast<int64_t>(
-                    (u->sink_->thread_info.min_latency + u->sink_->thread_info.max_latency) / 2);
+                *reinterpret_cast<int64_t *>(data) = static_cast<int64_t>(u->getTargetLatency())
+                    / static_cast<int64_t>(PA_NSEC_PER_USEC);
             } else {
                 // cast to signed before the division to correctly extend the sign bit
                 int64_t latency =
@@ -333,19 +376,17 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
             u->timestamp_ += duration;
         } else {
             pa_nsec_t now = ts_clock_now();
-            pa_nsec_t target_latency =
-                (((u->sink_->flags & PA_SINK_DYNAMIC_LATENCY) == 0)
-                        ? u->sink_->thread_info.fixed_latency
-                        : ((u->sink_->thread_info.min_latency + u->sink_->thread_info.max_latency) / 2))
-                * PA_NSEC_PER_USEC;
+            pa_nsec_t target_latency = u->getTargetLatency();
 
             bool recompute_timestamp = false;
-            if (u->timestamp_ == PA_NSEC_INVALID) {
+            if (target_latency != u->latency_in_use_) {
+                pa_log_info("Latency changed to %" PRIu64 "us", target_latency / PA_NSEC_PER_USEC);
+                u->latency_in_use_ = target_latency;
+                recompute_timestamp = true;
+            } else if (u->timestamp_ == PA_NSEC_INVALID) {
                 // No timestamp yet => initialize it
-                pa_log_info("Initializing packet latency to %" PRIu64 "us (fixed: %" PRIu64 ", range %" PRIu64 "-%" PRIu64 ")",
-                    target_latency / PA_NSEC_PER_USEC,
-                    u->sink_->thread_info.fixed_latency,
-                    u->sink_->thread_info.min_latency, u->sink_->thread_info.max_latency);
+                pa_log_info("Initializing packet latency to %" PRIu64 "us",
+                    target_latency / PA_NSEC_PER_USEC);
                 recompute_timestamp = true;
             } else if (u->in_underrun_) {
                 if (u->timestamp_ > (now + target_latency)) {
@@ -546,6 +587,49 @@ static void sink_input_moving_cb(pa_sink_input *i, pa_sink *dest) {
     }
 }
 
+/* Called from Main thread context */
+static void handleDbusGetMinimumLatency(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    auto d = reinterpret_cast<GroupManager *>(userdata);
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(d);
+
+    dbus_uint64_t latency = 0;  // no latency to speak of
+
+    DBusMessage *reply;
+    pa_assert_se((reply = dbus_message_new_method_return(msg)));
+    pa_assert_se(dbus_message_append_args(reply, DBUS_TYPE_UINT64, &latency, DBUS_TYPE_STRING, &d->sink_->name, DBUS_TYPE_INVALID));
+
+    pa_assert_se(dbus_connection_send(conn, reply, NULL));
+    dbus_message_unref(reply);
+}
+
+/* Called from Main thread context */
+static void handleDbusSetAllocatedLatency(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    auto d = reinterpret_cast<GroupManager *>(userdata);
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(d);
+
+    DBusError error;
+    dbus_error_init(&error);
+
+    dbus_uint64_t latency;
+    if ((dbus_message_get_args(msg, &error, DBUS_TYPE_UINT64, &latency, DBUS_TYPE_INVALID)) == 0) {
+        pa_log("SetAllocatedLatency invalid args: %s", error.message);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_log_info("Allocated latency for %susec: %" PRIu64, d->sink_->name, latency);
+    d->allocated_latency_ = latency * PA_NSEC_PER_USEC;
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
 GroupManager::~GroupManager() {
     /* See comments in sink_input_kill_cb() above regarding destruction order! */
 
@@ -560,6 +644,12 @@ GroupManager::~GroupManager() {
     if (sink_input_) {
         pa_sink_input_unlink(sink_input_);
         pa_sink_input_unref(sink_input_);
+    }
+
+    if (dbus_protocol_) {
+        pa_assert_se(pa_dbus_protocol_remove_interface(dbus_protocol_, dbus_path_.c_str(), interface_info.name) >= 0);
+        pa_dbus_protocol_unref(dbus_protocol_);
+        dbus_protocol_ = nullptr;
     }
 
     if (sink_) {
@@ -684,6 +774,10 @@ bool GroupManager::init(pa_module *m, pa_sink *master,
 
     group_sinks_ = std::move(groups);
 
+    dbus_protocol_ = pa_dbus_protocol_get(module_->core);
+    dbus_path_ = kGroupSinkDbusPathPrefix + std::to_string(sink_->index);
+    pa_assert_se(pa_dbus_protocol_add_interface(dbus_protocol_, dbus_path_.c_str(), &interface_info, this) >= 0);
+
     /* The order here is important. The input must be put first,
      * otherwise streams might attach to the sink before the sink
      * input is attached to the master. */
@@ -719,4 +813,19 @@ void GroupManager::resetTimestamp(pa_sink_input *new_input) {
     active_input_ = new_input;
     has_timestamps_ = false;
     timestamp_ = PA_NSEC_INVALID;
+}
+
+/* Called from I/O thread context */
+pa_nsec_t GroupManager::getTargetLatency() {
+    pa_nsec_t target_latency = allocated_latency_;
+    if (target_latency != PA_NSEC_INVALID) {
+        return target_latency;
+    }
+
+    target_latency =
+        (((sink_->flags & PA_SINK_DYNAMIC_LATENCY) == 0)
+                ? sink_->thread_info.fixed_latency
+                : ((sink_->thread_info.min_latency + sink_->thread_info.max_latency) / 2))
+        * PA_NSEC_PER_USEC;
+    return target_latency;
 }
