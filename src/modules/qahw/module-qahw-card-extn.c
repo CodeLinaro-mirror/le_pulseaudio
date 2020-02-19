@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -37,10 +37,21 @@
 #define QAHW_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qahw"
 #define QAHW_DBUS_MODULE_IFACE "org.PulseAudio.Ext.Qahw.Module"
 
+enum {
+    QAHW_THREAD_IDLE,
+    QAHW_THREAD_SET_PARAM_EVENT,
+    QAHW_THREAD_EXIT
+};
+
 struct qahw_module_extn_data {
     char *obj_path;
     pa_dbus_protocol *dbus_protocol;
     qahw_module_handle_t *module_handle;
+    pa_thread *async_thread;
+    int thread_state;
+    char *final_kvpairs;
+    pa_mutex *mutex;
+    pa_cond *cond;
     pa_card *card;
 };
 
@@ -56,6 +67,7 @@ static void qahw_module_set_sound_focus_params(DBusConnection *conn, DBusMessage
 /* key,value based set params*/
 static void qahw_module_set_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void qahw_module_get_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void qahw_module_set_parameters_async(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 static void qahw_set_channel_config(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
@@ -66,6 +78,7 @@ enum module_method_handler_index {
     METHOD_HANDLER_GET_SOUND_FOCUS,
     METHOD_HANDLER_SET_SOUND_FOCUS,
     METHOD_HANDLER_SET_PARAMETERS,
+    METHOD_HANDLER_SET_PARAMETERS_ASYNC,
     METHOD_HANDLER_GET_PARAMETERS,
     MODULE_HANDLER_SET_CHANNEL_CONFIG,
     METHOD_HANDLER_MODULE_LAST = MODULE_HANDLER_SET_CHANNEL_CONFIG,
@@ -105,6 +118,14 @@ static pa_dbus_arg_info set_channel_config_args[] = {
     {"channel_config", "(suas)", "in"},
 };
 
+static pa_dbus_arg_info set_parameters_async_args[] = {
+    {"kvpairs", "s", "in"},
+};
+
+static pa_dbus_arg_info set_param_async_event_args[] = {
+    {"status", "i", NULL},
+};
+
 static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] = {
 [METHOD_HANDLER_SET_PORT_CONFIG] = {
         .method_name = "SetPortConfig",
@@ -136,6 +157,11 @@ static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] 
         .arguments = set_parameters_args,
         .n_arguments = sizeof(set_parameters_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = qahw_module_set_parameters},
+[METHOD_HANDLER_SET_PARAMETERS_ASYNC] = {
+        .method_name = "SetParametersAsync",
+        .arguments = set_parameters_async_args,
+        .n_arguments = sizeof(set_parameters_async_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = qahw_module_set_parameters_async},
 [METHOD_HANDLER_GET_PARAMETERS] = {
         .method_name = "GetParameters",
         .arguments = get_parameters_args,
@@ -148,6 +174,18 @@ static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] 
         .receive_cb = qahw_set_channel_config},
 };
 
+enum signal_index {
+    SIGNAL_SET_PARAMS_ASYNC_DONE,
+    SIGNAL_MAX
+};
+
+static pa_dbus_signal_info set_param_async_signals[SIGNAL_MAX] = {
+    [SIGNAL_SET_PARAMS_ASYNC_DONE] = {
+    .name = "SetParamsAsyncEventDone",
+    .arguments = set_param_async_event_args,
+    .n_arguments = sizeof(set_param_async_event_args)/sizeof(pa_dbus_arg_info)},
+};
+
 static pa_dbus_interface_info module_interface_info = {
     .name = QAHW_DBUS_MODULE_IFACE,
     .method_handlers = module_method_handlers,
@@ -155,9 +193,143 @@ static pa_dbus_interface_info module_interface_info = {
     .property_handlers = NULL,
     .n_property_handlers = 0,
     .get_all_properties_cb = NULL,
-    .signals = NULL,
-    .n_signals = 0
+    .signals = set_param_async_signals,
+    .n_signals = SIGNAL_MAX
 };
+
+static void signal_set_parameters_done(struct qahw_module_extn_data *mdata, int status) {
+    DBusMessage *message = NULL;
+    DBusMessageIter arg_i;
+
+    pa_log_info("Posting set parameters done status %d", status);
+
+    pa_assert_se(message = dbus_message_new_signal(mdata->obj_path,
+            module_interface_info.name,
+            set_param_async_signals[SIGNAL_SET_PARAMS_ASYNC_DONE].name));
+    dbus_message_iter_init_append(message, &arg_i);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_INT32, &status);
+    pa_dbus_protocol_send_signal(mdata->dbus_protocol, message);
+    dbus_message_unref(message);
+}
+
+static int update_module_kvpairs(struct qahw_module_extn_data *mdata) {
+    char *token, *token1, *rest, *temp_kvpairs;
+    bool found_bus = false;
+    const char *bus_name, *prop_name;
+    void *state = NULL;
+    pa_device_port *port;
+    audio_devices_t *device = NULL;
+
+    temp_kvpairs = pa_xstrdup(mdata->final_kvpairs);
+    rest = (char *)temp_kvpairs;
+
+    while ((token = strtok_r(rest, ";", &rest))) {
+        if (strstr(token,"bus") != NULL) {
+            found_bus = true;
+            break;
+        }
+    }
+
+    if (found_bus) {
+        rest = (char *)token;
+
+        while ((token1 = strtok_r(rest, "=", &rest))) {
+            if (pa_streq(token1, "bus")) {
+                bus_name = strtok_r(rest, "=", &rest);
+                break;
+            }
+        }
+
+        PA_HASHMAP_FOREACH(port, mdata->card->ports, state) {
+            prop_name = pa_proplist_gets(port->proplist, PA_PROP_DEVICE_BUS);
+            if (prop_name != NULL) {
+                if (pa_streq(prop_name, bus_name)) {
+                    device = PA_DEVICE_PORT_DATA(port);
+                    break;
+                }
+            }
+        }
+
+        if (device != NULL) {
+            mdata->final_kvpairs = pa_sprintf_malloc("%s;device=%zu",mdata->final_kvpairs, *device);
+        } else {
+            mdata->final_kvpairs = pa_xstrdup(mdata->final_kvpairs);
+        }
+    }
+
+    pa_xfree(temp_kvpairs);
+    return 0;
+}
+
+static void async_thread_func(void *userdata) {
+    struct qahw_module_extn_data *mdata = (struct qahw_module_extn_data *)userdata;
+    int ret;
+
+    pa_log_debug("Starting Async Thread");
+
+    pa_mutex_lock(mdata->mutex);
+    while (mdata->thread_state != QAHW_THREAD_EXIT) {
+        pa_log_debug("Async Thread wait");
+        pa_cond_wait(mdata->cond, mdata->mutex);
+        pa_log_debug("Async Thread wakeup");
+
+        if (mdata->thread_state == QAHW_THREAD_SET_PARAM_EVENT) {
+            pa_mutex_unlock(mdata->mutex);
+            pa_log_debug("Async Set Parameters");
+
+            if (update_module_kvpairs(mdata) != 0) {
+                ret = -1;
+                signal_set_parameters_done(mdata, ret);
+            }
+
+            ret = qahw_set_parameters(mdata->module_handle, mdata->final_kvpairs);
+            if (ret)
+                pa_log_debug("Async Set Parameters failed with error %d", ret);
+
+            pa_mutex_lock(mdata->mutex);
+            signal_set_parameters_done(mdata, ret);
+            pa_xfree(mdata->final_kvpairs);
+            mdata->final_kvpairs = NULL;
+        }
+    }
+
+    pa_mutex_unlock(mdata->mutex);
+
+    pa_log_debug("Exiting Async thread");
+}
+
+static void qahw_module_set_parameters_async(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct qahw_module_extn_data *mdata = (struct qahw_module_extn_data *)userdata;
+
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    pa_log_debug("%s\n", __func__);
+
+    if (!dbus_message_get_args(msg, &error, DBUS_TYPE_STRING,
+                &mdata->final_kvpairs, DBUS_TYPE_INVALID)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_mutex_lock(mdata->mutex);
+    if (mdata->async_thread == NULL) {
+        pa_mutex_unlock(mdata->mutex);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "qahw_module_set_parameters_async failed");
+        return;
+    }
+
+    mdata->thread_state = QAHW_THREAD_SET_PARAM_EVENT;
+    pa_cond_signal(mdata->cond, 0);
+    pa_mutex_unlock(mdata->mutex);
+    pa_dbus_send_empty_reply(conn, msg);
+}
 
 static void qahw_module_set_port_config(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     int rc = 0;
@@ -645,6 +817,8 @@ static void qahw_set_channel_config(DBusConnection *conn, DBusMessage *msg, void
 }
 
 int pa_qahw_module_extn_init(pa_core *core, pa_card *card, qahw_module_handle_t *module_handle) {
+    char *thread_name = NULL;
+
     pa_assert(core);
     pa_assert(module_handle);
 
@@ -661,6 +835,17 @@ int pa_qahw_module_extn_init(pa_core *core, pa_card *card, qahw_module_handle_t 
     qahw_extn_mdata->module_handle = module_handle;
     qahw_extn_mdata->dbus_protocol = pa_dbus_protocol_get(core);
     qahw_extn_mdata->card = card;
+    qahw_extn_mdata->async_thread = NULL;
+    qahw_extn_mdata->final_kvpairs = NULL;
+
+    thread_name = pa_sprintf_malloc("qahw async thread");
+    if (!(qahw_extn_mdata->async_thread = pa_thread_new(thread_name, async_thread_func, qahw_extn_mdata)))
+        pa_log_error("%s: qahw async thread creation failed", __func__);
+
+    qahw_extn_mdata->mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
+    qahw_extn_mdata->cond = pa_cond_new();
+    qahw_extn_mdata->thread_state = QAHW_THREAD_IDLE;
+    pa_xfree(thread_name);
 
     pa_assert_se(pa_dbus_protocol_add_interface(qahw_extn_mdata->dbus_protocol, qahw_extn_mdata->obj_path, &module_interface_info, qahw_extn_mdata) >= 0);
 
@@ -670,6 +855,12 @@ int pa_qahw_module_extn_init(pa_core *core, pa_card *card, qahw_module_handle_t 
 int pa_qahw_module_extn_deinit(void) {
 
     pa_assert(qahw_extn_mdata);
+
+    qahw_extn_mdata->thread_state = QAHW_THREAD_EXIT;
+    pa_cond_signal(qahw_extn_mdata->cond, 0);
+    pa_thread_free(qahw_extn_mdata->async_thread);
+    pa_cond_free(qahw_extn_mdata->cond);
+    pa_mutex_free(qahw_extn_mdata->mutex);
 
     pa_assert(qahw_extn_mdata->dbus_protocol);
     pa_assert(qahw_extn_mdata->obj_path);
