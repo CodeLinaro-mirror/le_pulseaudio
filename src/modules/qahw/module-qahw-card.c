@@ -1091,18 +1091,21 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
 
     bool is_primary_sink_present = false;
 
-    /* One sink should always be primary, if not return error*/
-    PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
-        if (pa_qahw_sink_is_primary(sink->flags)) {
-            is_primary_sink_present = true;
-            break;
+    /* One sink should always be primary, if not return error */
+    /* No need to check for primary sink on DSD test setup */
+    if (!(u->config_data->dsd_setup)) {
+        PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
+            if (pa_qahw_sink_is_primary(sink->flags)) {
+                is_primary_sink_present = true;
+                break;
+            }
         }
-    }
 
-    if (!is_primary_sink_present) {
-        pa_log_error("%s:: No primary sink", __func__);
-        rc = -1;
-        goto exit;
+        if (!is_primary_sink_present) {
+            pa_log_error("%s:: No primary sink", __func__);
+            rc = -1;
+            goto exit;
+        }
     }
 
     PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
@@ -1217,6 +1220,7 @@ int pa__init(pa_module *m) {
 
     pa_log_info("%s: using default profile %s", __func__, u->config_data->default_profile);
     pa_log_info("%s: use_dolby_hw_loopback %d", __func__, u->config_data->use_dolby_hw_loopback);
+    pa_log_info("%s: test setup %s", __func__, ((u->config_data->dsd_setup == 0) ? "Non DSD" : "DSD"));
 
     if (pa_hashmap_size(u->config_data->sources)) {
         if (PA_UNLIKELY(pa_qahw_card_create_sources(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))

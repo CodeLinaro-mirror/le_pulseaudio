@@ -1140,6 +1140,7 @@ static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t e
    int rc;
 
    sdata->qahw_sdata = pa_xnew0(qahw_sink_data, 1);
+   sdata->qahw_sdata->compressed = (encoding != PA_ENCODING_PCM ? true : false);
 
    rc = open_qahw_sink(module_handle, encoding, ss, map, devices, flags, sink_id, sdata, buffer_duration);
    if (rc) {
