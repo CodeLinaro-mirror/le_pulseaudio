@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -41,6 +41,7 @@ class GroupSinkCtrl {
         const pa_sample_spec &sample_spec, const pa_channel_map &channel_map);
 
     void setPeers(std::vector<std::string> peers);
+    void updateInterfaces(const std::vector<GroupSinkInterfaces> &interfaces);
     void enable(bool enable);
 
  public:  // TODO(jbing): should all be private

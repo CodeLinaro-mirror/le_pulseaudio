@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -39,6 +39,10 @@ static void group_sink_enable(GroupSink *gs, bool enable) {
 
 static void group_sink_setMembers(GroupSink *gs PA_GCC_UNUSED, const char *members[] PA_GCC_UNUSED, size_t size PA_GCC_UNUSED) {
     // null sink, we don't care about the group members
+}
+
+static void group_sink_updateInterfaces(GroupSink *gs PA_GCC_UNUSED, const GroupSinkInterfaces interfaces[] PA_GCC_UNUSED, size_t size PA_GCC_UNUSED) {
+    // null sink, we don't care about the group sink interfaces
 }
 
 static void group_sink_setState(GroupSink *gs, enum GroupSinkPlayState state PA_GCC_UNUSED) {
