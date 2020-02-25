@@ -323,9 +323,9 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
     if (rc) {
         pa_log_error("%s: source %s create failed for port %s, error %d ", __func__, source->name, port->name, rc);
         source_info->handle = NULL;
+    } else {
+        pa_hashmap_put(u->sources, new_source.name, source_info);
     }
-
-    pa_hashmap_put(u->sources, new_source.name, source_info);
 
     pa_idxset_free(requested_formats, (pa_free_cb_t) pa_format_info_free);
 exit:
@@ -625,9 +625,9 @@ static void pa_qahw_card_add_dynamic_sink(pa_device_port *port, pa_qahw_jack_out
     if (rc) {
         pa_log_error("%s: sink %s create failed for port %s, error %d ", __func__, sink->name, port->name, rc);
         sink_info->handle = NULL;
+    } else {
+        pa_hashmap_put(u->sinks, new_sink.name, sink_info);
     }
-
-    pa_hashmap_put(u->sinks, new_sink.name, sink_info);
 
     pa_idxset_free(requested_formats, (pa_free_cb_t) pa_format_info_free);
 exit:
@@ -1121,7 +1121,6 @@ static int pa_qahw_card_create_sinks(struct userdata *u, const char *profile_nam
         }
 
         pa_hashmap_put(u->sinks, sink->name, sink_info);
-
     }
 
 exit:
