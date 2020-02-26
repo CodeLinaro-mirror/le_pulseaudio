@@ -68,7 +68,7 @@ PA_MODULE_LOAD_ONCE( false);
 PA_MODULE_USAGE(_(
         "sink_name=<name for the sink> "
         "sink_properties=<properties for the sink> "
-        "master=<name of sink to filter> "
+        "sink_master=<name of sink to filter> "
         "rate=<sample rate> "
         "channels=<number of channels> "
         "channel_map=<channel map> "
@@ -87,6 +87,7 @@ PA_MODULE_USAGE(_(
 ));
 
 #define MEMBLOCKQ_MAXLENGTH (16*1024*1024)
+#define SINK_PROC_BLOCKSIZE (256)
 
 /* Pipeline states  */
 typedef enum {
@@ -120,6 +121,7 @@ struct userdata {
     filter_plugin_handle filter_hdl;
     GstCaps *appsrc_caps;
 
+    pthread_mutex_t state_mutex;
     g_state pipeline_state;
     void *dl_handle;
     filter_plugin_cb filter_plugins_callbacks;
@@ -174,7 +176,6 @@ const pa_gst_chl_map_t pa_gst_chl_map_table[] = {
 };
 
 static void dbus_init(struct userdata *u) {
-
     pa_log("FUNC : %s ", __func__);
     pa_assert_se(u);
 
@@ -501,21 +502,6 @@ static int gstreamer_init(void *userdata) {
     return ret;
 }
 
-static void set_g_state(struct userdata *u, g_state state) {
-    pthread_mutex_lock(&u->mutex);
-    u->pipeline_state = state;
-    pthread_mutex_unlock(&u->mutex);
-}
-
-static g_state get_g_state(struct userdata *u) {
-    g_state s;
-
-    pthread_mutex_lock(&u->mutex);
-    s = u->pipeline_state;
-    pthread_mutex_unlock(&u->mutex);
-    return s;
-}
-
 static int sink_process_msg_cb(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
     struct userdata *u = PA_SINK(o)->userdata;
 
@@ -583,6 +569,10 @@ static int sink_set_state_in_main_thread_cb(pa_sink *s, pa_sink_state_t state) {
     }
 #endif //AUDIO_BUFFER_DUMP
 
+    /* Took a lock here to avoid appsink blocking (gst_app_sink_pull_sample) called from sink_input_pop_cb
+     * while state change happening in sink_set_state_in_main_thread_cb parallel with sink_input_pop_cb.
+     */
+    pthread_mutex_lock(&u->state_mutex);
     if ((state == PA_SINK_SUSPENDED) && (u->sink_input->state == PA_SINK_INPUT_RUNNING)) {
         /* Add your code to handle filter module in suspended state  */
     }
@@ -602,7 +592,7 @@ static int sink_set_state_in_main_thread_cb(pa_sink *s, pa_sink_state_t state) {
                     u->filter_hdl.pipeline = NULL;
                 }
             }
-            set_g_state(u, G_PLAYING);
+            u->pipeline_state = G_PLAYING;
         }
         pa_log("Pipeline play state done");
     }
@@ -622,7 +612,7 @@ static int sink_set_state_in_main_thread_cb(pa_sink *s, pa_sink_state_t state) {
             }
         } else {
             if (u->filter_hdl.pipeline) {
-                set_g_state(u, G_PAUSED);
+                u->pipeline_state = G_PAUSED;
 
                 if (gst_element_set_state(u->filter_hdl.pipeline, GST_STATE_READY) == GST_STATE_CHANGE_FAILURE) {
                     pa_log("Unable to set the pipeline to the Ready state");
@@ -639,7 +629,7 @@ static int sink_set_state_in_main_thread_cb(pa_sink *s, pa_sink_state_t state) {
         }
         pa_log("Pipeline manipulations done");
     }
-
+    pthread_mutex_unlock(&u->state_mutex);
     pa_sink_input_cork(u->sink_input, state == PA_SINK_SUSPENDED);
 
     pa_log("Exit %s", __func__);
@@ -706,7 +696,7 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
 
     /* Plugins require sample size of 256 blocks  */
     if (!u->filter_hdl.filesink_enable)
-        nbytes = 256 * u->input_channels * u->input_bit_depth;
+        nbytes = SINK_PROC_BLOCKSIZE * u->input_channels * u->input_bit_depth;
 
     /* Process rewind request that is queued up */
     pa_sink_process_rewind(u->sink, 0);
@@ -733,10 +723,12 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
     src = pa_memblock_acquire_chunk(&tchunk);
     dst = pa_memblock_acquire(chunk->memblock);
 
-    if (!pa_memblock_is_silence(tchunk.memblock) && (get_g_state(u) == G_PLAYING)) {
+    pthread_mutex_lock(&u->state_mutex);
+    if (!pa_memblock_is_silence(tchunk.memblock) && (G_PLAYING == u->pipeline_state)) {
 #if AUDIO_BUFFER_DUMP
         if (pa_write(u->fd, src, n * fs, &u->write_type) < 0) {
             pa_log("Write to the pulseaudio_src.pcm failed");
+            pthread_mutex_unlock(&u->state_mutex);
             return -1;
         }
 #endif //AUDIO_BUFFER_DUMP
@@ -758,6 +750,7 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
 #if AUDIO_BUFFER_DUMP
             if (pa_write(u->fd_out, dst, len, &u->write_type) < 0) {
                 pa_log("Write to the pulseaudio_dst.pcm failed");
+                pthread_mutex_unlock(&u->state_mutex);
                 return -1;
             }
 #endif //AUDIO_BUFFER_DUMP
@@ -773,6 +766,7 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
     } else {
         memcpy(dst, src, n * fs);
     }
+    pthread_mutex_unlock(&u->state_mutex);
 
     pa_memblock_release(tchunk.memblock);
     pa_memblock_release(chunk->memblock);
@@ -786,6 +780,10 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
                 + pa_bytes_to_usec(pa_memblockq_get_length(i->thread_info.render_memblockq), &i->sink->sample_spec);
 
     return 0;
+}
+
+static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
+    return sink_input_pop_cb(i, 0, chunk) == 0;
 }
 
 static void sink_input_process_rewind_cb(pa_sink_input *i, size_t nbytes) {
@@ -948,6 +946,7 @@ static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map 
     GstAudioFormat gst_format;
     guint64 channel_mask = 0;
     GstAudioChannelPosition position[64] = { GST_AUDIO_CHANNEL_POSITION_NONE };
+    size_t nbytes = 0;
 
     if (!PA_SINK_IS_OPENED(s->state)) {
         pa_log("updating sampling rate from %u to %u", u->sink->sample_spec.rate, spec->rate);
@@ -959,6 +958,10 @@ static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map 
         u->sink->sample_spec.channels = spec->channels;
 
         u->sink->channel_map = *map;
+
+        /* update nbytes in sink on sample specification change */
+        nbytes = SINK_PROC_BLOCKSIZE * pa_frame_size(&u->sink->sample_spec);
+        pa_sink_set_max_request(u->sink, nbytes);
     }
 
     u->input_rate = u->sink->sample_spec.rate;
@@ -1167,6 +1170,7 @@ int pa__init(pa_module*m) {
     }
 
     u->sink_input->pop = sink_input_pop_cb;
+    u->sink_input->pop_one = sink_input_pop_one_cb;
     u->sink_input->process_rewind = sink_input_process_rewind_cb;
     u->sink_input->update_max_rewind = sink_input_update_max_rewind_cb;
     u->sink_input->update_max_request = sink_input_update_max_request_cb;
@@ -1237,6 +1241,11 @@ int pa__init(pa_module*m) {
         goto fail;
     }
 
+    if (pthread_mutex_init(&u->state_mutex, NULL) != 0) {
+        pa_log("Failed to initialize state_mutex");
+        goto fail;
+    }
+
     if (gstreamer_init(u) != 0) {
         pa_log("Failed to initialize gstreamer pipeline");
         goto fail;
@@ -1295,6 +1304,7 @@ void pa__done(pa_module*m) {
 
     pthread_mutex_destroy(&u->mutex);
     pthread_cond_destroy(&u->cond);
+    pthread_mutex_destroy(&u->state_mutex);
 
     gst_dequeue_all_filter_plugin(u);
 
