@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -940,6 +940,9 @@ static int pa_qahw_config_parse_port_sys_path(pa_config_parser_state *state) {
         } else if (pa_streq(state->lvalue, "arc-enable-node-path")) {
             port->arc_enable_node_path = pa_xstrdup(state->rvalue);
             pa_log_debug("%s: adding arc enable node path %s to %s", __func__, port->arc_enable_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "earc-enable-node-path")) {
+            port->earc_enable_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding earc enable node path %s to %s", __func__, port->earc_enable_node_path, port->name);
         } else if (pa_streq(state->lvalue, "arc-state-node-path")) {
             port->arc_state_node_path = pa_xstrdup(state->rvalue);
             pa_log_debug("%s: adding arc state node path %s to %s", __func__, port->arc_state_node_path, port->name);
@@ -1343,6 +1346,7 @@ static int pa_qahw_config_parse_priority(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_card_profile_config *profile;
     pa_qahw_card_port_config *port;
+    pa_qahw_source_config *source = NULL;
 
     int ret = 0;
 
@@ -1357,6 +1361,10 @@ static int pa_qahw_config_parse_priority(pa_config_parser_state *state) {
     } else if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
         if (pa_atou(state->rvalue, &port->priority) < 0) {
             pa_log("%s: Invalid port priority", __func__);
+        }
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        if (pa_atou(state->rvalue, &source->priority) < 0) {
+            pa_log("%s: Invalid source priority", __func__);
         }
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
@@ -1818,6 +1826,9 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
     if (port->arc_enable_node_path)
         pa_xfree(port->arc_enable_node_path);
 
+    if (port->earc_enable_node_path)
+        pa_xfree(port->earc_enable_node_path);
+
     if (port->arc_state_node_path)
         pa_xfree(port->arc_state_node_path);
 
@@ -1934,6 +1945,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "poweron-node-path",           pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "audio-path-node-path",        pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "arc-enable-node-path",        pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "earc-enable-node-path",       pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "arc-state-node-path",         pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "arc-sample-format-node-path", pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "arc-sample-rate-node-path",   pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
