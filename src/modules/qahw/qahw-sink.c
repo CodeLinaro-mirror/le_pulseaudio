@@ -145,7 +145,7 @@ static int free_pa_sink(pa_qahw_sink_data *sdata);
 static int pa_qahw_sink_pause(pa_qahw_sink_data *sdata, bool pause);
 
 static const uint32_t supported_sink_rates[] =
-                          {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
+                          {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000};
 
 #ifdef CLOCK_MONOTONIC
 static int32_t get_clock_id() {
