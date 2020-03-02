@@ -2,7 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2008 Lennart Poettering
-  Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+  Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -79,6 +79,10 @@ void GroupSinkCtrl::setPeers(std::vector<std::string> peers) {
         members.push_back(peer.c_str());
     }
     group_sink->setMembers(group_sink, members.data(), members.size());
+}
+
+void GroupSinkCtrl::updateInterfaces(const std::vector<GroupSinkInterfaces> &interfaces) {
+    group_sink->updateInterfaces(group_sink, interfaces.data(), interfaces.size());
 }
 
 void GroupSinkCtrl::enable(bool enable) {

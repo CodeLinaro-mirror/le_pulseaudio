@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -28,6 +28,12 @@ enum GroupSinkPlayState {
     GROUP_SINK_PLAYING
 };
 
+struct GroupSinkInterfaces {
+    const char *iface_name;
+    const char *physical_iface_name;
+};
+typedef struct GroupSinkInterfaces GroupSinkInterfaces;
+
 struct GroupSink;
 typedef struct GroupSink GroupSink;
 struct GroupSink {
@@ -39,6 +45,9 @@ struct GroupSink {
 
     // List of members in the group (IP addresses)
     void (*setMembers)(GroupSink *gs, const char *members[], size_t size);
+
+    // List of network interfaces
+    void (*updateInterfaces)(GroupSink *gs, const GroupSinkInterfaces interfaces[], size_t size);
 
     // Set the state of the playback. Can be used to connect to/disconnect from
     // the other group members
