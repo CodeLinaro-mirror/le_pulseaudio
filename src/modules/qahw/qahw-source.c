@@ -894,7 +894,7 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
 
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_qahw_source_get_name_from_flags(source_data->qahw_sdata->flags));
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
-    pa_proplist_setf(new_data.proplist, "buffer-duration", "%d", source_data->qahw_sdata->source_latency_us);
+    pa_proplist_setf(new_data.proplist, "buffer-size", "%d", source_data->qahw_sdata->source_buffer_size);
 
     if (avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_ALL)
         new_data.avoid_processing = true;
