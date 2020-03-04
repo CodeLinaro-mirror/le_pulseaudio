@@ -288,10 +288,21 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
                     u->sink_->thread_info.min_latency, u->sink_->thread_info.max_latency);
                 recompute_timestamp = true;
             } else if (u->in_underrun_) {
-                pa_log_info("Recovering from underrun, resetting timestamp for %" PRIu64 "us latency",
-                    target_latency / PA_NSEC_PER_USEC);
-
-                recompute_timestamp = true;
+                if (u->timestamp_ > (now + target_latency)) {
+                    // Typically, at the start of the stream, the first packet
+                    // is in the future, and further reads to fill the
+                    // downstream buffers only moves the timestamp even further
+                    // in the future. If we have an underrun then, we still have
+                    // plenty of time to recover before downstream itself
+                    // underruns. So there is no need to reset the timestamp
+                    // computation.
+                    pa_log_info("Quick recovery from underrun, keep timestamp");
+                    u->in_underrun_ = false;
+                } else {
+                    pa_log_info("Recovering from underrun, resetting timestamp for %" PRIu64 "us latency",
+                        target_latency / PA_NSEC_PER_USEC);
+                    recompute_timestamp = true;
+                }
             }
 
             if (recompute_timestamp) {
