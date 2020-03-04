@@ -197,6 +197,36 @@ static const char* profile_name_for_dir(pa_card_profile *cp, pa_direction_t dir)
     return cp->name;
 }
 
+static bool is_port_active_for_all(pa_device_port *port) {
+    pa_sink *sink;
+    pa_source *source;
+    uint32_t state;
+    pa_card *card;
+
+    pa_assert(port);
+    pa_assert_se(card = port->card);
+
+    switch (port->direction) {
+        case PA_DIRECTION_OUTPUT:
+            PA_IDXSET_FOREACH(sink, card->sinks, state)
+                if (port == pa_hashmap_get(sink->ports, port->name)) {
+                    if (sink->active_port != port)
+                        return false;
+                }
+            break;
+
+        case PA_DIRECTION_INPUT:
+            PA_IDXSET_FOREACH(source, card->sources, state)
+                if (port == pa_hashmap_get(source->ports, port->name)) {
+                    if (source->active_port != port)
+                        return false;
+                }
+            break;
+    }
+
+    return true;
+}
+
 static struct port_pointers find_port_pointers(pa_device_port *port) {
     struct port_pointers pp = { .port = port };
     uint32_t state;
@@ -224,6 +254,16 @@ static struct port_pointers find_port_pointers(pa_device_port *port) {
     pp.is_preferred_profile_active = pp.is_possible_profile_active && (!port->preferred_profile ||
         pa_safe_streq(port->preferred_profile, profile_name_for_dir(card->active_profile, port->direction)));
     pp.is_port_active = (pp.sink && pp.sink->active_port == port) || (pp.source && pp.source->active_port == port);
+
+    /* Port status is checked assuming a single device exists.
+     * It leads to an error when multiple devices are present.
+     * Below is the check to ensure the port is active for all devices.
+     * If any of the device port is inactive then the same needs to be handled properly.
+     */
+    if (pp.is_port_active)
+        pp.is_port_active = is_port_active_for_all(port);
+
+    pa_log_debug("%s port state %s", port->name, pp.is_port_active ? "Active" : "Inactive");
 
     return pp;
 }
