@@ -711,7 +711,7 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
 
     pa_assert(tchunk.length > 0);
 
-    fs = pa_frame_size(&i->sample_spec);
+    fs = pa_frame_size(&u->sink->sample_spec);
     n = (unsigned) (tchunk.length / fs);
 
     pa_assert(n > 0);
@@ -1051,13 +1051,16 @@ int pa__init(pa_module*m) {
     u->module = m;
     m->userdata = u;
 
-    ss.format = PA_SAMPLE_S24LE;
+    pa_log("Master Sink caps: rate[%d] format[%d] channels[%d]",
+            master->sample_spec.rate, master->sample_spec.format, master->sample_spec.channels);
+
+    ss.format = PA_SAMPLE_S32LE;
     ss.rate = master->sample_spec.rate;
     ss.channels = 2;
     map = *(pa_channel_map *) pa_channel_map_init_stereo(&map);
 
     ss_output = master->sample_spec;
-    ss_output.format = PA_SAMPLE_S24LE;
+    ss_output.format = PA_SAMPLE_S32LE;
     map_output = master->channel_map;
 
     if (ss_output.channels >= 8) {
