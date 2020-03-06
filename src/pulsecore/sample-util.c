@@ -66,9 +66,6 @@ pa_memchunk* pa_silence_memchunk(pa_memchunk *c, const pa_sample_spec *spec) {
     pa_silence_memory((uint8_t*) data+c->index, c->length, spec);
     pa_memblock_release(c->memblock);
 
-    c->timestamp = PA_NSEC_INVALID;
-    c->duration = PA_NSEC_INVALID;
-
     return c;
 }
 
