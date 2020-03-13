@@ -3,7 +3,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
-  Copyright (c) 2019 The Linux Foundation. All rights reserved.
+  Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -1558,7 +1558,14 @@ int pa_stream_write_ext_free_ts(
                 /* Break large audio streams into _aligned_ blocks or the
                  * other endpoint will happily discard them upon arrival. */
                 blk_size_max = pa_frame_align(pa_mempool_block_size_max(s->context->mempool), &s->sample_spec);
-                chunk.length = PA_MIN(t_length, blk_size_max);
+                if (t_length <= blk_size_max) {
+                    chunk.length = t_length;
+                } else {
+                    /* Split the chunk in more or less even-sized blocks to
+                     * avoid really small ones */
+                    size_t split_count = (t_length + blk_size_max - 1) / blk_size_max;
+                    chunk.length = pa_frame_align(t_length / split_count, &s->sample_spec);
+                }
                 chunk.memblock = pa_memblock_new(s->context->mempool, chunk.length);
 
                 d = pa_memblock_acquire(chunk.memblock);
