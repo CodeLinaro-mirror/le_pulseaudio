@@ -1524,7 +1524,11 @@ bool pa_sink_render_one(pa_sink *s, pa_memchunk *result) {
         *result = info.chunk;
         pa_memblock_ref(result->memblock);
 
-        pa_sw_cvolume_multiply(&volume, &s->thread_info.soft_volume, &info.volume);
+        if (s->thread_info.soft_muted) {
+            pa_cvolume_mute(&volume, s->sample_spec.channels);
+        } else {
+            pa_sw_cvolume_multiply(&volume, &s->thread_info.soft_volume, &info.volume);
+        }
 
         if (!pa_cvolume_is_norm(&volume)) {
             pa_memchunk_make_writable(result, 0);
