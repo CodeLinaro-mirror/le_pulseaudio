@@ -963,6 +963,9 @@ static int pa_qahw_config_parse_port_sys_path(pa_config_parser_state *state) {
         } else if (pa_streq(state->lvalue, "arc-enable-node-path")) {
             port->arc_enable_node_path = pa_xstrdup(state->rvalue);
             pa_log_debug("%s: adding arc enable node path %s to %s", __func__, port->arc_enable_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "earc-enable-node-path")) {
+            port->earc_enable_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding earc enable node path %s to %s", __func__, port->earc_enable_node_path, port->name);
         } else if (pa_streq(state->lvalue, "arc-state-node-path")) {
             port->arc_state_node_path = pa_xstrdup(state->rvalue);
             pa_log_debug("%s: adding arc state node path %s to %s", __func__, port->arc_state_node_path, port->name);
@@ -981,6 +984,9 @@ static int pa_qahw_config_parse_port_sys_path(pa_config_parser_state *state) {
         } else if (pa_streq(state->lvalue, "dsd-rate-node-path")) {
             port->dsd_rate_node_path = pa_xstrdup(state->rvalue);
             pa_log_debug("%s: adding DSD rate node path %s to %s", __func__, port->dsd_rate_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "hdmi-tx-state")) {
+            port->hdmi_tx_state_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding hdmi-tx-state node path %s to %s", __func__, port->hdmi_tx_state_path, port->name);
         } else {
             pa_log_error ("%s: invalid property %s", __func__, state->lvalue);
             goto exit;
@@ -1846,6 +1852,9 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
     if (port->arc_enable_node_path)
         pa_xfree(port->arc_enable_node_path);
 
+    if (port->earc_enable_node_path)
+        pa_xfree(port->earc_enable_node_path);
+
     if (port->arc_state_node_path)
         pa_xfree(port->arc_state_node_path);
 
@@ -1962,6 +1971,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "poweron-node-path",           pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "audio-path-node-path",        pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "arc-enable-node-path",        pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "earc-enable-node-path",       pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "arc-state-node-path",         pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "arc-sample-format-node-path", pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "arc-sample-rate-node-path",   pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
@@ -1970,6 +1980,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "arc-audio-preemph-node-path", pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "detection",                   pa_qahw_config_parse_port_detection,                      NULL, NULL },
         { "dsd-rate-node-path",          pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "hdmi-tx-state",               pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
 
         /* [Profile... ] */
         { "max-sink-channels",           pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },

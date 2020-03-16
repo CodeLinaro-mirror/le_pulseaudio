@@ -62,6 +62,7 @@
 #define PA_DEFAULT_SINK_FORMAT PA_SAMPLE_S16LE
 #define PA_DEFAULT_SINK_RATE 48000
 #define PA_DEFAULT_SINK_CHANNELS 2
+#define SET_CONTINUE_FLAG  0x00
 
 typedef enum {
     PA_QAHW_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
@@ -145,7 +146,7 @@ static int free_pa_sink(pa_qahw_sink_data *sdata);
 static int pa_qahw_sink_pause(pa_qahw_sink_data *sdata, bool pause);
 
 static const uint32_t supported_sink_rates[] =
-                          {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
+                          {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000};
 
 #ifdef CLOCK_MONOTONIC
 static int32_t get_clock_id() {
@@ -489,6 +490,7 @@ static void pa_qahw_sink_set_volume_cb(pa_sink *s) {
 
 static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     pa_qahw_card_port_device_data *port_device_data;
+    pa_qahw_card_port_device_data *active_port_device_data;
     char *kvpair;
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)s->userdata;
     int rc;
@@ -500,12 +502,27 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     port_device_data = PA_DEVICE_PORT_DATA(p);
     pa_assert(port_device_data);
 
-    if (port_device_data->device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) {
+    active_port_device_data = PA_DEVICE_PORT_DATA(s->active_port);
+    pa_assert(active_port_device_data);
+
+    if (active_port_device_data->device & AUDIO_DEVICE_OUT_HDMI) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_DISCONNECT, active_port_device_data->device);
+
+        rc = qahw_set_parameters(sdata->qahw_sdata->module_handle, kvpair);
+        if (rc)
+            pa_log_error("qahw set parameters failed %d",rc);
+
+        pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, active_port_device_data->device);
+
+        pa_xfree(kvpair);
+    }
+
+    if ((port_device_data->device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) || (port_device_data->device & AUDIO_DEVICE_OUT_HDMI)) {
         kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_CONNECT, port_device_data->device);
 
         rc = qahw_set_parameters(sdata->qahw_sdata->module_handle, kvpair);
         if (rc)
-            pa_log_error("qahw routing failed %d",rc);
+            pa_log_error("qahw set parameters failed %d",rc);
 
         pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
 
@@ -844,6 +861,7 @@ static void pa_qahw_sink_thread_func(void *userdata) {
     pa_usec_t timestamp;
 
     pa_memchunk chunk;
+    pa_memchunk pending_chunk;
     qahw_out_buffer_t out_buf;
 
     void *data;
@@ -864,6 +882,8 @@ static void pa_qahw_sink_thread_func(void *userdata) {
 
     memset(&out_buf, 0, sizeof(qahw_out_buffer_t));
     ts_enable = qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP;
+
+    pa_memchunk_reset(&pending_chunk);
 
     while (true) {
         wait = true;
@@ -891,20 +911,49 @@ static void pa_qahw_sink_thread_func(void *userdata) {
                     }
                 } else {
                     if (ts_enable) {
-                        ret = pa_sink_render_one(pa_sdata->sink, &chunk);
-                        if (!ret) {
+                        /* If we have a pending chunk (chunk was too* big), use
+                         * that, otherwise request a new one */
+                        if (pending_chunk.memblock) {
+                            chunk = pending_chunk;
+                            pa_memchunk_reset(&pending_chunk);
+                        } else {
+                            ret = pa_sink_render_one(pa_sdata->sink, &chunk);
+                            if (!ret) {
 #ifdef SINK_DEBUG
-                            pa_log_debug("render one returned empty chunk");
+                                pa_log_debug("render one returned empty chunk");
 #endif
-                            /* wait for 1msec */
-                            wait = true;
-                            pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, 1000);
-                            goto poll;
+                                /* wait for 1msec */
+                                wait = true;
+                                pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, 1000);
+                                goto poll;
+                            }
+                            if (chunk.timestamp == PA_NSEC_INVALID) {
+                                pa_log_error("invalid timestamp");
+                                pa_memblock_unref(chunk.memblock);
+                                goto poll;
+                            }
                         }
-                        if (chunk.timestamp == PA_NSEC_INVALID) {
-                            pa_log_error("invalid timestamp");
-                            pa_memblock_unref(chunk.memblock);
-                            goto poll;
+
+                        /* Split the chunk if it's too big */
+                        if (chunk.length > sdata->qahw_sdata->sink_buffer_size) {
+                            size_t split_count = (chunk.length / sdata->qahw_sdata->sink_buffer_size) + 1;
+                            size_t split_length = pa_frame_align(chunk.length / split_count, &pa_sdata->sink->sample_spec);
+
+#ifdef SINK_DEBUG
+                            pa_log_debug("Splitting chunk (%zu/%zu)", chunk.length, split_length);
+#endif
+
+                            pending_chunk = chunk;
+                            pa_memblock_ref(pending_chunk.memblock);
+
+                            chunk.duration = (chunk.duration / chunk.length) * split_length;
+                            chunk.length = split_length;
+
+                            pending_chunk.timestamp = SET_CONTINUE_FLAG;
+                            pending_chunk.duration -= chunk.duration;
+
+                            pending_chunk.index += split_length;
+                            pending_chunk.length -= split_length;
                         }
                     } else {
                         pa_sink_render_full(pa_sdata->sink, qahw_sdata->sink_buffer_size, &chunk);
@@ -918,6 +967,11 @@ static void pa_qahw_sink_thread_func(void *userdata) {
                 if (ts_enable) {
                     timestamp =  chunk.timestamp / PA_NSEC_PER_USEC;
                     out_buf.timestamp = (int64_t *)&timestamp;
+
+                    if (timestamp == SET_CONTINUE_FLAG)
+                        out_buf.flags = QAHW_META_DATA_FLAGS_TIMESTAMP_CONTINUE;
+                    else
+                        out_buf.flags = QAHW_META_DATA_FLAGS_TIMESTAMP_VALID;
 #ifdef SINK_DEBUG
 #if defined __aarch64__
                     asm volatile("mrs %0, cntvct_el0" : "=r"(ticks));
@@ -980,8 +1034,13 @@ static void pa_qahw_sink_thread_func(void *userdata) {
                     qahw_sdata->state = STATE_PLAYING;
             }
         } else if (pa_sdata->sink->thread_info.state == PA_SINK_SUSPENDED) {
-            /* if sink is suspended state then reset buffer otherwise it might end up sending incorrect buffer to qahw_write */
+            /* if sink is suspended state then reset buffer and pending chunk
+             * otherwise it might end up sending incorrect buffer to qahw_write */
             memset(&out_buf, 0, sizeof(qahw_out_buffer_t));
+            if (pending_chunk.memblock) {
+                pa_memblock_unref(pending_chunk.memblock);
+                pa_memchunk_reset(&pending_chunk);
+            }
         }
 
 poll:
@@ -1126,6 +1185,7 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
     int rc = -1;
     int ret = -1;
     const char *bt_sco_off = "BT_SCO=off";
+    char *kvpair = NULL;
 
     pa_assert(sdata);
     pa_assert(sdata->qahw_sdata);
@@ -1157,6 +1217,16 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
     if(audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
         ret = qahw_set_parameters(qahw_sdata->module_handle, bt_sco_off);
         pa_log_info("%s: param %s set to hal with return value %d", __func__, bt_sco_off, ret);
+    }
+
+    if (qahw_sdata->devices & AUDIO_DEVICE_OUT_HDMI) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_DISCONNECT, qahw_sdata->devices);
+
+        rc = qahw_set_parameters(qahw_sdata->module_handle, kvpair);
+        if (rc)
+            pa_log_error("qahw_set_parameters failed %d",rc);
+
+        pa_xfree(kvpair);
     }
 
     return rc;

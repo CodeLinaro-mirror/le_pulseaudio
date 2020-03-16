@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -326,7 +326,7 @@ static pa_qahw_jack_out_config *pa_qahw_loopback_read_port_configuration(char *p
     switch (jack_type) {
         case PA_QAHW_JACK_TYPE_HDMI_IN:
         case PA_QAHW_JACK_TYPE_HDMI_ARC:
-            if (pa_qahw_hdmi_jack_get_config(jack_type, jack_in_config->jack_sys_path, jack_config)) {
+            if (pa_qahw_hdmi_in_jack_get_config(jack_type, jack_in_config->jack_sys_path, jack_config)) {
                 pa_log_error("%s: error in reading hdmi port config", __func__);
                 pa_xfree(jack_config);
                 jack_config = NULL;

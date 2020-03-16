@@ -3,7 +3,7 @@
 
     Copyright 2010 Intel Corporation
     Contributor: Pierre-Louis Bossart <pierre-louis.bossart@intel.com>
-    Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+    Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
 
     PulseAudio is free software; you can redistribute it and/or modify
     it under the terms of the GNU Lesser General Public License as published
@@ -150,7 +150,42 @@ static void handle_set_group_peers(DBusConnection *conn, DBusMessage *msg, void 
     }
 
     iter->second->setPeers(std::move(peers_vec));
-    pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &len);
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+static void handle_update_interfaces(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    auto d = reinterpret_cast<GroupManagerModule *>(userdata);
+    std::vector<GroupSinkInterfaces> interfaces;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(d);
+
+    DBusMessageIter args;
+    if (!dbus_message_iter_init(msg, &args)) {
+        pa_log("handle_update_interfaces : Message args iter init failed");
+        return;
+    }
+    DBusMessageIter arr;
+    dbus_message_iter_recurse(&args, &arr);
+    while (dbus_message_iter_get_arg_type(&arr) == DBUS_TYPE_DICT_ENTRY) {
+        DBusMessageIter dict;
+        dbus_message_iter_recurse(&arr, &dict);
+        const char *key;
+        const char *value;
+        dbus_message_iter_get_basic(&dict, &key);
+        dbus_message_iter_next(&dict);
+        dbus_message_iter_get_basic(&dict, &value);
+        pa_log("handle_update_interfaces : Received interface %s -> %s", key, value);
+        interfaces.emplace_back(GroupSinkInterfaces{key, value});
+        dbus_message_iter_next(&arr);
+    }
+
+    // send interfaces to group sinks
+    for (auto &iter : d->group_sinks) {
+        iter.second->updateInterfaces(interfaces);
+    }
+    pa_dbus_send_empty_reply(conn, msg);
 }
 
 // TODO(jbing): properties are more adapted for the value here (as of this
@@ -160,11 +195,19 @@ static pa_dbus_arg_info set_group_peers_args[] = {
     {"group", DBUS_TYPE_STRING_AS_STRING, "in"},
     {"peers", DBUS_TYPE_ARRAY_AS_STRING DBUS_TYPE_STRING_AS_STRING, "in"}};
 
+static pa_dbus_arg_info update_interfaces_args[] = {
+    {"interfaces",
+        DBUS_TYPE_ARRAY_AS_STRING DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
+        DBUS_TYPE_STRING_AS_STRING DBUS_TYPE_STRING_AS_STRING DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
+        "in"}};
+
 static pa_dbus_method_handler method_handlers[] = {
     {"SetGroupPeers",
-        set_group_peers_args,
-        sizeof(set_group_peers_args) / sizeof(set_group_peers_args[0]),
-        handle_set_group_peers}};
+     set_group_peers_args, sizeof(set_group_peers_args) / sizeof(set_group_peers_args[0]),
+     handle_set_group_peers},
+    {"UpdateInterfaces",
+     update_interfaces_args, sizeof(update_interfaces_args) / sizeof(update_interfaces_args[0]),
+     handle_update_interfaces}};
 
 static pa_dbus_interface_info interface_info = {
     GROUP_DBUS_IFACE,

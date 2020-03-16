@@ -2,7 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2008 Lennart Poettering
-  Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+  Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -35,6 +35,8 @@ PA_C_DECL_END
 
 #include "enums.h"
 
+constexpr char kIpcNamespace[] = "pulse.groupsink";
+
 static constexpr pa_usec_t kMaxSilence = 1 * PA_USEC_PER_MSEC;  // 1ms
 
 enum {
@@ -43,6 +45,8 @@ enum {
 
 template <>
 struct is_flags<pa_sink_flags_t> : std::true_type {};
+
+static std::weak_ptr<adk::msg::AdkMessageService> message_service_weak_ptr;
 
 GroupSinkCtrl::~GroupSinkCtrl() {
     pa_sink_unlink(sink);
@@ -73,16 +77,50 @@ GroupSinkCtrl::~GroupSinkCtrl() {
     }
 }
 
+/* Called from main thread */
+void GroupSinkCtrl::updateLowLatencyMode(pa_sink_state_t state) {
+    adk::msg::AdkMessage message;
+    bool enable = (getPeersCount() > 0) && PA_SINK_IS_OPENED(state);
+    pa_log_debug("Group Sync:: Low Latency %s", enable ? "Enable" : "Disable");
+
+    if (enable) {
+        message.mutable_system_low_latency_mode_enable()->set_source(sink->name);
+    } else {
+        message.mutable_system_low_latency_mode_disable()->set_source(sink->name);
+    }
+    message_service_->Send(message);
+}
+
+/* Called from main thread */
 void GroupSinkCtrl::setPeers(std::vector<std::string> peers) {
     std::vector<const char *> members;
     for (auto &peer : peers) {
         members.push_back(peer.c_str());
     }
+    setPeersCount(members.size());
+    updateLowLatencyMode(sink->state);
     group_sink->setMembers(group_sink, members.data(), members.size());
+}
+
+void GroupSinkCtrl::updateInterfaces(const std::vector<GroupSinkInterfaces> &interfaces) {
+    group_sink->updateInterfaces(group_sink, interfaces.data(), interfaces.size());
 }
 
 void GroupSinkCtrl::enable(bool enable) {
     pa_asyncmsgq_post(thread_mq.inq, PA_MSGOBJECT(sink), GROUP_SINK_ENABLE, reinterpret_cast<void *>(enable), 0, nullptr, nullptr);
+}
+
+/* Called from main context */
+static int sink_set_state_in_main_thread_cb(pa_sink *s, pa_sink_state_t new_state, pa_suspend_cause_t suspend_cause PA_UNUSED) {
+    auto u = reinterpret_cast<GroupSinkCtrl *>(s->userdata);
+
+    if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(s->state)) {
+        u->updateLowLatencyMode(new_state);
+    } else if (!PA_SINK_IS_OPENED(new_state) && PA_SINK_IS_OPENED(s->state)) {
+        u->updateLowLatencyMode(new_state);
+    }
+
+    return 0;
 }
 
 /* Called from the IO thread. */
@@ -236,6 +274,7 @@ std::shared_ptr<GroupSinkCtrl> GroupSinkCtrl::create(pa_module *_module,
     }
 
     u->sink->parent.process_msg = sink_process_msg;
+    u->sink->set_state_in_main_thread = sink_set_state_in_main_thread_cb;
     u->sink->set_state_in_io_thread = sink_set_state_in_io_thread_cb;
 
     // sink->update_requested_latency = sink_update_requested_latency_cb;
@@ -251,6 +290,23 @@ std::shared_ptr<GroupSinkCtrl> GroupSinkCtrl::create(pa_module *_module,
         auto thread_u = u.get();
         u->thread = std::thread([thread_u]() { thread_func(thread_u); });
         pthread_setname_np(u->thread.native_handle(), u->sink->name);
+    }
+
+    // We expect the module to be loaded in turn, so no need for locks
+    // TODO(jbing): currently there can only be one single instance adk-message
+    // because the d-bus connection is shared and the object path is fixed. But
+    // ideally, each sink should have its own AdkMessageService
+    u->message_service_ = message_service_weak_ptr.lock();
+    if (u->message_service_) {
+        pa_log_debug("Group Sink Create : Message Service already initialized");
+    } else {
+        u->message_service_ = std::make_shared<adk::msg::AdkMessageService>(kIpcNamespace);
+        if (!u->message_service_->Initialise()) {
+            pa_log_debug("Group Sink Create Failed to initialise message service");
+            goto fail;
+        }
+        message_service_weak_ptr = u->message_service_;
+        pa_log_debug("Group Sink Create success to initialise message service");
     }
 
     pa_sink_put(u->sink);

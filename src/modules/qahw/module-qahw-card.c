@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -1207,9 +1207,9 @@ int pa__init(pa_module *m) {
     if (pa_hashmap_size(u->config_data->sources))
         u->sources = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
+    pa_qahw_sink_module_init();
     pa_qahw_card_enable_jack_detection(u);
 
-    pa_qahw_sink_module_init();
     if (pa_hashmap_size(u->config_data->sinks)) {
         if (PA_UNLIKELY(pa_qahw_card_create_sinks(u, u->config_data->default_profile, PA_QAHW_CARD_USECASE_TYPE_STATIC)))
             goto fail;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -33,10 +33,10 @@
 #include "agm/agm_api.h"
 
 #define OK 0
-#define QSTHW_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qsthw"
-#define QSTHW_DBUS_MODULE_IFACE "org.PulseAudio.Ext.Qsthw"
-#define QSTHW_DBUS_SESSION_IFACE "org.PulseAudio.Ext.Qsthw.Session"
-#define PA_DBUS_QSTHW_MODULE_IFACE_VERSION 0x101
+#define QAL_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qsthw"
+#define QAL_DBUS_MODULE_IFACE "org.PulseAudio.Ext.Qsthw"
+#define QAL_DBUS_SESSION_IFACE "org.PulseAudio.Ext.Qsthw.Session"
+#define PA_DBUS_QAL_MODULE_IFACE_VERSION 0x101
 
 static const char* const valid_modargs[] = {
     "module",
@@ -44,9 +44,10 @@ static const char* const valid_modargs[] = {
 };
 
 enum {
-    QAL_READ_IDLE,
-    QAL_READ_QUEUED,
-    QAL_READ_EXIT
+    QAL_THREAD_IDLE,
+    QAL_THREAD_READ_QUEUED,
+    QAL_THREAD_EXIT,
+    QAL_THREAD_STOP_BUFFERING
 };
 
 struct qal_voiceui_module_data {
@@ -56,7 +57,7 @@ struct qal_voiceui_module_data {
     char *module_name;
     char *obj_path;
     pa_dbus_protocol *dbus_protocol;
-    pa_qal_voiceui_hooks *qsthw;
+    pa_qal_voiceui_hooks *qal;
     bool is_session_started;
     uint32_t session_id;
 };
@@ -65,11 +66,11 @@ struct qal_voiceui_session_data {
     struct qal_voiceui_module_data *common;
     qal_stream_handle_t *ses_handle;
     char *obj_path;
-    int read_state;
+    int thread_state;
     struct qal_buffer *read_buf;
     unsigned int read_bytes;
     bool recognition_started;
-    pa_thread *read_thread;
+    pa_thread *async_thread;
     pa_mutex *mutex;
     pa_cond *cond;
 };
@@ -90,9 +91,11 @@ static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void get_interface_version(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 enum module_handler_index {
     MODULE_HANDLER_LOAD_SOUND_MODEL,
+    MODULE_HANDLER_GET_INTERFACE_VERSION,
     MODULE_HANDLER_MAX
 };
 
@@ -146,6 +149,10 @@ pa_dbus_arg_info get_param_data_args[] = {
     {"payload", "ay", "out"},
 };
 
+pa_dbus_arg_info get_interface_version_args[] = {
+    {"version", "i", "out"},
+};
+
 /* recognition config event.
  * XXX Skipped unused offload_info in audio_config as it is
  * used for compressed offload playback streams.
@@ -161,15 +168,24 @@ pa_dbus_arg_info read_buffer_available_event_args[] = {
     {"read_buffer", "ay", NULL}
 };
 
+pa_dbus_arg_info stop_buffering_done_event_args[] = {
+    {"status", "i", NULL},
+};
+
 static pa_dbus_method_handler qal_voiceui_module_handlers[MODULE_HANDLER_MAX] = {
     [MODULE_HANDLER_LOAD_SOUND_MODEL] = {
         .method_name = "LoadSoundModel",
         .arguments = load_sound_model_args,
         .n_arguments = sizeof(load_sound_model_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = load_sound_model},
+    [MODULE_HANDLER_GET_INTERFACE_VERSION] = {
+        .method_name = "GetInterfaceVersion",
+        .arguments = get_interface_version_args,
+        .n_arguments = sizeof(get_interface_version_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = get_interface_version},
 };
 
-static pa_dbus_method_handler qsthw_session_handlers[SESSION_HANDLER_MAX] = {
+static pa_dbus_method_handler qal_voiceui_session_handlers[SESSION_HANDLER_MAX] = {
     [SESSION_HANDLER_UNLOAD_SOUND_MODEL] = {
         .method_name = "UnloadSoundModel",
         .arguments = unload_sound_model_args,
@@ -186,10 +202,10 @@ static pa_dbus_method_handler qsthw_session_handlers[SESSION_HANDLER_MAX] = {
         .n_arguments = sizeof(stop_recognition_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = stop_recognition},
     [SESSION_HANDLER_GET_BUFFER_SIZE] = {
-    .method_name = "GetBufferSize",
-    .arguments = get_buffer_size_args,
-    .n_arguments = sizeof(get_buffer_size_args)/sizeof(pa_dbus_arg_info),
-    .receive_cb = get_buffer_size},
+        .method_name = "GetBufferSize",
+        .arguments = get_buffer_size_args,
+        .n_arguments = sizeof(get_buffer_size_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = get_buffer_size},
     [SESSION_HANDLER_READ_BUFFER] = {
         .method_name = "ReadBuffer",
         .arguments = read_buffer_args,
@@ -215,6 +231,7 @@ static pa_dbus_method_handler qsthw_session_handlers[SESSION_HANDLER_MAX] = {
 enum signal_index {
     SIGNAL_DETECTION_EVENT,
     SIGNAL_READ_BUFFER_AVAILABLE_EVENT,
+    SIGNAL_STOP_BUFFERING_DONE_EVENT,
     SIGNAL_MAX
 };
 
@@ -227,10 +244,14 @@ static pa_dbus_signal_info det_event_signals[SIGNAL_MAX] = {
         .name = "ReadBufferAvailableEvent",
         .arguments = read_buffer_available_event_args,
         .n_arguments = sizeof(read_buffer_available_event_args)/sizeof(pa_dbus_arg_info)},
+    [SIGNAL_STOP_BUFFERING_DONE_EVENT] = {
+        .name = "StopBufferingDoneEvent",
+        .arguments = stop_buffering_done_event_args,
+        .n_arguments = sizeof(stop_buffering_done_event_args)/sizeof(pa_dbus_arg_info)},
 };
 
 static pa_dbus_interface_info module_interface_info = {
-    .name = QSTHW_DBUS_MODULE_IFACE,
+    .name = QAL_DBUS_MODULE_IFACE,
     .method_handlers = qal_voiceui_module_handlers,
     .n_method_handlers = MODULE_HANDLER_MAX,
     .property_handlers = NULL,
@@ -241,8 +262,8 @@ static pa_dbus_interface_info module_interface_info = {
 };
 
 static pa_dbus_interface_info session_interface_info = {
-    .name = QSTHW_DBUS_SESSION_IFACE,
-    .method_handlers = qsthw_session_handlers,
+    .name = QAL_DBUS_SESSION_IFACE,
+    .method_handlers = qal_voiceui_session_handlers,
     .n_method_handlers = SESSION_HANDLER_MAX,
     .property_handlers = NULL,
     .n_property_handlers = 0,
@@ -301,21 +322,56 @@ static void pa_qal_fill_stream_attributes(struct qal_stream_attributes *stream_a
 
 }
 
-static void read_thread_func(void *userdata) {
+static void signal_stop_buffering_done(struct qal_voiceui_session_data *ses_data,
+                                       int status) {
+    DBusMessage *message = NULL;
+    DBusMessageIter arg_i;
+    uint32_t sm_handle = ses_data->common->session_id;
+
+    pa_log_info("Posting stop buffering done for handle %d with status %d", sm_handle, status);
+
+    pa_assert_se(message = dbus_message_new_signal(ses_data->obj_path,
+                                            session_interface_info.name,
+                                            det_event_signals[SIGNAL_STOP_BUFFERING_DONE_EVENT].name));
+
+    dbus_message_iter_init_append(message, &arg_i);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_INT32, &status);
+
+    pa_dbus_protocol_send_signal(ses_data->common->dbus_protocol, message);
+    dbus_message_unref(message);
+}
+
+static void async_thread_func(void *userdata) {
     struct qal_voiceui_session_data *ses_data = (struct qal_voiceui_session_data *)userdata;
     uint32_t sm_handle = ses_data->common->session_id;
     unsigned int bytes = 0, read_buffer_sequence = 0;
     int ret = 0;
 
-    pa_log_debug("[%d]Starting Read Thread", sm_handle);
+    pa_log_debug("[%d]Starting Async Thread", sm_handle);
 
     pa_mutex_lock(ses_data->mutex);
-    while (ses_data->read_state != QAL_READ_EXIT) {
-        pa_log_debug("[%d]Read Thread wait", sm_handle);
+    while (ses_data->thread_state != QAL_THREAD_EXIT) {
+        pa_log_debug("[%d]Async Thread wait", sm_handle);
         pa_cond_wait(ses_data->cond, ses_data->mutex);
-        pa_log_debug("[%d]Read Thread wakeup", sm_handle);
+        pa_log_debug("[%d]Async Thread wakeup", sm_handle);
 
-        if (ses_data->read_state != QAL_READ_QUEUED)
+        if (ses_data->thread_state == QAL_THREAD_STOP_BUFFERING) {
+            pa_mutex_unlock(ses_data->mutex);
+            pa_log_debug("[%d]Stop buffering", sm_handle);
+
+            if (ses_data->recognition_started) {
+                ret = qal_stream_stop(ses_data->ses_handle);
+                ses_data->recognition_started = false;
+
+                if (ret)
+                    pa_log_debug("[%d]Stop buffering failed with error %d", sm_handle, ret);
+            }
+
+            pa_mutex_lock(ses_data->mutex);
+            signal_stop_buffering_done(ses_data, ret);
+        }
+
+        if (ses_data->thread_state != QAL_THREAD_READ_QUEUED)
             continue;
 
         if (ses_data->read_buf == NULL || ses_data->read_bytes != bytes) {
@@ -330,20 +386,36 @@ static void read_thread_func(void *userdata) {
         pa_mutex_unlock(ses_data->mutex);
         ret = qal_stream_read(ses_data->ses_handle, ses_data->read_buf);
 
-        if (ret < 0)
+        if (ret <= 0) {
+            ret = -ENODATA;
             pa_log_debug("[%d]Read failed with error %d", sm_handle, ret);
+        }
+
         pa_mutex_lock(ses_data->mutex);
 
-        if (ses_data->read_state == QAL_READ_QUEUED) {
+        if (ses_data->thread_state == QAL_THREAD_READ_QUEUED) {
             signal_read_buffer_available(ses_data, ++read_buffer_sequence, ret);
-            ses_data->read_state = QAL_READ_IDLE;
+            ses_data->thread_state = QAL_THREAD_IDLE;
+        } else if (ses_data->thread_state == QAL_THREAD_STOP_BUFFERING) {
+            pa_mutex_unlock(ses_data->mutex);
+
+            if (ses_data->recognition_started) {
+                ret = qal_stream_stop(ses_data->ses_handle);
+                ses_data->recognition_started = false;
+
+                if (ret)
+                    pa_log_debug("[%d]Stop buffering failed with error %d", sm_handle, ret);
+            }
+
+            pa_mutex_lock(ses_data->mutex);
+            signal_stop_buffering_done(ses_data, ret);
         }
     }
     pa_xfree(ses_data->read_buf);
     ses_data->read_buf = NULL;
     pa_mutex_unlock(ses_data->mutex);
 
-    pa_log_debug("[%d]Exiting Read Thread", sm_handle);
+    pa_log_debug("[%d]Exiting Async Thread", sm_handle);
 }
 
 /* As of now qal is not filling event and cookie data. Hence just a log */
@@ -354,7 +426,7 @@ static int32_t event_callback(qal_stream_handle_t *stream_handle, uint32_t event
     uint32_t frame_count = 0;
 
     struct qal_voiceui_session_data *ses_data = (struct qal_voiceui_session_data *)cookie;
-    pa_qal_st_phrase_recognition_event *qsthw_event;
+    pa_qal_st_phrase_recognition_event *qal_event;
     struct qal_st_recognition_event *event;
     struct qal_st_phrase_recognition_event *phrase_event;
     int n_elements = 0;
@@ -366,8 +438,8 @@ static int32_t event_callback(qal_stream_handle_t *stream_handle, uint32_t event
     pa_assert(event_data);
     pa_assert(ses_data);
 
-    qsthw_event = (pa_qal_st_phrase_recognition_event *)((void *)event_data);
-    phrase_event = &qsthw_event->phrase_event;
+    qal_event = (pa_qal_st_phrase_recognition_event *)((void *)event_data);
+    phrase_event = &qal_event->phrase_event;
     event = &phrase_event->common;
     capture_available = event->capture_available;
     trigger_in_data = event->trigger_in_data;
@@ -375,6 +447,7 @@ static int32_t event_callback(qal_stream_handle_t *stream_handle, uint32_t event
 
     pa_log_info("Callback event received: %d", event->status);
 
+    ses_data->thread_state = QAL_THREAD_IDLE;
     pa_assert_se(message = dbus_message_new_signal(ses_data->obj_path,
             session_interface_info.name,
             det_event_signals[SIGNAL_DETECTION_EVENT].name));
@@ -421,10 +494,10 @@ static int32_t event_callback(qal_stream_handle_t *stream_handle, uint32_t event
     }
     dbus_message_iter_close_container(&arg_i, &array_i);
 
-    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_UINT64, &qsthw_event->timestamp);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_UINT64, &qal_event->timestamp);
 
     n_elements = event->data_size;
-    value = (char*)qsthw_event + event->data_offset;
+    value = (char*)qal_event + event->data_offset;
     dbus_message_iter_open_container(&arg_i, DBUS_TYPE_ARRAY, "y", &array_i);
     dbus_message_iter_append_fixed_array(&array_i, DBUS_TYPE_BYTE, &value, n_elements);
     dbus_message_iter_close_container(&arg_i, &array_i);
@@ -433,11 +506,43 @@ static int32_t event_callback(qal_stream_handle_t *stream_handle, uint32_t event
 
     if(event->capture_available) {
         ses_data->common->is_session_started = true;
-        pa_hook_fire(&ses_data->common->qsthw->hooks[PA_HOOK_QAL_VOICEUI_START_DETECTION],NULL);
+        pa_hook_fire(&ses_data->common->qal->hooks[PA_HOOK_QAL_VOICEUI_START_DETECTION],NULL);
     }
 
     dbus_message_unref(message);
     return 0;
+}
+
+/* TODO: Add support fot this once it's available in QAL
+static void get_version(DBusConnection *conn, DBusMessage *msg, void *userdata){
+    int version;
+	char *minor;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    pa_log_debug("get_version");
+    version = (int) strtof(qsthw_get_version(), &minor);
+    pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &version);
+} */
+
+static void get_interface_version(DBusConnection *conn, DBusMessage *msg, void *userdata){
+    int version;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    pa_log_debug("get_interface_version(%d)", PA_DBUS_QAL_MODULE_IFACE_VERSION);
+    version = PA_DBUS_QAL_MODULE_IFACE_VERSION;
+    pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &version);
 }
 
 static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdata) {
@@ -568,15 +673,15 @@ static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *us
     }
 
     pa_mutex_lock(ses_data->mutex);
-    if (bytes == 0 || ses_data->read_thread == NULL ||
-        ses_data->read_state != QAL_READ_IDLE) {
+    if (bytes == 0 || ses_data->async_thread == NULL ||
+        ses_data->thread_state != QAL_THREAD_IDLE) {
         pa_mutex_unlock(ses_data->mutex);
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "request_read_buffer failed");
         dbus_error_free(&error);
         return;
     }
 
-    ses_data->read_state = QAL_READ_QUEUED;
+    ses_data->thread_state = QAL_THREAD_READ_QUEUED;
     ses_data->read_bytes = bytes;
     pa_cond_signal(ses_data->cond, 0);
     pa_mutex_unlock(ses_data->mutex);
@@ -584,7 +689,6 @@ static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *us
     pa_dbus_send_empty_reply(conn, msg);
 }
 
-/*Fix me: Check if this is correct */
 static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     struct qal_voiceui_session_data *ses_data = userdata;
     int status = 0;
@@ -597,6 +701,7 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
     dbus_error_init(&error);
 
     pa_log_debug("stop buffering");
+    pa_mutex_lock(ses_data->mutex);
 
     if (ses_data->recognition_started) {
         status = qal_stream_stop(ses_data->ses_handle);
@@ -608,6 +713,10 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
         dbus_error_free(&error);
         return;
     }
+
+    ses_data->thread_state = QAL_THREAD_STOP_BUFFERING;
+    pa_cond_signal(ses_data->cond, 0);
+    pa_mutex_unlock(ses_data->mutex);
 
     pa_dbus_send_empty_reply(conn, msg);
 }
@@ -734,7 +843,7 @@ static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *user
 
     pa_log_debug("start recognition");
     if (ses_data->common->is_session_started) {
-        pa_hook_fire(&ses_data->common->qsthw->hooks[PA_HOOK_QAL_VOICEUI_STOP_DETECTION],NULL);
+        pa_hook_fire(&ses_data->common->qal->hooks[PA_HOOK_QAL_VOICEUI_STOP_DETECTION],NULL);
         ses_data->common->is_session_started = false;
     }
 
@@ -826,6 +935,12 @@ static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *use
     pa_assert(userdata);
 
     dbus_error_init(&error);
+
+    ses_data->thread_state = QAL_THREAD_EXIT;
+    pa_cond_signal(ses_data->cond, 0);
+    pa_thread_free(ses_data->async_thread);
+    pa_cond_free(ses_data->cond);
+    pa_mutex_free(ses_data->mutex);
 
     status = unload_sm(conn, ses_data);
     if (status != 0) {
@@ -1024,17 +1139,17 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     ses_data->common->session_id++;
     ses_data->ses_handle = stream_handle;
     ses_data->obj_path = pa_sprintf_malloc("%s/ses_%d", m_data->obj_path, ses_data->common->session_id);
-    thread_name = pa_sprintf_malloc("qal read thread%d", ses_data->common->session_id);
-
-    if (!(ses_data->read_thread = pa_thread_new(thread_name, read_thread_func, ses_data)))
-        pa_log_error("%s: qal read thread creation failed", __func__);
-    pa_xfree(thread_name);
-
     ses_data->mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
     ses_data->cond = pa_cond_new();
-    ses_data->read_state = QAL_READ_IDLE;
+    ses_data->thread_state = QAL_THREAD_IDLE;
     ses_data->read_buf = NULL;
     ses_data->recognition_started = false;
+
+    thread_name = pa_sprintf_malloc("qal read thread%d", ses_data->common->session_id);
+
+    if (!(ses_data->async_thread = pa_thread_new(thread_name, async_thread_func, ses_data)))
+        pa_log_error("%s: qal read thread creation failed", __func__);
+    pa_xfree(thread_name);
 
     pa_assert_se(pa_dbus_protocol_add_interface(ses_data->common->dbus_protocol,
             ses_data->obj_path, &session_interface_info, ses_data) >= 0);
@@ -1058,12 +1173,12 @@ int pa__init(pa_module *m) {
     }
 
     m->userdata = m_data = pa_xnew0(struct qal_voiceui_module_data, 1);
-    m_data->qsthw = pa_xnew0(pa_qal_voiceui_hooks, 1);
+    m_data->qal = pa_xnew0(pa_qal_voiceui_hooks, 1);
     m_data->modargs = ma;
     m_data->module = m;
     m_data->session_id = 0;
 
-    m_data->obj_path = pa_sprintf_malloc("%s/%s", QSTHW_DBUS_OBJECT_PATH_PREFIX,
+    m_data->obj_path = pa_sprintf_malloc("%s/%s", QAL_DBUS_OBJECT_PATH_PREFIX,
                          "primary");
 
     if (agm_init() != 0) {
@@ -1081,9 +1196,9 @@ int pa__init(pa_module *m) {
             m_data->obj_path, &module_interface_info, m_data) >= 0);
 
     for (i = 0; i < PA_HOOK_QAL_VOICEUI_MAX; i++)
-        pa_hook_init(&m_data->qsthw->hooks[i], NULL);
+        pa_hook_init(&m_data->qal->hooks[i], NULL);
 
-    pa_shared_set(m->core, "voice-ui-session", m_data->qsthw);
+    pa_shared_set(m->core, "voice-ui-session", m_data->qal);
 
     return 0;
 
@@ -1120,7 +1235,7 @@ void pa__done(pa_module *m) {
     if (m_data->modargs)
         pa_modargs_free(m_data->modargs);
 
-    pa_xfree(m_data->qsthw);
+    pa_xfree(m_data->qal);
     pa_xfree(m_data);
     m->userdata = NULL;
 }
