@@ -101,9 +101,6 @@ add_library(${PROJECT_LIBNAME} OBJECT
     group_sink.h
     group_sink_ctrl.cc
     group_sink_ctrl.h
-    ts_renderer.h
-    ts_renderer_ctrl.cc
-    ts_renderer_ctrl.h
     pulsecore_config.h
     )
 target_include_directories(${PROJECT_LIBNAME} SYSTEM PUBLIC
@@ -113,7 +110,7 @@ target_include_directories(${PROJECT_LIBNAME} SYSTEM PUBLIC
     ${ADK_MESSAGES_INCLUDE_DIRS}
     ${ADK_MESSAGE_SERVICE_INCLUDE_DIRS}
     )
-install(FILES group_sink.h ts_renderer.h
+install(FILES group_sink.h 
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/pulsemodules)
 
 # Group Sink module
@@ -130,19 +127,6 @@ target_link_libraries(module-group-sink
 target_compile_definitions(module-group-sink PRIVATE PA_MODULE_NAME=module_group_sink)
 set_target_properties(module-group-sink PROPERTIES PREFIX "")
 install(TARGETS module-group-sink DESTINATION ${LIBPULSE_MODDIR})
-
-# TS Renderer module
-add_library(module-ts-renderer SHARED
-    module_ts_renderer.cc
-    $<TARGET_OBJECTS:${PROJECT_LIBNAME}>
-    )
-target_include_directories(module-ts-renderer PRIVATE $<TARGET_PROPERTY:${PROJECT_LIBNAME},INCLUDE_DIRECTORIES>)
-target_link_libraries(module-ts-renderer
-    Threads::Threads
-    )
-target_compile_definitions(module-ts-renderer PRIVATE PA_MODULE_NAME=module_ts_renderer)
-set_target_properties(module-ts-renderer PROPERTIES PREFIX "")
-install(TARGETS module-ts-renderer DESTINATION ${LIBPULSE_MODDIR})
 
 # Group Manager module
 add_library(module-group-manager SHARED

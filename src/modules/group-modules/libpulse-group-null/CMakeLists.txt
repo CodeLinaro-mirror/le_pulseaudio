@@ -31,8 +31,6 @@ set(PROJECT_LIBNAME lib${PROJECT_NAME})
 
 # Create the "object library" and executable (without sources yet)
 add_library(${PROJECT_LIBNAME} OBJECT
-    ts_renderer_impl.h
-    ts_renderer_impl.c
     group_sink_impl.h
     group_sink_impl.c
     )
