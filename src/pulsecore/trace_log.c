@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -31,35 +31,41 @@
 
 #include "trace_log.h"
 
-static bool trace_is_valid(trace_log *log) {
-    return ((log != NULL) && (log->fd >= 0));
+#define TRACE_CHECK_PERIOD (1 * PA_NSEC_PER_SEC)
+
+static bool verify_open(trace_log *log) {
+    if (log == NULL) {
+        return false;
+    }
+    if (log->fd >= 0) {
+        return true;
+    }
+
+    pa_nsec_t now = ts_clock_now();
+    if ((now > log->last_checked) && ((now - log->last_checked) < TRACE_CHECK_PERIOD)) {
+        return false;
+    }
+    log->last_checked = now;
+
+    log->fd = open("/sys/kernel/debug/tracing/instances/ttp/trace_marker", O_WRONLY);
+    return (log->fd >= 0);
 }
 
-trace_log trace_open(trace_log *old_log) {
-    trace_log new_log = TRACE_LOG_STATIC_INIT;
-    if (trace_is_valid(old_log)) {
-        // Already opened
-        return *old_log;
-    }
-    new_log.fd = open("/sys/kernel/debug/tracing/trace_marker", O_WRONLY);
-    if (old_log != NULL) {
-        *old_log = new_log;
-    }
-    return new_log;
-}
 void trace_close(trace_log *log) {
-    if (trace_is_valid(log)) {
+    if ((log != NULL) && (log->fd >= 0)) {
         close(log->fd);
         log->fd = -1;
+        log->last_checked = 0;
     }
 }
+
 ssize_t trace_write(trace_log *log, const char *fmt, ...) {
     va_list ap;
     char buf[256];
     int len;
     ssize_t count;
 
-    if (!trace_is_valid(log)) {
+    if (!verify_open(log)) {
         errno = EBADF;
         return -1;
     }
@@ -93,10 +99,12 @@ ssize_t trace_write(trace_log *log, const char *fmt, ...) {
 ssize_t trace_newstream(trace_log *log, const char *sink_name) {
     return trace_write(log, "s=%s new_stream", sink_name);
 }
-ssize_t trace_ts(trace_log *log, const char *sink_name, pa_nsec_t ts, pa_nsec_t duration) {
-    return trace_write(log, "s=%s ts=%" PRIu64 " d=%" PRIu64 " ltime=%" PRId64,
+
+ssize_t trace_ts(trace_log *log, const char *sink_name, pa_nsec_t ts, pa_nsec_t duration, size_t length) {
+    return trace_write(log, "s=%s ts=%" PRIu64 " d=%" PRIu64 " ltime=%" PRId64 " sz=%zu",
         sink_name,
         (ts / PA_NSEC_PER_USEC),
         (duration / PA_NSEC_PER_USEC),
-        (ts_clock_now() / PA_NSEC_PER_USEC));
+        (ts_clock_now() / PA_NSEC_PER_USEC),
+        length);
 }
