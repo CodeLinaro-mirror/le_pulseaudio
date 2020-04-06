@@ -1180,18 +1180,18 @@ int pa__init(pa_module *m) {
         goto fail;
     }
 
+    u->module_handle = qahw_load_module(u->module_name);
+    if (PA_UNLIKELY(u->module_handle == NULL)) {
+        pa_log_error("module %s load failed", u->module_name);
+        goto fail;
+    }
+
     u->conf_dir_name = pa_xstrdup(pa_modargs_get_value(ma, "conf_dir_name", NULL));
     u->conf_file_name = pa_xstrdup(pa_modargs_get_value(ma, "conf_file_name", NULL));
 
     u->config_data = pa_qahw_config_parse_new(u->conf_dir_name, u->conf_file_name);
     if (!u->config_data) {
         pa_log_error("%s: pa_qahw_config_parse_new failed", __func__);
-        goto fail;
-    }
-
-    u->module_handle = qahw_load_module(u->module_name);
-    if (PA_UNLIKELY(u->module_handle == NULL)) {
-        pa_log_error("module %s load failed", u->module_name);
         goto fail;
     }
 
