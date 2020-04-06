@@ -1859,6 +1859,11 @@ static char* pa_qahw_config_parser_get_conf_file_name(char *dir, char *conf_name
         conf_name = (char *)QAHW_CARD_DEFAULT_CONF_NAME;
         pa_log_debug("%s:: No config file name %s, Using default conf file", __func__, conf_path);
         conf_path = pa_maybe_prefix_path(conf_name, dir);
+
+        if(access(conf_path, F_OK) < 0) {
+            pa_log_error("%s:: No default conf file, making conf_path NULL", __func__);
+            conf_path = NULL;
+        }
     }
 
     pa_log_debug("%s:: config file name  %s", __func__, conf_path);
