@@ -36,6 +36,7 @@
 #include <pulsecore/source.h>
 #include <pulsecore/memchunk.h>
 #include <pulsecore/core-format.h>
+#include <pulsecore/trace_log.h>
 #include <pulse/util.h>
 
 #include "qahw-source.h"
@@ -85,6 +86,8 @@ typedef struct {
     uint32_t dsd_rate;
     pa_atomic_t first_read;
     pa_qahw_card_qahw_processing_id_t qahw_processing_id;
+
+    trace_log ts_log;
 } qahw_source_data;
 
 typedef struct {
@@ -276,6 +279,8 @@ static int pa_qahw_source_start(pa_qahw_source_data *sdata) {
         pa_log_error("%s: qahw_read_thread creation failed", __func__);
     }
 
+    trace_newstream(&sdata->qahw_sdata->ts_log, sdata->pa_sdata->source->name);
+
     return 0;
 }
 
@@ -293,6 +298,8 @@ static int pa_qahw_source_standby(pa_qahw_source_data *sdata) {
 
     stop_qahw_source(sdata->qahw_sdata);
     qahw_in_standby(qahw_sdata->in_handle);
+
+    trace_close(&sdata->qahw_sdata->ts_log);
 
     return 0;
 }
@@ -571,6 +578,7 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
                 cur_qtimer = ticks * 10/192;
                 pa_log_debug("read_timestamp %" PRId64 "nsec read_cur_timestamp %" PRId64 "usec", chunk.timestamp, cur_qtimer);
 #endif
+                trace_ts(&qahw_sdata->ts_log, pa_sdata->source->name, chunk.timestamp, chunk.duration, chunk.length);
             }
             pa_atomic_store(&qahw_sdata->first_read, 1);
         } else {
