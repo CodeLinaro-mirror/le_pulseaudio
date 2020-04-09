@@ -1582,6 +1582,11 @@ fi
 
 AM_CONDITIONAL([FORCE_PREOPEN], [test "x$FORCE_PREOPEN" = "xyes"])
 
+AC_ARG_ENABLE([effect-trumpet],
+   AC_HELP_STRING([--disable-effect-trumpet],
+      [Disable effect trumpet [default=yes]]))
+AM_CONDITIONAL([DISABLE_EFFECT_TRUMPET], [test "x${enable_effect_trumpet}" = "xno"])
+
 AC_CONFIG_FILES([
 Makefile
 src/Makefile

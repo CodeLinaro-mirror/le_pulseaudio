@@ -561,8 +561,8 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
 
         if (!pa_atomic_load(&qahw_sdata->stopped)) {
             if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) <= 0) {
-                pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %lldms",
-                        ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
+                pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %llums",
+                        ret, qahw_sdata->in_handle, (long long unsigned)pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 pa_msleep(pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 ret = in_buf.bytes;
             }
@@ -903,7 +903,7 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
 
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_qahw_source_get_name_from_flags(source_data->qahw_sdata->flags));
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
-    pa_proplist_setf(new_data.proplist, "buffer-size", "%d", source_data->qahw_sdata->source_buffer_size);
+    pa_proplist_setf(new_data.proplist, "buffer-size", "%lu", (long unsigned)source_data->qahw_sdata->source_buffer_size);
 
     if (avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_ALL)
         new_data.avoid_processing = true;

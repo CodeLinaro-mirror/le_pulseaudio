@@ -251,7 +251,7 @@ static int update_module_kvpairs(struct qahw_module_extn_data *mdata) {
         }
 
         if (device != NULL) {
-            mdata->final_kvpairs = pa_sprintf_malloc("%s;device=%zu",mdata->final_kvpairs, *device);
+            mdata->final_kvpairs = pa_sprintf_malloc("%s;device=%u",mdata->final_kvpairs, *device);
         } else {
             mdata->final_kvpairs = pa_xstrdup(mdata->final_kvpairs);
         }
