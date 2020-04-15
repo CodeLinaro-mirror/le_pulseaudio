@@ -72,13 +72,6 @@ static int sink_process_msg_cb(pa_msgobject *o, int code, void *data, int64_t of
             pa_log_debug("latency: %lld", *reinterpret_cast<int64_t *>(data));
             return 0;
 
-        case PA_SINK_MESSAGE_ADD_INPUT: {
-            trace_open(&(u->ts_logging_));  // reopen in case tracing was disabled before
-            trace_newstream(&(u->ts_logging_), u->sink_->name);
-
-            break;
-        }
-
         case PA_SINK_MESSAGE_REMOVE_INPUT: {
             pa_sink_input *i = PA_SINK_INPUT(data);
             if (i == u->active_input_) {
@@ -332,7 +325,7 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
         // waiting (it wouldn't be a "hole" otherwise).
         pa_memblock_unref(chunk->memblock);
     }
-    trace_ts(&(u->ts_logging_), u->sink_->name, chunk->timestamp, chunk->duration);
+    trace_ts(&(u->ts_logging_), u->sink_->name, chunk->timestamp, chunk->duration, chunk->length);
 
     // TODO(jbing): recompute start time if "discontinuity flag" is set.
 
@@ -613,9 +606,11 @@ bool GroupManager::init(pa_module *m, pa_sink *master,
 
 void GroupManager::play() {
     resetTimestamp();
+    trace_newstream(&ts_logging_, sink_->name);
 }
 
 void GroupManager::stop() {
+    trace_close(&ts_logging_);
 }
 
 void GroupManager::setMasterId(const std::string &master_id) {
