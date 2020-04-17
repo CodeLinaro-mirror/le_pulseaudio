@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -1214,6 +1214,8 @@ void pa__done(pa_module *m) {
 
     if (m_data->modargs)
         pa_modargs_free(m_data->modargs);
+
+    pa_shared_remove(m->core, "voice-ui-session");
 
     pa_xfree(m_data->qsthw);
     pa_xfree(m_data);
