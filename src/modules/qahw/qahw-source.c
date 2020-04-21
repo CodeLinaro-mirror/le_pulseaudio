@@ -832,6 +832,7 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t
    sdata->qahw_sdata = pa_xnew0(qahw_source_data, 1);
    sdata->qahw_sdata->preemph_status = preemph_status;
    sdata->qahw_sdata->dsd_rate = dsd_rate;
+   sdata->qahw_sdata->ts_log = TRACE_LOG_STATIC_INIT;
 
    rc = open_qahw_source(module_handle, encoding, ss, map, devices, flags, source_id, sdata->qahw_sdata, source_type, buffer_duration, qahw_processing_id);
    if (rc) {
