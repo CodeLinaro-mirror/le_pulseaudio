@@ -268,7 +268,7 @@ static struct port_pointers find_port_pointers(pa_device_port *port) {
     return pp;
 }
 
-static void propagate_source_port_changes(pa_device_port *selected_port) {
+static void propagate_source_port_changes(pa_device_port *selected_port, pa_device_port *cur_port) {
     uint32_t idx = 0;
     pa_source *source = NULL;
     pa_device_port *port = NULL;
@@ -292,12 +292,21 @@ static void propagate_source_port_changes(pa_device_port *selected_port) {
                 }
         }
         if (exists) {
-            pa_source_set_port(source, selected_port->name, false);
+            /* Restrict the port setting if switching from current port. In case, if switching
+             * happens because of device removal, check for the source where current port is
+             * available and then set the best port on that particular source. In case port switch
+             * happens because of device added, set the port without further checks.
+             */
+            if (cur_port) {
+                if (cur_port == pa_hashmap_get(source->ports, cur_port->name))
+                    pa_source_set_port(source, selected_port->name, false);
+            } else
+                pa_source_set_port(source, selected_port->name, false);
         }
     }
 }
 
-static void propagate_sink_port_changes(pa_device_port *selected_port) {
+static void propagate_sink_port_changes(pa_device_port *selected_port, pa_device_port *cur_port) {
     uint32_t idx = 0;
     pa_sink *sink = NULL;
     pa_device_port *port = NULL;
@@ -321,13 +330,18 @@ static void propagate_sink_port_changes(pa_device_port *selected_port) {
                 }
         }
         if (exists) {
-            pa_sink_set_port(sink, selected_port->name, false);
+            /* Refer propagate_source_port_changes() to understand code snippet below. */
+            if (cur_port) {
+                if (cur_port == pa_hashmap_get(sink->ports, cur_port->name))
+                    pa_sink_set_port(sink, selected_port->name, false);
+            } else
+                pa_sink_set_port(sink, selected_port->name, false);
         }
     }
 }
 
 /* Switches to a port, switching profiles if necessary or preferred */
-static void switch_to_port(pa_device_port *port) {
+static void switch_to_port(pa_device_port *port, pa_device_port *cur_port) {
     struct port_pointers pp = find_port_pointers(port);
 
     if (pp.is_port_active)
@@ -345,10 +359,10 @@ static void switch_to_port(pa_device_port *port) {
     }
 
     if (pp.source) {
-        propagate_source_port_changes(port);
+        propagate_source_port_changes(port, cur_port);
     }
     if (pp.sink) {
-        propagate_sink_port_changes(port);
+        propagate_sink_port_changes(port, cur_port);
     }
 }
 
@@ -369,10 +383,12 @@ static void switch_from_port(pa_device_port *port) {
 
     pa_log_debug("Trying to switch away from port %s, found %s", port->name, best_port ? best_port->name : "no better option");
 
+    /* Pass on the current port which wouldn't be available from now
+     * so that propagation can be done only on those sources/sinks.
+     */
     if (best_port)
-        switch_to_port(best_port);
+        switch_to_port(best_port, port);
 }
-
 
 static pa_hook_result_t port_available_hook_callback(pa_core *c, pa_device_port *port, void* userdata) {
     pa_assert(port);
@@ -392,7 +408,7 @@ static pa_hook_result_t port_available_hook_callback(pa_core *c, pa_device_port 
 
     switch (port->available) {
     case PA_AVAILABLE_YES:
-        switch_to_port(port);
+        switch_to_port(port, NULL);
         break;
     case PA_AVAILABLE_NO:
         switch_from_port(port);
