@@ -1418,7 +1418,7 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/qcs405-csra8plus2-snd-card.conf \
       modules/qahw/configs/qcs405-amic-snd-card.conf \
       modules/qahw/configs/sm6150-idp-snd-card.conf \
-      modules/qahw/configs/apq8009-tashalite-snd-card-tdm.conf
+      modules/qahw/configs/apq8009-tashalite-snd-card.conf
 endif
 
 if HAVE_QAL
