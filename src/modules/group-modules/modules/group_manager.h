@@ -75,6 +75,12 @@ class GroupManager {
     pa_nsec_t timestamp_{PA_NSEC_INVALID};
 
     trace_log ts_logging_ = TRACE_LOG_STATIC_INIT;
+    // name for tracing the first query for a packet
+    std::string ts_query_name_;
+    // time when we first ask for a packet (need to save it because we might
+    // not know yet what the packet timestamp is)
+    pa_nsec_t ts_query_ltime_{PA_NSEC_INVALID};
+    pa_nsec_t ts_query_expected_ts{PA_NSEC_INVALID};
 };
 
 #endif  // SRC_MODULES_GROUP_MODULES_MODULES_GROUP_MANAGER_H_

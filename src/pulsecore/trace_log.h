@@ -35,5 +35,11 @@ ssize_t trace_write(trace_log *log, const char *fmt, ...) __attribute__((format(
 
 ssize_t trace_newstream(trace_log *log, const char *sink_name);
 ssize_t trace_ts(trace_log *log, const char *sink_name, pa_nsec_t ts, pa_nsec_t duration, size_t length);
+// Same as trace_ts but where the "current time" (aka ltime aka local time) is
+// not "now"
+ssize_t trace_ts_ltime(trace_log *log, const char *sink_name, pa_nsec_t ltime, pa_nsec_t ts, pa_nsec_t duration, size_t length);
+// Same as trace_ts_ltime but where we do not have a "current time" (e.g.
+// because there is too much delay since the last packet)
+ssize_t trace_ts_no_ltime(trace_log *log, const char *sink_name, pa_nsec_t ts, pa_nsec_t duration, size_t length);
 
 #endif

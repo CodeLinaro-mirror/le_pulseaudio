@@ -108,3 +108,20 @@ ssize_t trace_ts(trace_log *log, const char *sink_name, pa_nsec_t ts, pa_nsec_t 
         (ts_clock_now() / PA_NSEC_PER_USEC),
         length);
 }
+
+ssize_t trace_ts_ltime(trace_log *log, const char *sink_name, pa_nsec_t ltime, pa_nsec_t ts, pa_nsec_t duration, size_t length) {
+    return trace_write(log, "s=%s ts=%" PRIu64 " d=%" PRIu64 " ltime=%" PRId64 " sz=%zu",
+        sink_name,
+        (ts / PA_NSEC_PER_USEC),
+        (duration / PA_NSEC_PER_USEC),
+        (ltime / PA_NSEC_PER_USEC),
+        length);
+}
+
+ssize_t trace_ts_no_ltime(trace_log *log, const char *sink_name, pa_nsec_t ts, pa_nsec_t duration, size_t length) {
+    return trace_write(log, "s=%s ts=%" PRIu64 " d=%" PRIu64 " ltime=- sz=%zu",
+        sink_name,
+        (ts / PA_NSEC_PER_USEC),
+        (duration / PA_NSEC_PER_USEC),
+        length);
+}

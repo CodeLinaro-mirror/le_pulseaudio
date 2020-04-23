@@ -192,7 +192,12 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
     /* Hmm, process any rewind request that might be queued up */
     pa_sink_process_rewind(u->sink_, 0);
 
+    pa_nsec_t duration;
     for (;;) {
+        if (u->ts_query_ltime_ == PA_NSEC_INVALID) {
+            u->ts_query_ltime_ = ts_clock_now();
+            u->ts_query_expected_ts = u->timestamp_;
+        }
         if (!pa_sink_render_one(u->sink_, chunk)) {
             if ((!u->in_underrun_) && (!u->has_timestamps_)) {
                 // Underrun for a non-timestamped stream => either because
@@ -256,14 +261,23 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
             }
         }
 
-        if (u->has_timestamps_) {
+        if (u->has_timestamps_ || (chunk->timestamp != PA_NSEC_INVALID)) {
+            if (!u->has_timestamps_) {
+                pa_log_info("Stream with timestamps");
+                u->has_timestamps_ = true;
+            }
             // We expect the stream to provide timestamps => don't compute any.
             // But still keep track of the timestamp for get_latency()
-            u->timestamp_ = chunk->timestamp;
-        } else if (chunk->timestamp != PA_NSEC_INVALID) {
-            pa_log_info("Stream with timestamps");
-            u->has_timestamps_ = true;
-            u->timestamp_ = chunk->timestamp;
+            if (chunk->timestamp != PA_NSEC_INVALID) {
+                u->timestamp_ = chunk->timestamp;
+            }
+
+            if (chunk->duration != PA_NSEC_INVALID) {
+                duration = chunk->duration;
+            } else {
+                duration = pa_bytes_to_nsec(chunk->length, &u->sink_->sample_spec);
+            }
+            u->timestamp_ += duration;
         } else {
             pa_nsec_t now = ts_clock_now();
             pa_nsec_t target_latency =
@@ -303,14 +317,15 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
                 u->in_underrun_ = false;
             }
 
+            duration = pa_bytes_to_nsec(chunk->length, &u->sink_->sample_spec);
             chunk->timestamp = u->timestamp_;
-            chunk->duration = pa_bytes_to_nsec(chunk->length, &u->sink_->sample_spec);
+            chunk->duration = duration;
 
             // The rounding error could accumulate in timestamp_ but as long as
             // everybody play the same data at the same timestamp that won't
             // affect the synchronization, and the time-to-play will smooth over
             // any gap/overlap (i.e. the user won't notice)
-            u->timestamp_ += chunk->duration;
+            u->timestamp_ += duration;
         }
 
         if (!pa_memblock_is_silence(chunk->memblock)) {
@@ -325,6 +340,20 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
         // waiting (it wouldn't be a "hole" otherwise).
         pa_memblock_unref(chunk->memblock);
     }
+
+    // Log query time and reset the timestamp for the next query
+    if ((u->ts_query_expected_ts == PA_NSEC_INVALID)
+        || (std::abs(static_cast<int64_t>(u->timestamp_ - duration - u->ts_query_expected_ts))
+            > static_cast<int64_t>(duration + duration / 2))) {
+        // Don't log query time if it took a long time to get the packet and
+        // yet the packet is not late, i.e. upstream was paused or we lost
+        // packets in between.
+        trace_ts_no_ltime(&(u->ts_logging_), u->ts_query_name_.c_str(), chunk->timestamp, chunk->duration, chunk->length);
+    } else {
+        trace_ts_ltime(&(u->ts_logging_), u->ts_query_name_.c_str(), u->ts_query_ltime_, chunk->timestamp, chunk->duration, chunk->length);
+    }
+    u->ts_query_ltime_ = PA_NSEC_INVALID;
+    // Log packet timestamp itself
     trace_ts(&(u->ts_logging_), u->sink_->name, chunk->timestamp, chunk->duration, chunk->length);
 
     // TODO(jbing): recompute start time if "discontinuity flag" is set.
@@ -592,6 +621,8 @@ bool GroupManager::init(pa_module *m, pa_sink *master,
 
     sink_->input_to_master = sink_input_;
 
+    ts_query_name_ = std::string(sink_->name) + "_query";
+
     group_sinks_ = std::move(groups);
 
     /* The order here is important. The input must be put first,
@@ -606,6 +637,7 @@ bool GroupManager::init(pa_module *m, pa_sink *master,
 
 void GroupManager::play() {
     resetTimestamp();
+    trace_newstream(&ts_logging_, ts_query_name_.c_str());
     trace_newstream(&ts_logging_, sink_->name);
 }
 
