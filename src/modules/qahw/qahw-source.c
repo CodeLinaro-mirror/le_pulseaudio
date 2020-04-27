@@ -318,7 +318,7 @@ static int pa_qahw_source_set_port_cb(pa_source *s, pa_device_port *p) {
     port_device_data = PA_DEVICE_PORT_DATA(p);
     pa_assert(port_device_data);
 
-    kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
+    kvpair = pa_sprintf_malloc("%s=%u", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
     pa_log_info("port name: %s kvpair %s device 0x%x", p->name, kvpair, port_device_data->device);
 
     rc = qahw_in_set_parameters(source_data->qahw_sdata->in_handle, kvpair);
