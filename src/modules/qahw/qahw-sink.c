@@ -532,7 +532,7 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
         pa_xfree(kvpair);
     }
 
-    kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
+    kvpair = pa_sprintf_malloc("%s=%u", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
     pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
 
     rc = qahw_out_set_parameters(sdata->qahw_sdata->out_handle, kvpair);
