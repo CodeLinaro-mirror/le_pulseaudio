@@ -987,6 +987,9 @@ static int pa_qahw_config_parse_port_sys_path(pa_config_parser_state *state) {
         } else if (pa_streq(state->lvalue, "hdmi-tx-state")) {
             port->hdmi_tx_state_path = pa_xstrdup(state->rvalue);
             pa_log_debug("%s: adding hdmi-tx-state node path %s to %s", __func__, port->hdmi_tx_state_path, port->name);
+        } else if (pa_streq(state->lvalue, "channel-status-node-path")) {
+            port->channel_status_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding channel-status-node-path node path %s to %s", __func__, port->channel_status_path, port->name);
         } else {
             pa_log_error ("%s: invalid property %s", __func__, state->lvalue);
             goto exit;
@@ -1864,6 +1867,21 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
     if (port->arc_sample_rate_node_path)
         pa_xfree(port->arc_sample_rate_node_path);
 
+    if (port->audio_preemph_node_path)
+        pa_xfree(port->audio_preemph_node_path);
+
+    if (port->arc_audio_preemph_node_path)
+        pa_xfree(port->arc_audio_preemph_node_path);
+
+    if (port->dsd_rate_node_path)
+        pa_xfree(port->dsd_rate_node_path);
+
+    if (port->hdmi_tx_state_path)
+        pa_xfree(port->hdmi_tx_state_path);
+
+    if (port->channel_status_path)
+        pa_xfree(port->channel_status_path);
+
     pa_idxset_free(port->formats, (pa_free_cb_t) pa_format_info_free);
 
     pa_xfree(port);
@@ -1990,6 +2008,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "detection",                   pa_qahw_config_parse_port_detection,                      NULL, NULL },
         { "dsd-rate-node-path",          pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
         { "hdmi-tx-state",               pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "channel-status-node-path",    pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
 
         /* [Profile... ] */
         { "max-sink-channels",           pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },

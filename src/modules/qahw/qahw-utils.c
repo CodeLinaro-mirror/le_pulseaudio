@@ -68,6 +68,8 @@ pa_qahw_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_QAHW_JACK_TYPE_BTSCO_IN, (char *)"btsco-in"},
     { PA_QAHW_JACK_TYPE_BTSCO_OUT, (char *)"btsco-out"},
     { PA_QAHW_JACK_TYPE_HDMI_OUT, (char *)"hdmi-out"},
+    { PA_QAHW_JACK_TYPE_SPDIF_OUT_OPTICAL, (char *)"spdif-out-optical"},
+    { PA_QAHW_JACK_TYPE_SPDIF_OUT_COAXIAL, (char *)"spdif-out-coaxial"},
 };
 
 pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
@@ -86,9 +88,11 @@ pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
     { (char *)"builtin-mic-ec-ref-loopback", AUDIO_DEVICE_IN_BUILTIN_MIC | AUDIO_DEVICE_IN_LOOPBACK, (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC_AND_EC_REF_LOOPBACK" },
     { (char *)"btsco-in",        AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET, (char *)"AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
     { (char *)"btsco-out",       AUDIO_DEVICE_OUT_BLUETOOTH_SCO,        (char *)"AUDIO_DEVICE_OUT_BLUETOOTH_SCO" },
-    { (char*)"speaker2",         QAHW_AUDIO_DEVICE_OUT_SPEAKER2,        (char *)"QAHW_AUDIO_DEVICE_OUT_SPEAKER2" },
-    { (char*)"speaker3",         QAHW_AUDIO_DEVICE_OUT_SPEAKER3,        (char *)"QAHW_AUDIO_DEVICE_OUT_SPEAKER3" },
-    { (char*)"hdmi-out",         AUDIO_DEVICE_OUT_HDMI,                 (char *)"AUDIO_DEVICE_OUT_HDMI" },
+    { (char *)"speaker2",         QAHW_AUDIO_DEVICE_OUT_SPEAKER2,        (char *)"QAHW_AUDIO_DEVICE_OUT_SPEAKER2" },
+    { (char *)"speaker3",         QAHW_AUDIO_DEVICE_OUT_SPEAKER3,        (char *)"QAHW_AUDIO_DEVICE_OUT_SPEAKER3" },
+    { (char *)"hdmi-out",         AUDIO_DEVICE_OUT_HDMI,                 (char *)"AUDIO_DEVICE_OUT_HDMI" },
+    { (char *)"spdif-out-optical",QAHW_AUDIO_DEVICE_OUT_OPTICAL,         (char *)"QAHW_AUDIO_DEVICE_OUT_OPTICAL" },
+    { (char *)"spdif-out-coaxial",AUDIO_DEVICE_OUT_SPDIF,                (char *)"AUDIO_DEVICE_OUT_SPDIF" },
 };
 
 /*
@@ -967,6 +971,9 @@ void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qa
 
     if (config_port->hdmi_tx_state_path)
         jack_in_config->jack_sys_path.hdmi_tx_state = config_port->hdmi_tx_state_path;
+
+    if (config_port->channel_status_path)
+        jack_in_config->jack_sys_path.channel_status = config_port->channel_status_path;
 }
 
 /* With reference to the translation table from "Dolby Atmos to Sound Bar Product

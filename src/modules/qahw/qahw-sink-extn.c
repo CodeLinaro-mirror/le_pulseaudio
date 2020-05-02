@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018, 2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -36,6 +36,11 @@
 #define QAHW_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qahw/sink"
 #define QAHW_DBUS_SINK_IFACE "org.PulseAudio.Ext.Qahw.Sink"
 
+#ifndef memscpy
+#define memscpy(dst, dst_size, src, bytes_to_copy) \
+        (void) memcpy(dst, src, MIN(dst_size, bytes_to_copy))
+#endif
+
 struct pa_qahw_sink_extn_data {
     char *obj_path;
     pa_dbus_protocol *dbus_protocol;
@@ -50,6 +55,7 @@ static void pa_qahw_sink_set_start_delay(DBusConnection *conn, DBusMessage *msg,
 static void pa_qahw_sink_set_drift_correction_flag(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_sink_set_drift_correction_param(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_sink_set_matrix_param(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void pa_qahw_sink_set_ch_status_info(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 /* sink set params based on key,value */
 static void pa_qahw_sink_set_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -62,6 +68,7 @@ enum sink_method_handler_index {
     METHOD_HANDLER_SINK_SET_DRIFT_CORRECTION_FLAG,
     METHOD_HANDLER_SINK_SET_DRIFT_CORRECTION_PARAM,
     METHOD_HANDLER_SINK_SET_MATRIX_PARAMS,
+    METHOD_HANDLER_SINK_SET_CHANNEL_STATUS_INFO,
     METHOD_HANDLER_SINK_SET_PARAMETERS,
     METHOD_HANDLER_SINK_GET_PARAMETERS,
     METHOD_HANDLER_SINK_LAST = METHOD_HANDLER_SINK_GET_PARAMETERS,
@@ -90,6 +97,10 @@ static pa_dbus_arg_info sink_drift_correction_param_args[] = {
 
 static pa_dbus_arg_info sink_matrix_param_args[] = {
     {"matrix_params", "(yaqyaqya{ad}", "in"},
+};
+
+static pa_dbus_arg_info sink_ch_status_info_args[] = {
+    {"channel_status_info", "ay", "in"},
 };
 
 static pa_dbus_arg_info sink_set_parameters_args[] = {
@@ -132,6 +143,11 @@ static pa_dbus_method_handler sink_method_handlers[METHOD_HANDLER_SINK_MAX] = {
         .arguments = sink_matrix_param_args,
         .n_arguments = sizeof(sink_drift_correction_param_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = pa_qahw_sink_set_matrix_param},
+[METHOD_HANDLER_SINK_SET_CHANNEL_STATUS_INFO] = {
+        .method_name = "SetChStatusInfo",
+        .arguments = sink_ch_status_info_args,
+        .n_arguments = sizeof(sink_ch_status_info_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = pa_qahw_sink_set_ch_status_info},
 [METHOD_HANDLER_SINK_SET_PARAMETERS] = {
         .method_name = "SetParameters",
         .arguments = sink_set_parameters_args,
@@ -488,6 +504,52 @@ static void pa_qahw_sink_set_matrix_param(DBusConnection *conn, DBusMessage *msg
     rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_CH_MIX_MATRIX_PARAMS, &payload);
     if (rc) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "set_param_data for QAHW_PARAM_CH_MIX_MATRIX_PARAMS failed");
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+static void pa_qahw_sink_set_ch_status_info(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct pa_qahw_sink_extn_data *qahw_extn_sdata = (struct pa_qahw_sink_extn_data *)userdata;
+    char *ch_status_info = NULL;
+    char **addr_value = &ch_status_info;
+    int32_t n_elements = 0;
+    DBusMessageIter arg_i, array_i;
+    qahw_param_payload payload;
+    int rc = 0;
+
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "SetParamData has no arguments");
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (!pa_streq(dbus_message_get_signature(msg), "ay")) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "Invalid signature for SetParamData");
+        dbus_error_free(&error);
+        return;
+    }
+
+    dbus_message_iter_recurse(&arg_i, &array_i);
+    dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
+
+    memscpy(payload.ch_status_info.channel_status,
+            sizeof(payload.ch_status_info.channel_status) / sizeof(payload.ch_status_info.channel_status[0]),
+            ch_status_info, n_elements);
+
+    rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_CHANNEL_STATUS_INFO, &payload);
+    if (rc) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "SetChStatusInfo failed");
         dbus_error_free(&error);
         return;
     }

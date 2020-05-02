@@ -63,6 +63,8 @@
 #define PA_DEFAULT_SINK_RATE 48000
 #define PA_DEFAULT_SINK_CHANNELS 2
 #define SET_CONTINUE_FLAG  0x00
+#define PA_SPDIF_OUT_SUPPORTED_MIN_RATE 32000
+#define PA_SPDIF_OUT_SUPPORTED_MAX_RATE 192000
 
 typedef enum {
     PA_QAHW_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
@@ -1047,10 +1049,20 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chan
             tmp_spec.format = pa_sdata->sink->sample_spec.format;
 
         /* find nearest suitable rate */
-        if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE)
+        if (pa_sdata->avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE) {
             tmp_spec.rate =  pa_qahw_sink_find_nearest_supported_sample_rate(spec->rate);
-        else
+
+            /* spdif out playback supports 32k - 192k */
+            if ((qahw_sdata->devices & AUDIO_DEVICE_OUT_SPDIF) ||
+                (qahw_sdata->devices & QAHW_AUDIO_DEVICE_OUT_OPTICAL)) {
+                if (tmp_spec.rate < PA_SPDIF_OUT_SUPPORTED_MIN_RATE)
+                    tmp_spec.rate = PA_SPDIF_OUT_SUPPORTED_MIN_RATE;
+                else if (tmp_spec.rate > PA_SPDIF_OUT_SUPPORTED_MAX_RATE)
+                    tmp_spec.rate = PA_SPDIF_OUT_SUPPORTED_MAX_RATE;
+            }
+        } else {
             tmp_spec.rate = pa_sdata->sink->sample_spec.rate;
+        }
 
         pa_log_info("%s: trying to reconfigure qahw with sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &tmp_spec));
 

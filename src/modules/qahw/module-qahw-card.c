@@ -651,7 +651,7 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
 
     event = event_data->event;
     if ((event != PA_QAHW_JACK_AVAILABLE) && (event != PA_QAHW_JACK_UNAVAILABLE) && (event != PA_QAHW_JACK_CONFIG_UPDATE) &&
-                                            (event != PA_QAHW_JACK_NO_VALID_STREAM) && (event != PA_QAHW_JACK_SET_PARAM)) {
+        (event != PA_QAHW_JACK_NO_VALID_STREAM) && (event != PA_QAHW_JACK_SET_PARAM)) {
         pa_log_error("%s: unsupport qahw jack event %d",__func__, event);
         return PA_HOOK_CANCEL;
     }
@@ -708,7 +708,7 @@ static pa_hook_result_t pa_qahw_jack_callback(void *dummy __attribute__((unused)
                 else if (port->direction == PA_DIRECTION_OUTPUT)
                     pa_qahw_card_set_sink_param(port, u, jack_param);
 
-            }else {
+            } else {
                 pa_log_error("unsupported event %d", event);
             }
         } else {
@@ -830,8 +830,8 @@ static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
             jack_in_config->linked_ports = config_port->linked_ports;
         }
 
-        jack_handle = pa_qahw_jack_register_event_callback(jack_types, pa_qahw_jack_callback, u->module,
-                                                               jack_in_config, (void *)u, external_jack);
+        jack_handle = pa_qahw_jack_register_event_callback(jack_types, pa_qahw_jack_callback,
+                       u->module, jack_in_config, (void *)u, external_jack, u->module_handle);
         if (!jack_handle) {
             pa_log_error("%s: Enable qahw jack failed for port %s\n", __func__, port->name);
 
