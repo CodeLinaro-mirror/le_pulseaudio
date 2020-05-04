@@ -396,7 +396,8 @@ static int pa_qahw_sink_start(pa_qahw_sink_data *sdata, pa_sink_state_t new_stat
     if (new_state == PA_SINK_RUNNING)
         r = pa_qahw_sink_pause(sdata, false);
 
-    trace_open(&sdata->qahw_sdata->ts_log);
+    trace_newstream(&sdata->qahw_sdata->ts_log, sdata->pa_sdata->sink->name);
+
     return r;
 }
 
@@ -406,6 +407,8 @@ static int pa_qahw_sink_standby(qahw_sink_data *qahw_sdata) {
     pa_assert(qahw_sdata->out_handle);
 
     pa_log_info("%s",__func__);
+
+    trace_close(&qahw_sdata->ts_log);
 
     if (qahw_sdata->compressed && (qahw_sdata->state == STATE_PAUSED)) {
         /* Resume is expected if state is paused for compressed streams */
@@ -529,7 +532,7 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
         pa_xfree(kvpair);
     }
 
-    kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
+    kvpair = pa_sprintf_malloc("%s=%u", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
     pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
 
     rc = qahw_out_set_parameters(sdata->qahw_sdata->out_handle, kvpair);
@@ -556,8 +559,6 @@ static int pa_qahw_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t ne
         r = pa_qahw_sink_standby(sdata->qahw_sdata);
     else if (PA_SINK_IS_RUNNING(new_state) && (s->thread_info.state == PA_SINK_IDLE)) {
         r = pa_qahw_sink_pause(sdata, false);
-        trace_open(&sdata->qahw_sdata->ts_log);
-        trace_newstream(&sdata->qahw_sdata->ts_log, s->name);
     } else if (PA_SINK_IS_RUNNING(s->thread_info.state) && (new_state == PA_SINK_IDLE))
         r = pa_qahw_sink_pause(sdata, true);
 
@@ -981,7 +982,7 @@ static void pa_qahw_sink_thread_func(void *userdata) {
                     cur_qtimer = ticks * 10/192;
                     pa_log_error("write_timestamp %" PRId64 "usec write_cur_qtimer %" PRId64 "usec", timestamp, cur_qtimer);
 #endif
-                    trace_ts(&qahw_sdata->ts_log, pa_sdata->sink->name, chunk.timestamp, chunk.duration);
+                    trace_ts(&qahw_sdata->ts_log, pa_sdata->sink->name, chunk.timestamp, chunk.duration, chunk.length);
                 }
                 sink_buffer_size = chunk.length;
                 if (qahw_sdata->compressed) {
@@ -1210,8 +1211,6 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
 #ifdef SINK_DUMP_ENABLED
     close(qahw_sdata->write_fd);
 #endif
-
-    trace_close(&qahw_sdata->ts_log);
 
     /* Turn BT_SCO off if bt_sco recording */
     if(audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
