@@ -2,7 +2,7 @@
 #define foopulsetraceloghfoo
 
 /*
- * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -23,17 +23,23 @@
 
 struct trace_log {
     int fd;
+    pa_nsec_t last_checked;
 };
 typedef struct trace_log trace_log;
 
 #define TRACE_LOG_STATIC_INIT \
-    ((trace_log){ -1 })
+    ((trace_log){.fd = -1, .last_checked = 0})
 
-trace_log trace_open(trace_log *old_log);
 void trace_close(trace_log *log);
 ssize_t trace_write(trace_log *log, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
 ssize_t trace_newstream(trace_log *log, const char *sink_name);
-ssize_t trace_ts(trace_log *log, const char *sink_name, pa_nsec_t ts, pa_nsec_t duration);
+ssize_t trace_ts(trace_log *log, const char *sink_name, pa_nsec_t ts, pa_nsec_t duration, size_t length);
+// Same as trace_ts but where the "current time" (aka ltime aka local time) is
+// not "now"
+ssize_t trace_ts_ltime(trace_log *log, const char *sink_name, pa_nsec_t ltime, pa_nsec_t ts, pa_nsec_t duration, size_t length);
+// Same as trace_ts_ltime but where we do not have a "current time" (e.g.
+// because there is too much delay since the last packet)
+ssize_t trace_ts_no_ltime(trace_log *log, const char *sink_name, pa_nsec_t ts, pa_nsec_t duration, size_t length);
 
-#endif 
+#endif

@@ -87,9 +87,15 @@ static void check_hdmi_out_connection (pa_qahw_hdmi_out_jack_data_t *hdmi_out_jd
     int hdmi_tx_state = 0;
     pa_qahw_jack_event_data_t event_data;
     pa_qahw_jack_out_config config;
+    int audio_path_value = -1;
 
     pa_assert(hdmi_out_jdata);
     pa_assert(hdmi_out_jdata->jack_in_config->jack_sys_path.hdmi_tx_state);
+
+    /* Ignore events if audio_path is 1 */
+    pa_qahw_format_detection_get_value_from_path(hdmi_out_jdata->jack_in_config->jack_sys_path.audio_path, &audio_path_value);
+    if (audio_path_value == 1)
+        return;
 
     hdmi_out_jdata->jack_plugin_status = PA_QAHW_JACK_UNAVAILABLE;
     path = hdmi_out_jdata->jack_in_config->jack_sys_path.hdmi_tx_state;
@@ -124,6 +130,7 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
     char *switch_state = NULL;
     char *switch_name = NULL;
     pa_qahw_jack_out_config config;
+    int audio_path_value = -1;
 
     pa_assert(hdmi_out_jdata);
     event_data.jack_type = hdmi_out_jdata->jack_type;
@@ -159,20 +166,24 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
         }
 
         if ((hdmi_out_flag == 1) && (hdmi_out_jdata->jack_plugin_status != PA_QAHW_JACK_AVAILABLE)) {
-            /* Raise jack available event */
-            event_data.jack_type = hdmi_out_jdata->jack_type;
-            event_data.event = PA_QAHW_JACK_AVAILABLE;
-            pa_log_info("qahw jack type %d available", hdmi_out_jdata->jack_type);
-            pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
-            hdmi_out_jdata->jack_plugin_status = PA_QAHW_JACK_AVAILABLE;
+            /* Raise events only if audio_path is 0 */
+            pa_qahw_format_detection_get_value_from_path(hdmi_out_jdata->jack_in_config->jack_sys_path.audio_path, &audio_path_value);
+            if (!audio_path_value) {
+                /* Raise jack available event */
+                event_data.jack_type = hdmi_out_jdata->jack_type;
+                event_data.event = PA_QAHW_JACK_AVAILABLE;
+                pa_log_info("qahw jack type %d available", hdmi_out_jdata->jack_type);
+                pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
+                hdmi_out_jdata->jack_plugin_status = PA_QAHW_JACK_AVAILABLE;
 
-            /* Set default config */
-            set_default_config(&config);
+                /* Set default config */
+                set_default_config(&config);
 
-            /* generate jack config update event */
-            event_data.pa_qahw_jack_info = &config;
-            event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
-            pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
+                /* generate jack config update event */
+                event_data.pa_qahw_jack_info = &config;
+                event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
+                pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
+            }
         } else if ((hdmi_out_flag == -1) && (hdmi_out_jdata->jack_plugin_status != PA_QAHW_JACK_UNAVAILABLE)) {
             /* Raise jack unavailable event */
             event_data.jack_type = hdmi_out_jdata->jack_type;

@@ -36,6 +36,7 @@
 #include <pulsecore/source.h>
 #include <pulsecore/memchunk.h>
 #include <pulsecore/core-format.h>
+#include <pulsecore/trace_log.h>
 #include <pulse/util.h>
 
 #include "qahw-source.h"
@@ -85,6 +86,8 @@ typedef struct {
     uint32_t dsd_rate;
     pa_atomic_t first_read;
     pa_qahw_card_qahw_processing_id_t qahw_processing_id;
+
+    trace_log ts_log;
 } qahw_source_data;
 
 typedef struct {
@@ -276,6 +279,8 @@ static int pa_qahw_source_start(pa_qahw_source_data *sdata) {
         pa_log_error("%s: qahw_read_thread creation failed", __func__);
     }
 
+    trace_newstream(&sdata->qahw_sdata->ts_log, sdata->pa_sdata->source->name);
+
     return 0;
 }
 
@@ -294,6 +299,8 @@ static int pa_qahw_source_standby(pa_qahw_source_data *sdata) {
     stop_qahw_source(sdata->qahw_sdata);
     qahw_in_standby(qahw_sdata->in_handle);
 
+    trace_close(&sdata->qahw_sdata->ts_log);
+
     return 0;
 }
 
@@ -311,7 +318,7 @@ static int pa_qahw_source_set_port_cb(pa_source *s, pa_device_port *p) {
     port_device_data = PA_DEVICE_PORT_DATA(p);
     pa_assert(port_device_data);
 
-    kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
+    kvpair = pa_sprintf_malloc("%s=%u", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
     pa_log_info("port name: %s kvpair %s device 0x%x", p->name, kvpair, port_device_data->device);
 
     rc = qahw_in_set_parameters(source_data->qahw_sdata->in_handle, kvpair);
@@ -571,6 +578,7 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
                 cur_qtimer = ticks * 10/192;
                 pa_log_debug("read_timestamp %" PRId64 "nsec read_cur_timestamp %" PRId64 "usec", chunk.timestamp, cur_qtimer);
 #endif
+                trace_ts(&qahw_sdata->ts_log, pa_sdata->source->name, chunk.timestamp, chunk.duration, chunk.length);
             }
             pa_atomic_store(&qahw_sdata->first_read, 1);
         } else {
@@ -824,6 +832,7 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t
    sdata->qahw_sdata = pa_xnew0(qahw_source_data, 1);
    sdata->qahw_sdata->preemph_status = preemph_status;
    sdata->qahw_sdata->dsd_rate = dsd_rate;
+   sdata->qahw_sdata->ts_log = TRACE_LOG_STATIC_INIT;
 
    rc = open_qahw_source(module_handle, encoding, ss, map, devices, flags, source_id, sdata->qahw_sdata, source_type, buffer_duration, qahw_processing_id);
    if (rc) {

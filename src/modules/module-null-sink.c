@@ -2,7 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2008 Lennart Poettering
-  Copyright (c) 2019, The Linux Foundation. All rights reserved.
+  Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -43,6 +43,7 @@
 #include <pulsecore/thread.h>
 #include <pulsecore/thread-mq.h>
 #include <pulsecore/rtpoll.h>
+#include <pulsecore/trace_log.h>
 #include <pulsecore/ts_clock.h>
 
 PA_MODULE_AUTHOR("Lennart Poettering");
@@ -84,6 +85,8 @@ struct userdata {
     bool timestamp_mode;
 
     bool compressed;
+
+    trace_log ts_logging;
 };
 
 static const char* const valid_modargs[] = {
@@ -139,6 +142,14 @@ static int sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state,
             u->timestamp = pa_rtclock_now();
 
         pa_log_debug("Starting at %lu", u->timestamp);
+    }
+
+    if (u->timestamp_mode) {
+        if (PA_SINK_IS_RUNNING(new_state)) {
+            trace_newstream(&u->ts_logging, u->sink->name);
+        } else {
+            trace_close(&u->ts_logging);
+        }
     }
 
     return 0;
@@ -305,6 +316,8 @@ static void process_render(struct userdata *u, pa_usec_t now) {
             pa_nsec_t ts_now = ts_clock_now();
             /* !! Need to cast to signed before dividing to preserve sign bit */
             u->timestamp = (pa_nsec_t)((int64_t)(chunk.timestamp - ts_now) / (int64_t)PA_NSEC_PER_USEC) + rt_now;
+
+            trace_ts(&u->ts_logging, u->sink->name, chunk.timestamp, chunk.duration, chunk.length);
         }
 
         pa_memblock_unref(chunk.memblock);
@@ -409,6 +422,7 @@ int pa__init(pa_module*m) {
     m->userdata = u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
     u->module = m;
+    u->ts_logging = TRACE_LOG_STATIC_INIT;
     u->rtpoll = pa_rtpoll_new();
 
     if (pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll) < 0) {

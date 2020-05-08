@@ -185,11 +185,19 @@ static void pa_qahw_hdmi_jack_raise_event(pa_qahw_jack_type_t jack_port_type, pa
     void *state;
     pa_qahw_hdmi_jack_linked_port_data_t *linked_port = NULL;
     const char *port_name = NULL;
+    int audio_path_value = -1;
 
     pa_assert(hdmi_jdata);
 
-    if (jack_port_type == PA_QAHW_JACK_TYPE_INVALID)
-    pa_log_error("%s: jack type %d, ignoring request", __func__, jack_port_type);
+    /* Ignore events if audio_path is 0 */
+    pa_qahw_format_detection_get_value_from_path(hdmi_jdata->jack_in_config->jack_sys_path.audio_path, &audio_path_value);
+    if (!audio_path_value)
+        return;
+
+    if (jack_port_type == PA_QAHW_JACK_TYPE_INVALID) {
+        pa_log_error("%s: jack type %d, ignoring request", __func__, jack_port_type);
+        return;
+    }
 
     if ((event == PA_QAHW_JACK_CONFIG_UPDATE) && port_config) {
         /* Raise PA_QAHW_JACK_CONFIG_UPDATE irrespective of port_type */
