@@ -71,6 +71,7 @@ typedef struct {
     uint32_t devices;
     audio_input_flags_t flags;
     audio_config_t config;
+    struct qahw_in_channel_map_param qahw_be_map;
 
     const char *device_url;
     int write_fd;
@@ -253,6 +254,10 @@ static void pa_qahw_source_fill_info(qahw_source_data *qahw_sdata, pa_encoding_t
     } else {
         qahw_sdata->config.channel_mask = audio_channel_in_mask_from_count(ss->channels);
     }
+
+    /* Convert to corresponding QAHW BE channel map */
+    if (encoding == PA_ENCODING_PCM)
+        pa_qahw_channel_map_to_be_qahw(map, &qahw_sdata->qahw_be_map);
 
     /* DIRECT PCM uses offload structure */
     if (flags & QAHW_INPUT_FLAG_COMPRESS) {
@@ -670,6 +675,7 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
     int ret = -1;
     const char *bt_sco_on = "BT_SCO=on";
     const char *dsd_format = NULL;
+    qahw_param_payload payload;
 
 #ifdef SOURCE_DUMP_ENABLED
     char *file_name;
@@ -745,6 +751,17 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
         qahw_close_input_stream(qahw_sdata->in_handle);
         rc = -1;
         goto fail;
+    }
+
+    if (encoding == PA_ENCODING_PCM) {
+        payload.in_channel_map_params = qahw_sdata->qahw_be_map;
+        rc = qahw_in_set_param_data(qahw_sdata->in_handle, QAHW_PARAM_IN_CHANNEL_MAP, &payload);
+        if (rc) {
+            qahw_close_input_stream(qahw_sdata->in_handle);
+            rc = -1;
+            pa_log_error("set_param_data for QAHW_PARAM_IN_CHANNEL_MAP failed %d", rc);
+            goto fail;
+        }
     }
 
     /*FIXME: Add DSP latency */
@@ -1082,7 +1099,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
 
     pa_log_info("%s: creating source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &source->default_spec));
 
-    rc = create_qahw_source(module_handle, source->default_encoding, &source->default_spec, &source->default_map,  port_device_data->device, source->flags,
+    rc = create_qahw_source(module_handle, source->default_encoding, &source->default_spec, &source->def_map_with_inval_ch,  port_device_data->device, source->flags,
                      source->id, sdata, source->source_type, source->buffer_duration, source->preemph_status, source->qahw_processing_id, source->dsd_rate);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could not open qahw source, error %d", rc);
