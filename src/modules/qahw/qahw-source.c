@@ -131,7 +131,7 @@ static int stop_qahw_source(qahw_source_data *qahw_sdata);
 static void pa_qahw_source_read_thread_func(void *userdata);
 
 static const uint32_t supported_source_rates[] =
-                          {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
+                          {8000, 11025, 16000, 22050, 32000, 44100, 48000, 96000, 192000};
 
 static pa_sample_format_t pa_qahw_source_find_nearest_supported_pa_format(pa_sample_format_t format) {
     pa_sample_format_t format1;
