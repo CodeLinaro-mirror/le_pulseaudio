@@ -74,6 +74,10 @@ class GroupManager {
     bool in_underrun_{false};
     pa_nsec_t timestamp_{PA_NSEC_INVALID};
 
+    size_t min_chunk_length_{0};
+    size_t max_chunk_length_{0};
+    pa_memchunk remaining_chunk_;
+
     trace_log ts_logging_ = TRACE_LOG_STATIC_INIT;
     // name for tracing the first query for a packet
     std::string ts_query_name_;

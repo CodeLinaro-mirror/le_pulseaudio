@@ -33,6 +33,8 @@ extern "C" {
 #include "enums.h"
 #include "group_sink_ctrl.h"
 
+constexpr pa_usec_t kMinChunkDuration = 5 * PA_USEC_PER_MSEC;
+
 template <>
 struct is_flags<pa_sink_input_flags> : std::true_type {};
 template <>
@@ -66,8 +68,12 @@ static int sink_process_msg_cb(pa_msgobject *o, int code, void *data, int64_t of
                     (u->sink_->thread_info.min_latency + u->sink_->thread_info.max_latency) / 2);
             } else {
                 // cast to signed before the division to correctly extend the sign bit
-                *reinterpret_cast<int64_t *>(data) =
+                int64_t latency =
                     static_cast<int64_t>(u->timestamp_ - ts_clock_now()) / static_cast<int64_t>(PA_NSEC_PER_USEC);
+                if (u->remaining_chunk_.length != 0) {
+                    latency += static_cast<int64_t>(pa_bytes_to_usec(u->remaining_chunk_.length, &u->sink_->sample_spec));
+                }
+                *reinterpret_cast<int64_t *>(data) = latency;
             }
             pa_log_debug("latency: %lld", *reinterpret_cast<int64_t *>(data));
             return 0;
@@ -198,7 +204,10 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
             u->ts_query_ltime_ = ts_clock_now();
             u->ts_query_expected_ts = u->timestamp_;
         }
-        if (!pa_sink_render_one(u->sink_, chunk)) {
+        if (u->remaining_chunk_.length != 0) {
+            *chunk = u->remaining_chunk_;
+            pa_memchunk_reset(&u->remaining_chunk_);
+        } else if (!pa_sink_render_one(u->sink_, chunk)) {
             if ((!u->in_underrun_) && (!u->has_timestamps_)) {
                 // Underrun for a non-timestamped stream => either because
                 // lost packet that reduced the end-to-end latency, or because
@@ -220,6 +229,50 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
                 // need to be played.
             }
             return false;
+        }
+
+        // If the chunk has no timestamp, see if we need to combine it with
+        // more chunks to make a reasonably-sized chunk
+        if (chunk->timestamp == PA_NSEC_INVALID) {
+            while (chunk->length < u->min_chunk_length_) {
+                if (!pa_sink_render_one(u->sink_, &u->remaining_chunk_)) {
+                    // No more chunks, return what we have
+                    break;
+                }
+                if (u->remaining_chunk_.timestamp != PA_NSEC_INVALID) {
+                    // Next chunk has a timestamp, so it can't be combined
+                    break;
+                }
+
+                size_t combined_length = chunk->length + u->remaining_chunk_.length;
+                if (combined_length > u->max_chunk_length_) {
+                    // If the combined chunk would be too big, generate a
+                    // half-sized chunk instead, and we'll return the rest
+                    // next time
+                    pa_assert((combined_length / 2) < u->max_chunk_length_);
+                    combined_length = std::max(u->min_chunk_length_, combined_length / 2);
+                    combined_length = pa_frame_align(combined_length, &u->sink_->sample_spec);
+                }
+                size_t copy_length = combined_length - chunk->length;
+
+                chunk = pa_memchunk_make_writable(chunk, combined_length);
+
+                auto d = reinterpret_cast<uint8_t *>(pa_memblock_acquire_chunk(chunk));
+                auto s = reinterpret_cast<uint8_t *>(pa_memblock_acquire_chunk(&u->remaining_chunk_));
+
+                memmove(d + chunk->length, s, copy_length);
+
+                pa_memblock_release(chunk->memblock);
+                pa_memblock_release(u->remaining_chunk_.memblock);
+
+                u->remaining_chunk_.index += copy_length;
+                u->remaining_chunk_.length -= copy_length;
+                if (u->remaining_chunk_.length == 0) {
+                    pa_memblock_unref(u->remaining_chunk_.memblock);
+                    pa_memchunk_reset(&u->remaining_chunk_);
+                }
+                chunk->length = combined_length;
+            }
         }
 
         // Reset the timestamp computation if the active sink-input has changed
@@ -620,6 +673,12 @@ bool GroupManager::init(pa_module *m, pa_sink *master,
     sink_input_->userdata = this;
 
     sink_->input_to_master = sink_input_;
+
+    min_chunk_length_ = pa_usec_to_bytes(kMinChunkDuration, &sample_spec);
+    max_chunk_length_ = pa_frame_align(pa_mempool_block_size_max(m->core->mempool), &sample_spec);
+    pa_assert(min_chunk_length_ <= max_chunk_length_);
+    pa_log_debug("Chunk length min: %zu, max: %zu", min_chunk_length_, max_chunk_length_);
+    pa_memchunk_reset(&remaining_chunk_);
 
     ts_query_name_ = std::string(sink_->name) + "_query";
 
