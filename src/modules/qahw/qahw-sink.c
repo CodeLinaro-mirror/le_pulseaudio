@@ -1368,8 +1368,8 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
                     goto poll;
                 if (status == -2) {
                     wait = true;
-                    /* wait for 1msec */
-                    pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, 1000);
+                    /* wait until we get notified */
+                    pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
                     goto poll;
                 }
 

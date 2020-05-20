@@ -1826,6 +1826,19 @@ pa_sink *pa_sink_get_master(pa_sink *s) {
     return s;
 }
 
+pa_sink *pa_sink_get_root(pa_sink *s) {
+    pa_sink_assert_ref(s);
+
+    while (s) {
+        if (PA_UNLIKELY(!s->input_to_master))
+            return s;
+
+        s = s->input_to_master->sink;
+    }
+
+    return s;
+}
+
 /* Called from main context */
 bool pa_sink_is_filter(pa_sink *s) {
     pa_sink_assert_ref(s);
