@@ -1920,14 +1920,17 @@ static char* pa_qahw_config_parser_get_conf_file_name(char *dir, char *conf_name
     if (!dir)
         dir = (char *)QAHW_CARD_DEFAULT_CONF_PATH;
 
-    conf_file_name = pa_qahw_config_get_conf_file_name();
-    if (conf_file_name) {
-        /* add .conf suffix conf_file_name */
-        conf_name = pa_sprintf_malloc("%s%s", conf_file_name, ".conf");
+    if (conf_name == NULL) {
+        conf_file_name = pa_qahw_config_get_conf_file_name();
+        if (conf_file_name) {
+            /* add .conf suffix conf_file_name */
+            conf_name = pa_sprintf_malloc("%s%s", conf_file_name, ".conf");
+            conf_path = pa_maybe_prefix_path(conf_name, dir);
+            pa_xfree(conf_file_name);
+            pa_xfree(conf_name);
+        }
+    } else {
         conf_path = pa_maybe_prefix_path(conf_name, dir);
-
-        pa_xfree(conf_file_name);
-        pa_xfree(conf_name);
     }
 
     if (access(conf_path, F_OK) < 0) {
