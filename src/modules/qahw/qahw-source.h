@@ -39,6 +39,7 @@ typedef struct {
     pa_sample_spec default_spec;
     pa_encoding_t default_encoding;
     pa_channel_map default_map;
+    pa_channel_map def_map_with_inval_ch;
     uint32_t alternate_sample_rate;
     pa_qahw_card_avoid_processing_config_id_t avoid_config_processing;
     pa_qahw_card_qahw_processing_id_t qahw_processing_id;

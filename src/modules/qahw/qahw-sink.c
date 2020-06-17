@@ -146,7 +146,7 @@ static int free_pa_sink(pa_qahw_sink_data *sdata);
 static int pa_qahw_sink_pause(pa_qahw_sink_data *sdata, bool pause);
 
 static const uint32_t supported_sink_rates[] =
-                          {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000};
+                          {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000};
 
 #ifdef CLOCK_MONOTONIC
 static int32_t get_clock_id() {
@@ -598,7 +598,7 @@ static bool pa_qahw_sink_set_format_cb(pa_sink *s, const pa_format_info *format)
         pa_log_debug("%s: Exit compress playback and restore previous config", __func__);
         ss = pa_sdata->sink->sample_spec;
         map = pa_sdata->sink->channel_map;
-        encoding = PA_ENCODING_PCM;
+        encoding = (qahw_sdata->config.format != AUDIO_FORMAT_DSD) ? PA_ENCODING_PCM : PA_ENCODING_DSD;
     } else {
         if (pa_format_info_is_compressed(format) == 0) {
             pa_log_error("%s: Format info structure is not compressed", __func__);
@@ -738,6 +738,8 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chan
     pa_sdata = sdata->pa_sdata;
     qahw_sdata = sdata->qahw_sdata;
     tmp_spec = *spec;
+
+    encoding = (qahw_sdata->config.format != AUDIO_FORMAT_DSD) ? PA_ENCODING_PCM : PA_ENCODING_DSD;
 
     if (!PA_SOURCE_IS_OPENED(s->state)) {
         pa_log_info("%s: old sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &pa_sdata->sink->sample_spec));

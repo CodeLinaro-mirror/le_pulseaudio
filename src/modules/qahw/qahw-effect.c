@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -32,8 +32,9 @@
 #include <qahw_effect_presetreverb.h>
 #include <qahw_effect_environmentalreverb.h>
 #include <qahw_effect_audiosphere.h>
+#if !defined(__DISABLE_EFFECT_TRUMPET)
 #include <qahw_effect_trumpet.h>
-
+#endif
 typedef enum {
     PA_QAHW_EFFECT_TYPE_SINK = 0,
     PA_QAHW_EFFECT_TYPE_PORT,

@@ -694,7 +694,7 @@ static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdat
     const char *param;
     void *payload;
     unsigned int payload_size = sizeof(qsthw_get_param_payload_t);
-    unsigned int param_data_size = 0;
+    size_t param_data_size = 0;
     DBusMessage *reply = NULL;
     DBusMessageIter arg_i, array_i;
 

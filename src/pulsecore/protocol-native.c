@@ -3,6 +3,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright 2020 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -57,6 +58,7 @@
 #include <pulsecore/ipacl.h>
 #include <pulsecore/thread-mq.h>
 #include <pulsecore/mem.h>
+#include <pulsecore/trace_log.h>
 
 #include "protocol-native.h"
 
@@ -100,6 +102,9 @@ typedef struct record_stream {
     size_t on_the_fly_snapshot;
     pa_usec_t current_monitor_latency;
     pa_usec_t current_source_latency;
+
+    trace_log ts_log;
+    const char *ts_name;
 } record_stream;
 
 #define RECORD_STREAM(o) (record_stream_cast(o))
@@ -145,6 +150,9 @@ typedef struct playback_stream {
     size_t render_memblockq_length;
     pa_usec_t current_sink_latency;
     uint64_t playing_for, underrun_for;
+
+    trace_log ts_log;
+    const char *ts_name;
 } playback_stream;
 
 #define PLAYBACK_STREAM(o) (playback_stream_cast(o))
@@ -352,6 +360,9 @@ static void record_stream_free(pa_object *o) {
     pa_assert(s);
 
     record_stream_unlink(s);
+
+    trace_close(&s->ts_log);
+    pa_xfree((void *)s->ts_name);
 
     pa_memblockq_free(s->memblockq);
     pa_xfree(s);
@@ -613,6 +624,10 @@ static record_stream* record_stream_new(
                 (double) pa_bytes_to_usec(s->buffer_attr.fragsize, &source_output->sample_spec) / PA_USEC_PER_MSEC,
                 (double) s->configured_source_latency / PA_USEC_PER_MSEC);
 
+    s->ts_log = TRACE_LOG_STATIC_INIT;
+    s->ts_name = pa_sprintf_malloc("record_%d", s->index);
+    trace_newstream(&s->ts_log, s->ts_name);
+
     pa_source_output_put(s->source_output);
     return s;
 }
@@ -656,6 +671,9 @@ static void playback_stream_free(pa_object* o) {
     pa_assert(s);
 
     playback_stream_unlink(s);
+
+    trace_close(&s->ts_log);
+    pa_xfree((void *)s->ts_name);
 
     pa_memblockq_free(s->memblockq);
     pa_xfree(s);
@@ -1107,6 +1125,10 @@ static playback_stream* playback_stream_new(
                 (double) pa_bytes_to_usec(s->buffer_attr.minreq, &sink_input->sample_spec) / PA_USEC_PER_MSEC,
                 (double) s->configured_sink_latency / PA_USEC_PER_MSEC);
 
+    s->ts_log = TRACE_LOG_STATIC_INIT;
+    s->ts_name = pa_sprintf_malloc("playback_%d", s->index);
+    trace_newstream(&s->ts_log, s->ts_name);
+
     pa_sink_input_put(s->sink_input);
 
 out:
@@ -1263,6 +1285,10 @@ static void native_connection_send_memblock(pa_native_connection *c) {
             if (schunk.length > r->buffer_attr.fragsize)
                 schunk.length = r->buffer_attr.fragsize;
 
+            if (schunk.timestamp != PA_NSEC_INVALID) {
+                trace_ts(&r->ts_log, r->ts_name, schunk.timestamp, schunk.duration, schunk.length);
+            }
+
             pa_pstream_send_memblock(c->pstream, r->index, 0, PA_SEEK_RELATIVE, &schunk);
 
             pa_memblockq_drop(r->memblockq, schunk.length);
@@ -1347,6 +1373,10 @@ static int sink_input_process_msg(pa_msgobject *o, int code, void *userdata, int
                     pa_log_warn("Failed to push data into queue");
                 pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_OVERFLOW, NULL, 0, NULL, NULL);
                 pa_memblockq_seek(s->memblockq, (int64_t) chunk->length, PA_SEEK_RELATIVE, true);
+            }
+
+            if (chunk->timestamp != PA_NSEC_INVALID) {
+                trace_ts(&s->ts_log, s->ts_name, chunk->timestamp, chunk->duration, chunk->length);
             }
 
             /* If more data is in queue, we rewind later instead. */

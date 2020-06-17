@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -26,6 +26,7 @@
 
 #include "qahw-jack-common.h"
 #include "qahw-jack-format.h"
+#include "qahw-utils.h"
 
 #define QAHW_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qahw/port"
 #define QAHW_DBUS_MODULE_IFACE "org.PulseAudio.Ext.Qahw.Module"
@@ -300,7 +301,7 @@ static void qahw_jack_external_start_compress_stream(DBusConnection *conn, DBusM
         config.ss.format = pa_parse_sample_format(format_str);
     }
 
-    if (!pa_channel_map_parse(&config.map, map)) {
+    if (!pa_channel_map_parse_wrapper(&config.map, map)) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Unsupported channel map %s", map);
         dbus_error_free(&error);
         return;

@@ -312,7 +312,8 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
 
     new_source = *source;
     new_source.default_spec = config->ss;
-    new_source.default_map = config->map;
+    new_source.def_map_with_inval_ch = config->map;
+    new_source.default_map = pa_map_remove_invalid_channels(&(config->map));
     new_source.formats = requested_formats;
     new_source.default_encoding = config->encoding;
     new_source.preemph_status = config->preemph_status;

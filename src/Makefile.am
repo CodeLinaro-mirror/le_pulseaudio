@@ -1419,7 +1419,9 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/qcs405-csra8plus2-snd-card.conf \
       modules/qahw/configs/qcs405-amic-snd-card.conf \
       modules/qahw/configs/sm6150-idp-snd-card.conf \
-      modules/qahw/configs/apq8009-tashalite-snd-card.conf
+      modules/qahw/configs/sm6150-ipc-snd-card.conf \
+      modules/qahw/configs/apq8009-tashalite-snd-card.conf \
+      modules/qahw/configs/kona-iot-snd-card.conf
 endif
 
 if HAVE_QAL
@@ -1686,6 +1688,11 @@ module_qahw_card_la_SOURCES = \
 module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(QAHW_API_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
 module_qahw_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qahw_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqahw
+
+if DISABLE_EFFECT_TRUMPET
+module_qahw_card_la_CFLAGS += -D__DISABLE_EFFECT_TRUMPET
+endif
+
 endif
 
 if HAVE_QSTHW
