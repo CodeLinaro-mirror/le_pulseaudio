@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -43,6 +43,10 @@ audio_devices_t pa_qahw_util_device_name_to_enum(const char *device);
 pa_sample_format_t pa_qahw_util_get_pa_sample_from_qahw_format(audio_format_t format);
 int pa_qahw_utils_format_to_sample_spec(pa_format_info *format, pa_sample_spec *ss, pa_channel_map *map,
                                                         pa_sample_spec *default_ss, pa_channel_map *default_map);
+
+pa_channel_map pa_map_remove_invalid_channels(pa_channel_map *def_map_with_inval_ch);
+void pa_qahw_channel_map_to_be_qahw(pa_channel_map *pa_map, struct qahw_in_channel_map_param *qahw_be_map);
+pa_channel_map *pa_channel_map_parse_wrapper(pa_channel_map *rmap, const char *s);
 bool pa_qahw_channel_map_to_qahw(pa_channel_map *pa_map, struct qahw_out_channel_map_param *qahw_map);
 bool pa_qahw_channel_map_from_qahw(struct qahw_out_channel_map_param *qahw_map, pa_channel_map *pa_map);
 void pa_qahw_util_channel_allocation_to_pa_channel_map(pa_channel_map *m, uint32_t channel_allocation);
