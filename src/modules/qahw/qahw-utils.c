@@ -89,6 +89,21 @@ pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
     { (char*)"speaker3",         QAHW_AUDIO_DEVICE_OUT_SPEAKER3,        (char *)"QAHW_AUDIO_DEVICE_OUT_SPEAKER3" },
 };
 
+/*
+ * pa_qahw_be_channel_map only contains supported QAHW backend channels.
+ * which will be used to pass to HAL for corresponding PA channels.
+ */
+static pa_channel_position_t pa_qahw_be_channel_map[] = {
+    QAHW_PCM_CHANNEL_FL,
+    QAHW_PCM_CHANNEL_FR,
+    QAHW_PCM_CHANNEL_LFE,
+    QAHW_PCM_CHANNEL_FC,
+    QAHW_PCM_CHANNEL_LS,
+    QAHW_PCM_CHANNEL_RS,
+    QAHW_PCM_CHANNEL_LB,
+    QAHW_PCM_CHANNEL_RB
+};
+
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {
     audio_format_t qahw_format;
 
@@ -538,6 +553,80 @@ bool pa_qahw_channel_map_from_qahw(struct qahw_out_channel_map_param *qahw_map, 
     }
 
     return true;
+}
+
+/*
+ * This Function will parse the gap channels received from input source
+ */
+pa_channel_map *pa_channel_map_parse_wrapper(pa_channel_map *rmap, const char *s) {
+    const char *state;
+    pa_channel_position_t f;
+    char *p, *r;
+    int count = 0;
+    pa_assert(rmap);
+    pa_assert(s);
+
+    r = pa_replace(s,",gap","");
+    if (!pa_channel_map_parse(rmap, r)) {
+        pa_xfree(r);
+        return NULL;
+    }
+    pa_xfree(r);
+    state = NULL;
+    while ((p = pa_split(s, ",", &state))) {
+        if (pa_streq(p, "gap")) {
+            f = rmap->map[count];
+            for(int i = count ; i < 8; i++ ) {
+                f = f + rmap->map[i+1];
+                rmap->map[i+1] = f - rmap->map[i+1];
+                f = f - rmap->map[i+1];
+            }
+            rmap->map[count] = PA_CHANNEL_POSITION_INVALID;
+        }
+        count++;
+        pa_xfree(p);
+    }
+
+    return rmap;
+}
+
+/*
+ * This Function will remove the invalid channels in case of invalid channels passed
+ * in hdmi non-2ch and non-ch usecases ultimately to derive map w.r.t be channel map.
+ */
+pa_channel_map pa_map_remove_invalid_channels(pa_channel_map *def_map_with_inval_ch) {
+    uint32_t i=0, j=0;
+    pa_channel_map pa_map;
+    pa_assert(def_map_with_inval_ch);
+
+    while(i < ARRAY_SIZE(pa_qahw_be_channel_map)) {
+        if (def_map_with_inval_ch->map[i] != PA_CHANNEL_POSITION_INVALID) {
+            pa_map.map[j] = def_map_with_inval_ch->map[i];
+            j++;
+        }
+        i++;
+    }
+    pa_map.channels = def_map_with_inval_ch->channels;
+    return pa_map;
+}
+
+/*
+ * This Function will check PA channels and assign corresponding QAHW BE channel in qahw_be_map
+ */
+void pa_qahw_channel_map_to_be_qahw(pa_channel_map *pa_map, struct qahw_in_channel_map_param *qahw_be_map) {
+    uint32_t i=0, j=0;
+
+    pa_assert(pa_map);
+    pa_assert(qahw_be_map);
+
+    while(i < ARRAY_SIZE(pa_qahw_be_channel_map)) {
+        if (pa_map->map[i] != PA_CHANNEL_POSITION_INVALID) {
+            qahw_be_map->channel_map[j] = pa_qahw_be_channel_map[i];
+            j++;
+        }
+        i++;
+    }
+    qahw_be_map->channels = j;
 }
 
 void pa_qahw_util_channel_allocation_to_pa_channel_map(pa_channel_map *m, uint32_t channel_allocation) {
@@ -1001,15 +1090,4 @@ pa_qahw_card_avoid_processing_config_id_t pa_qahw_utils_get_config_id_from_strin
         pa_log_error("%s: Unsupported config %s", __func__, config_str);
 
     return config_id;
-}
-
-pa_qahw_card_qahw_processing_id_t pa_qahw_utils_get_qahw_processing_id_from_string(const char *config_str) {
-    pa_qahw_card_qahw_processing_id_t id = PA_QAHW_CARD_QAHW_PROCESSING_NONE;
-
-    if (pa_streq(config_str, "fluence"))
-        id = PA_QAHW_CARD_QAHW_PROCESSING_FLUENCE;
-    else if (pa_streq(config_str, "ffecns"))
-        id = PA_QAHW_CARD_QAHW_PROCESSING_FFECNS;
-
-    return id;
 }

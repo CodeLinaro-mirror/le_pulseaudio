@@ -69,6 +69,7 @@ typedef struct {
     uint32_t devices;
     audio_input_flags_t flags;
     audio_config_t config;
+    struct qahw_in_channel_map_param qahw_be_map;
 
     const char *device_url;
     int write_fd;
@@ -83,7 +84,6 @@ typedef struct {
     int32_t preemph_status;
     uint32_t dsd_rate;
     pa_atomic_t first_read;
-    pa_qahw_card_qahw_processing_id_t qahw_processing_id;
 } qahw_source_data;
 
 typedef struct {
@@ -117,11 +117,10 @@ static int restart_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_
                               audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata);
 static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                                                     audio_input_flags_t flags, int source_id, pa_qahw_source_data *sdata, audio_source_t source_type,
-                            int32_t buffer_duration, int32_t preemph_status, pa_qahw_card_qahw_processing_id_t qahw_processing_id, uint32_t dsd_rate);
+                                                                                  int32_t buffer_duration, int32_t preemph_status, uint32_t dsd_rate);
 static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                            audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata, audio_source_t source_type,
-                           int32_t buffer_duration, pa_qahw_card_qahw_processing_id_t qahw_processing_id);
-
+                                                                                                                           int32_t buffer_duration);
 static int close_qahw_source(qahw_source_data *qahw_sdata);
 static int stop_qahw_source(qahw_source_data *qahw_sdata);
 static void pa_qahw_source_read_thread_func(void *userdata);
@@ -217,8 +216,7 @@ static const char *pa_qahw_source_get_name_from_flags(audio_input_flags_t flags)
 }
 
 static void pa_qahw_source_fill_info(qahw_source_data *qahw_sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                                            audio_input_flags_t flags, int source_iohandle, audio_source_t source_type, int32_t buffer_duration,
-                                            pa_qahw_card_qahw_processing_id_t qahw_processing_id) {
+                                            audio_input_flags_t flags, int source_iohandle, audio_source_t source_type, int32_t buffer_duration) {
     qahw_sdata->source_type = source_type;
     qahw_sdata->buffer_duration = buffer_duration;
 
@@ -244,6 +242,10 @@ static void pa_qahw_source_fill_info(qahw_source_data *qahw_sdata, pa_encoding_t
         qahw_sdata->config.channel_mask = audio_channel_in_mask_from_count(ss->channels);
     }
 
+    /* Convert to corresponding QAHW BE channel map */
+    if (encoding == PA_ENCODING_PCM)
+        pa_qahw_channel_map_to_be_qahw(map, &qahw_sdata->qahw_be_map);
+
     /* DIRECT PCM uses offload structure */
     if (flags & QAHW_INPUT_FLAG_COMPRESS) {
         qahw_sdata->config.offload_info = AUDIO_INFO_INITIALIZER;
@@ -255,7 +257,6 @@ static void pa_qahw_source_fill_info(qahw_source_data *qahw_sdata, pa_encoding_t
     qahw_sdata->devices = devices;
     qahw_sdata->flags = flags;
     qahw_sdata->handle = source_iohandle;
-    qahw_sdata->qahw_processing_id = qahw_processing_id;
 }
 
 static int pa_qahw_source_start(pa_qahw_source_data *sdata) {
@@ -438,8 +439,7 @@ static int pa_qahw_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_
         if (rc) {
             pa_log_error("%s: could not create qahw source with requested conf, error %d, restoring old conf", __func__, rc);
             rc = open_qahw_source(qahw_sdata->module_handle, encoding, &pa_sdata->source->sample_spec, &pa_sdata->source->channel_map, qahw_sdata->devices,
-                                  qahw_sdata->flags, qahw_sdata->handle, qahw_sdata, qahw_sdata->source_type,
-                                  qahw_sdata->buffer_duration, qahw_sdata->qahw_processing_id);
+                                                   qahw_sdata->flags, qahw_sdata->handle, qahw_sdata, qahw_sdata->source_type, qahw_sdata->buffer_duration);
             if (rc)
                 pa_log_info("%s: restoring of qahw source with old config failed, error %d", __func__, rc);
 
@@ -631,12 +631,13 @@ finish:
 }
 
 static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
-                  audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata, audio_source_t source_type, int32_t buffer_duration,
-                  pa_qahw_card_qahw_processing_id_t qahw_processing_id) {
+                                                audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata, audio_source_t source_type,
+                                                                                                                           int32_t buffer_duration) {
     int rc;
     int ret = -1;
     const char *bt_sco_on = "BT_SCO=on";
     const char *dsd_format = NULL;
+    qahw_param_payload payload;
 
 #ifdef SOURCE_DUMP_ENABLED
     char *file_name;
@@ -647,7 +648,7 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
     pa_assert(module_handle);
     pa_assert(qahw_sdata);
 
-    pa_qahw_source_fill_info(qahw_sdata, encoding, ss, map, devices, flags, source_id, source_type, buffer_duration, qahw_processing_id);
+    pa_qahw_source_fill_info(qahw_sdata, encoding, ss, map, devices, flags, source_id, source_type, buffer_duration);
 
 #ifdef SOURCE_DUMP_ENABLED
     file_name = pa_sprintf_malloc("/data/pcmdump_source_%d", qahw_sdata->handle);
@@ -685,10 +686,6 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
         qahw_in_set_parameters(qahw_sdata->in_handle, "audio_stream_profile=record_deemph");
     else if (qahw_sdata->source_type == AUDIO_SOURCE_UNPROCESSED)
         qahw_in_set_parameters(qahw_sdata->in_handle, "audio_stream_profile=record_unprocessed");
-    else if (qahw_sdata->qahw_processing_id & PA_QAHW_CARD_QAHW_PROCESSING_FLUENCE)
-        qahw_in_set_parameters(qahw_sdata->in_handle, "audio_stream_profile=record_fluence");
-    else if (qahw_sdata->qahw_processing_id & PA_QAHW_CARD_QAHW_PROCESSING_FFECNS)
-        qahw_in_set_parameters(qahw_sdata->in_handle, "audio_stream_profile=record_ffecns");
 
     if (encoding == PA_ENCODING_DSD) {
         if (qahw_sdata->dsd_rate == 64)
@@ -712,6 +709,17 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
         qahw_close_input_stream(qahw_sdata->in_handle);
         rc = -1;
         goto fail;
+    }
+
+    if (encoding == PA_ENCODING_PCM) {
+        payload.in_channel_map_params = qahw_sdata->qahw_be_map;
+        rc = qahw_in_set_param_data(qahw_sdata->in_handle, QAHW_PARAM_IN_CHANNEL_MAP, &payload);
+        if (rc) {
+            qahw_close_input_stream(qahw_sdata->in_handle);
+            rc = -1;
+            pa_log_error("set_param_data for QAHW_PARAM_IN_CHANNEL_MAP failed %d", rc);
+            goto fail;
+        }
     }
 
     /*FIXME: Add DSP latency */
@@ -766,7 +774,7 @@ static int restart_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_
         goto exit;
     }
 
-    rc = open_qahw_source(module_handle, encoding, ss, map, devices, flags, source_id, qahw_sdata, qahw_sdata->source_type, qahw_sdata->buffer_duration, qahw_sdata->qahw_processing_id);
+    rc = open_qahw_source(module_handle, encoding, ss, map, devices, flags, source_id, qahw_sdata, qahw_sdata->source_type, qahw_sdata->buffer_duration);
     if (rc) {
         pa_log_error("open_qahw_source failed during recreation, error %d", rc);
     }
@@ -793,14 +801,14 @@ static int free_qahw_source(qahw_source_data *qahw_sdata) {
 
 static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                                                     audio_input_flags_t flags, int source_id, pa_qahw_source_data *sdata, audio_source_t source_type,
-                            int32_t buffer_duration, int32_t preemph_status, pa_qahw_card_qahw_processing_id_t qahw_processing_id, uint32_t dsd_rate) {
+                                                                                  int32_t buffer_duration, int32_t preemph_status, uint32_t dsd_rate) {
    int rc;
 
    sdata->qahw_sdata = pa_xnew0(qahw_source_data, 1);
    sdata->qahw_sdata->preemph_status = preemph_status;
    sdata->qahw_sdata->dsd_rate = dsd_rate;
 
-   rc = open_qahw_source(module_handle, encoding, ss, map, devices, flags, source_id, sdata->qahw_sdata, source_type, buffer_duration, qahw_processing_id);
+   rc = open_qahw_source(module_handle, encoding, ss, map, devices, flags, source_id, sdata->qahw_sdata, source_type, buffer_duration);
    if (rc) {
        pa_log_error("open_qahw_source failed, error %d", rc);
        pa_xfree(sdata->qahw_sdata);
@@ -1047,8 +1055,8 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
 
     pa_log_info("%s: creating source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &source->default_spec));
 
-    rc = create_qahw_source(module_handle, source->default_encoding, &source->default_spec, &source->default_map,  port_device_data->device, source->flags,
-                     source->id, sdata, source->source_type, source->buffer_duration, source->preemph_status, source->qahw_processing_id, source->dsd_rate);
+    rc = create_qahw_source(module_handle, source->default_encoding, &source->default_spec, &source->def_map_with_inval_ch,  port_device_data->device, source->flags,
+                     source->id, sdata, source->source_type, source->buffer_duration, source->preemph_status, source->dsd_rate);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could not open qahw source, error %d", rc);
         pa_xfree(sdata);
