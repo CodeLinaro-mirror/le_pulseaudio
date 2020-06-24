@@ -1130,6 +1130,56 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_use_qahw_processing(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+    char **items = NULL;
+    char *item;
+    char *name;
+    int i = 0;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    items = pa_split_spaces_strv(state->rvalue);
+
+    if (!items) {
+        pa_log_error("%s: [%s:%u] flag list missing", __func__, state->filename, state->lineno);
+        goto exit;
+    }
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+	name = sink->name;
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        name = source->name;
+    }  else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    /* add list to sink/source */
+    while ((item = items[i++])) {
+        if (sink) {
+            sink->qahw_processing_id |= pa_qahw_utils_get_qahw_processing_id_from_string(item);
+            pa_log_debug("%s: adding %s to the list of qahw processing ids for sink %s", __func__, item, name);
+        } else {
+            source->qahw_processing_id |= pa_qahw_utils_get_qahw_processing_id_from_string(item);
+            pa_log_debug("%s: adding %s to the list of qahw processing ids for source %s", __func__, item, name);
+        }
+    }
+
+    ret = 0;
+
+exit:
+    if (items)
+        pa_xstrfreev(items);
+
+    return ret;
+}
+
 static int pa_qahw_config_parse_proplist(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink = NULL;
@@ -1930,6 +1980,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "type",                        pa_qahw_config_parse_type,                                NULL, NULL },
         { "avoid-processing",            pa_qahw_config_parse_avoid_processing,                    NULL, NULL },
         { "properties",                  pa_qahw_config_parse_proplist,                            NULL, NULL },
+	{ "use-qahw-processing",         pa_qahw_config_parse_use_qahw_processing,                 NULL, NULL },
 
         /* common between sink and source*/
         { "flags",                       pa_qahw_config_parse_flags,                               NULL, NULL },
