@@ -36,6 +36,7 @@ typedef struct {
     char *default_profile;
     bool use_dolby_hw_loopback;
     bool dsd_setup;
+    bool no_primary_sink;
 } pa_qahw_config_data;
 
 pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name);

@@ -1980,6 +1980,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "default-profile",             pa_config_parse_string,                                   NULL, "Global" },
         { "use-dolby-hw-loopback",       pa_config_parse_bool,                                     NULL, "Global" },
         { "dsd-setup",                   pa_config_parse_bool,                                     NULL, "Global" },
+        { "no-primary-sink",             pa_config_parse_bool,                                     NULL, "Global" },
 
         /* [Port... ] */
         { "direction",                   pa_qahw_config_parse_port_direction,                      NULL, NULL },
@@ -2074,6 +2075,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
     items[0].data = &config_data->default_profile;
     items[1].data = &config_data->use_dolby_hw_loopback;
     items[2].data = &config_data->dsd_setup;
+    items[3].data = &config_data->no_primary_sink;
 
     config_data->ports = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_port);
 
