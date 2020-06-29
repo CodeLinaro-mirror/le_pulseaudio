@@ -45,6 +45,14 @@ struct pa_qahw_sink_extn_data {
     char *obj_path;
     pa_dbus_protocol *dbus_protocol;
     qahw_stream_handle_t *out_handle;
+
+    pa_queue *set_param_data_requests;
+    pa_queue *set_param_requests;
+};
+
+struct pa_qahw_sink_extn_set_data {
+    int32_t id;
+    qahw_param_payload payload;
 };
 
 /* key,value  based set params */
@@ -61,6 +69,10 @@ static void pa_qahw_sink_set_ch_status_info(DBusConnection *conn, DBusMessage *m
 static void pa_qahw_sink_set_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_sink_get_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
+/* signal handler to raise signal to client */
+static void pa_qahw_sink_extn_raise_signal(struct pa_qahw_sink_extn_data *qahw_extn_sdata,
+                                                                            char *err_str);
+
 enum sink_method_handler_index {
     METHOD_HANDLER_SINK_GET_CLOCK_DRIFT = 0,
     METHOD_HANDLER_SINK_SET_RENDER_WINDOW,
@@ -73,6 +85,11 @@ enum sink_method_handler_index {
     METHOD_HANDLER_SINK_GET_PARAMETERS,
     METHOD_HANDLER_SINK_LAST = METHOD_HANDLER_SINK_GET_PARAMETERS,
     METHOD_HANDLER_SINK_MAX = METHOD_HANDLER_SINK_LAST + 1,
+};
+
+enum signal_index {
+    SIGNAL_FAILURE_EVENT,
+    SIGNAL_MAX
 };
 
 static pa_dbus_arg_info sink_clock_drift_args[] = {
@@ -110,6 +127,10 @@ static pa_dbus_arg_info sink_set_parameters_args[] = {
 static pa_dbus_arg_info sink_get_parameters_args[] = {
     {"kv_pairs", "s", "in"},
     {"value", "s", "out"},
+};
+
+pa_dbus_arg_info failure_event_args[] = {
+    {"error", "s", NULL},
 };
 
 static pa_dbus_method_handler sink_method_handlers[METHOD_HANDLER_SINK_MAX] = {
@@ -160,6 +181,13 @@ static pa_dbus_method_handler sink_method_handlers[METHOD_HANDLER_SINK_MAX] = {
         .receive_cb = pa_qahw_sink_get_parameters},
 };
 
+static pa_dbus_signal_info failure_event_signal[SIGNAL_MAX] = {
+   [SIGNAL_FAILURE_EVENT] = {
+        .name = "FailureEvent",
+        .arguments = failure_event_args,
+        .n_arguments = sizeof(failure_event_args)/sizeof(pa_dbus_arg_info)},
+};
+
 static pa_dbus_interface_info sink_interface_info = {
     .name = QAHW_DBUS_SINK_IFACE,
     .method_handlers = sink_method_handlers,
@@ -167,9 +195,20 @@ static pa_dbus_interface_info sink_interface_info = {
     .property_handlers = NULL,
     .n_property_handlers = 0,
     .get_all_properties_cb = NULL,
-    .signals = NULL,
-    .n_signals = 0
+    .signals = failure_event_signal,
+    .n_signals = SIGNAL_MAX
 };
+
+static void pa_qahw_sink_extn_cache_set_param_data_request(
+                                            struct pa_qahw_sink_extn_data *qahw_extn_sdata,
+                                            qahw_param_payload payload, int32_t id) {
+    struct pa_qahw_sink_extn_set_data *set_param_data_req = NULL;
+
+    set_param_data_req = pa_xnew0(struct pa_qahw_sink_extn_set_data, 1);
+    set_param_data_req->id = id;
+    set_param_data_req->payload = payload;
+    pa_queue_push(qahw_extn_sdata->set_param_data_requests, (void *)set_param_data_req);
+}
 
 static void pa_qahw_sink_get_clock_drift(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     int rc = 0;
@@ -201,6 +240,13 @@ static void pa_qahw_sink_get_clock_drift(DBusConnection *conn, DBusMessage *msg,
     }
 
     pa_log_debug("get_clock_drift\n");
+
+    if (!qahw_extn_sdata->out_handle) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "No valid handle");
+        dbus_error_free(&error);
+        return;
+    }
+
     rc = qahw_out_get_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_AVT_DEVICE_DRIFT, &payload);
     if (rc) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "get_param_data for QAHW_PARAM_AVT_DEVICE_DRIFT failed");
@@ -258,13 +304,20 @@ static void pa_qahw_sink_set_render_window(DBusConnection *conn, DBusMessage *ms
 
     pa_log_debug("%s:: render_ws %" PRId64 "us, render_we %" PRId64 "us\n", __func__, payload.render_window_params.render_ws, payload.render_window_params.render_we);
 
+    if (!qahw_extn_sdata->out_handle) {
+        pa_qahw_sink_extn_cache_set_param_data_request(qahw_extn_sdata, payload, QAHW_PARAM_OUT_RENDER_WINDOW);
+        pa_log_info("%s: set QAHW_PARAM_OUT_RENDER_WINDOW request cached", __func__);
+        goto exit;
+    }
+
     rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_OUT_RENDER_WINDOW, &payload);
     if (rc) {
-        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "get_param_data for QAHW_PARAM_OUT_RENDER_WINDOW failed");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "set_param_data for QAHW_PARAM_OUT_RENDER_WINDOW failed");
         dbus_error_free(&error);
         return;
     }
 
+exit:
     pa_dbus_send_empty_reply(conn, msg);
 }
 
@@ -303,13 +356,20 @@ static void pa_qahw_sink_set_start_delay(DBusConnection *conn, DBusMessage *msg,
 
     pa_log_debug("%s:: start_delay %" PRId64 "us", __func__, payload.start_delay.start_delay);
 
-    rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_OUT_RENDER_WINDOW, &payload);
+    if (!qahw_extn_sdata->out_handle) {
+        pa_qahw_sink_extn_cache_set_param_data_request(qahw_extn_sdata, payload, QAHW_PARAM_OUT_START_DELAY);
+        pa_log_info("%s: set QAHW_PARAM_OUT_START_DELAY request cached", __func__);
+        goto exit;
+    }
+
+    rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_OUT_START_DELAY, &payload);
     if (rc) {
-        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "set_param_data for QAHW_PARAM_OUT_RENDER_WINDOW failed");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "set_param_data for QAHW_PARAM_OUT_START_DELAY failed");
         dbus_error_free(&error);
         return;
     }
 
+exit:
     pa_dbus_send_empty_reply(conn, msg);
 }
 
@@ -350,6 +410,12 @@ static void pa_qahw_sink_set_drift_correction_flag(DBusConnection *conn, DBusMes
 
     pa_log_debug("%s:: drift correction  %d", __func__, payload.drift_enable_param.enable);
 
+    if (!qahw_extn_sdata->out_handle) {
+        pa_qahw_sink_extn_cache_set_param_data_request(qahw_extn_sdata, payload, QAHW_PARAM_OUT_ENABLE_DRIFT_CORRECTION);
+        pa_log_info("%s: set QAHW_PARAM_OUT_ENABLE_DRIFT_CORRECTION request cached", __func__);
+        goto exit;
+    }
+
     rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_OUT_ENABLE_DRIFT_CORRECTION, &payload);
     if (rc) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "set_param_data for QAHW_PARAM_OUT_ENABLE_DRIFT_CORRECTION failed");
@@ -357,6 +423,7 @@ static void pa_qahw_sink_set_drift_correction_flag(DBusConnection *conn, DBusMes
         return;
     }
 
+exit:
     pa_dbus_send_empty_reply(conn, msg);
 }
 
@@ -395,6 +462,12 @@ static void pa_qahw_sink_set_drift_correction_param(DBusConnection *conn, DBusMe
 
     pa_log_debug("%s:: adjust time %"PRId64 " ", __func__, payload.drift_correction_param.adjust_time);
 
+    if (!qahw_extn_sdata->out_handle) {
+        pa_qahw_sink_extn_cache_set_param_data_request(qahw_extn_sdata, payload, QAHW_PARAM_OUT_ENABLE_DRIFT_CORRECTION);
+        pa_log_info("%s: set QAHW_PARAM_OUT_ENABLE_DRIFT_CORRECTION request cached", __func__);
+        goto exit;
+    }
+
     rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_OUT_ENABLE_DRIFT_CORRECTION, &payload);
     if (rc) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "set_param_data for QAHW_PARAM_OUT_ENABLE_DRIFT_CORRECTION failed");
@@ -402,6 +475,7 @@ static void pa_qahw_sink_set_drift_correction_param(DBusConnection *conn, DBusMe
         return;
     }
 
+exit:
     pa_dbus_send_empty_reply(conn, msg);
 }
 
@@ -501,6 +575,12 @@ static void pa_qahw_sink_set_matrix_param(DBusConnection *conn, DBusMessage *msg
         count++;
     }
 
+    if (!qahw_extn_sdata->out_handle) {
+        pa_qahw_sink_extn_cache_set_param_data_request(qahw_extn_sdata, payload, QAHW_PARAM_CH_MIX_MATRIX_PARAMS);
+        pa_log_info("%s: set QAHW_PARAM_CH_MIX_MATRIX_PARAMS request cached", __func__);
+        goto exit;
+    }
+
     rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_CH_MIX_MATRIX_PARAMS, &payload);
     if (rc) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "set_param_data for QAHW_PARAM_CH_MIX_MATRIX_PARAMS failed");
@@ -508,6 +588,7 @@ static void pa_qahw_sink_set_matrix_param(DBusConnection *conn, DBusMessage *msg
         return;
     }
 
+exit:
     pa_dbus_send_empty_reply(conn, msg);
 }
 
@@ -547,6 +628,12 @@ static void pa_qahw_sink_set_ch_status_info(DBusConnection *conn, DBusMessage *m
             sizeof(payload.ch_status_info.channel_status) / sizeof(payload.ch_status_info.channel_status[0]),
             ch_status_info, n_elements);
 
+    if (!qahw_extn_sdata->out_handle) {
+        pa_qahw_sink_extn_cache_set_param_data_request(qahw_extn_sdata, payload, QAHW_PARAM_CHANNEL_STATUS_INFO);
+        pa_log_info("%s: set QAHW_PARAM_CHANNEL_STATUS_INFO request cached", __func__);
+        goto exit;
+    }
+
     rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_CHANNEL_STATUS_INFO, &payload);
     if (rc) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "SetChStatusInfo failed");
@@ -554,6 +641,7 @@ static void pa_qahw_sink_set_ch_status_info(DBusConnection *conn, DBusMessage *m
         return;
     }
 
+exit:
     pa_dbus_send_empty_reply(conn, msg);
 }
 
@@ -580,6 +668,13 @@ static void pa_qahw_sink_set_parameters(DBusConnection *conn, DBusMessage *msg, 
         return;
     }
 
+    if (!qahw_extn_sdata->out_handle) {
+        pa_queue_push(qahw_extn_sdata->set_param_requests, (void *)kv_pairs);
+
+        pa_log_info("%s: set %s request cached", __func__, kv_pairs);
+        goto exit;
+    }
+
     rc = qahw_out_set_parameters(qahw_extn_sdata->out_handle, kv_pairs);
     if (rc) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "qahw_out_set_parameters failed");
@@ -587,6 +682,7 @@ static void pa_qahw_sink_set_parameters(DBusConnection *conn, DBusMessage *msg, 
         return;
     }
 
+exit:
     pa_dbus_send_empty_reply(conn, msg);
 }
 
@@ -609,6 +705,12 @@ static void pa_qahw_sink_get_parameters(DBusConnection *conn, DBusMessage *msg, 
     if (!dbus_message_get_args(msg, &error, DBUS_TYPE_STRING,
                 &kv_pairs, DBUS_TYPE_INVALID)) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (!qahw_extn_sdata->out_handle) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "No valid handle");
         dbus_error_free(&error);
         return;
     }
@@ -636,18 +738,19 @@ int pa_qahw_sink_extn_sink_handle_update(pa_qahw_sink_extn_handle_t *handle, qah
     return 0;
 }
 
-int pa_qahw_sink_extn_create(pa_core *core, qahw_stream_handle_t *out_handle, int pa_sink_index, pa_qahw_sink_extn_handle_t **handle) {
+int pa_qahw_sink_extn_create(pa_core *core, int pa_sink_index, pa_qahw_sink_extn_handle_t **handle) {
 
     struct pa_qahw_sink_extn_data *qahw_extn_sdata;
 
     pa_assert(core);
-    pa_assert(out_handle);
 
     qahw_extn_sdata = pa_xnew0(struct pa_qahw_sink_extn_data, 1);
 
     qahw_extn_sdata->obj_path = pa_sprintf_malloc("%s%d", QAHW_DBUS_OBJECT_PATH_PREFIX, pa_sink_index);
-    qahw_extn_sdata->out_handle = out_handle;
+    qahw_extn_sdata->out_handle = NULL;
     qahw_extn_sdata->dbus_protocol = pa_dbus_protocol_get(core);
+    qahw_extn_sdata->set_param_data_requests = pa_queue_new();
+    qahw_extn_sdata->set_param_requests = pa_queue_new();
 
     pa_assert_se(pa_dbus_protocol_add_interface(qahw_extn_sdata->dbus_protocol, qahw_extn_sdata->obj_path, &sink_interface_info, qahw_extn_sdata) >= 0);
 
@@ -670,10 +773,75 @@ int pa_qahw_sink_extn_free(pa_qahw_sink_extn_handle_t *handle) {
 
     pa_dbus_protocol_unref(qahw_extn_sdata->dbus_protocol);
 
+    pa_queue_free(qahw_extn_sdata->set_param_data_requests, NULL);
+    pa_queue_free(qahw_extn_sdata->set_param_requests, NULL);
+
     pa_xfree(qahw_extn_sdata->obj_path);
     pa_xfree(qahw_extn_sdata);
 
     return 0;
 }
 
+void pa_qahw_sink_extn_process_requests(pa_qahw_sink_extn_handle_t *handle) {
+    struct pa_qahw_sink_extn_data *qahw_extn_sdata = (struct pa_qahw_sink_extn_data *)handle;
+    struct pa_qahw_sink_extn_set_data *set_param_data_req = NULL;
+    const char *kvpair = NULL;
+    char *err_str = NULL;
+    int rc = 0;
 
+    pa_assert(qahw_extn_sdata);
+    pa_assert(qahw_extn_sdata->out_handle);
+    pa_assert(qahw_extn_sdata->set_param_data_requests);
+    pa_assert(qahw_extn_sdata->set_param_requests);
+
+    while (!pa_queue_isempty(qahw_extn_sdata->set_param_data_requests)) {
+        set_param_data_req = (struct pa_qahw_sink_extn_set_data *)pa_queue_pop(qahw_extn_sdata->set_param_data_requests);
+
+        rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, set_param_data_req->id,
+                                                          &(set_param_data_req->payload));
+        if (rc) {
+            pa_log_error("%s: set_param_data for %d failed, error %d", __func__, set_param_data_req->id, rc);
+            err_str = pa_sprintf_malloc("%s%d", "Failed to set param: ", set_param_data_req->id);
+            pa_qahw_sink_extn_raise_signal(qahw_extn_sdata, err_str);
+        }
+
+        pa_xfree(set_param_data_req);
+        pa_xfree(err_str);
+        set_param_data_req = NULL;
+        err_str = NULL;
+    }
+
+    while (!pa_queue_isempty(qahw_extn_sdata->set_param_requests)) {
+        kvpair = (const char *)pa_queue_pop(qahw_extn_sdata->set_param_requests);
+
+        rc = qahw_out_set_parameters(qahw_extn_sdata->out_handle, kvpair);
+        if (rc) {
+            pa_log_error("%s: set_parameters for %s failed, error %d", __func__, kvpair, rc);
+            err_str = pa_sprintf_malloc("%s%s", "Failed to set ", kvpair);
+            pa_qahw_sink_extn_raise_signal(qahw_extn_sdata, err_str);
+        }
+
+        pa_xfree(err_str);
+        err_str = NULL;
+    }
+}
+
+static void pa_qahw_sink_extn_raise_signal(struct pa_qahw_sink_extn_data *qahw_extn_sdata,
+                                                                            char *err_str) {
+    DBusMessage *message = NULL;
+    DBusMessageIter arg_i;
+
+    pa_assert(qahw_extn_sdata);
+    pa_assert(err_str);
+
+    /* Raising signal to client on the event of failure of cached requests */
+    pa_assert_se(message = dbus_message_new_signal(qahw_extn_sdata->obj_path, sink_interface_info.name,
+                                                      failure_event_signal[SIGNAL_FAILURE_EVENT].name));
+
+    dbus_message_iter_init_append(message, &arg_i);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_STRING, &(err_str));
+
+    pa_dbus_protocol_send_signal(qahw_extn_sdata->dbus_protocol, message);
+
+    dbus_message_unref(message);
+}

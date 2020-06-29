@@ -78,7 +78,8 @@ static inline bool pa_qahw_sink_is_supported_type(char *sink_type) {
     pa_assert(sink_type);
 
     if (pa_streq(sink_type, "ultra-low-latency") ||  pa_streq(sink_type, "low-latency")
-        || pa_streq(sink_type, "offload") || pa_streq(sink_type, "primary"))
+        || pa_streq(sink_type, "offload") || pa_streq(sink_type, "primary") ||
+		pa_streq(sink_type, "offload-primary"))
         return true;
 
     return false;
