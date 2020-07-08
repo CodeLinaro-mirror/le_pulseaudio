@@ -20,11 +20,14 @@
 
 #include <ltdl.h>
 #include <pulse/cdecl.h>
+#include <pulse/timeval.h>
 PA_C_DECL_BEGIN
 #include <pulsecore/module.h>
+#include <pulsecore/protocol-dbus.h>
 #include <pulsecore/sink.h>
 PA_C_DECL_END
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <thread>
@@ -33,6 +36,8 @@ PA_C_DECL_END
 #include <adk/message-service/adk-message-service.h>
 
 #include "group_sink.h"
+
+struct GroupSinkMsg;
 
 class GroupSinkCtrl {
  public:
@@ -53,6 +58,8 @@ class GroupSinkCtrl {
     void setPeersCount(size_t peers_count) { peers_count_ = peers_count; }
     size_t getPeersCount() const { return peers_count_; }
 
+    void signalMinimumLatencyUpdate(pa_usec_t latency);
+
  public:  // TODO(jbing): should all be private
     std::shared_ptr<adk::msg::AdkMessageService> message_service_;
 
@@ -62,10 +69,17 @@ class GroupSinkCtrl {
     pa_thread_mq thread_mq{};
     pa_rtpoll *rtpoll{nullptr};
 
+    GroupSinkMsg *main_msg_;
+
     lt_dlhandle dl{nullptr};
     GroupSink *group_sink{nullptr};
 
     size_t peers_count_{0};
+
+    std::string dbus_path_;
+    pa_dbus_protocol *dbus_protocol_{nullptr};
+
+    std::atomic<pa_usec_t> target_latency_{PA_USEC_INVALID};
 };
 
 #endif  // SRC_MODULES_GROUP_MODULES_MODULES_GROUP_SINK_CTRL_H_
