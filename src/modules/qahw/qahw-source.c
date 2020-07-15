@@ -61,17 +61,19 @@
 
 typedef enum {
     PA_QAHW_SOURCE_READ_EVENT_DONE = PA_SOURCE_MESSAGE_MAX + 1,
-    PA_QAHW_SOURCE_MESSAGE_STANDBY_DONE,
-} qahw_read_event_t;
+    PA_QAHW_SOURCE_MESSAGE_STANDBY_DONE
+} pa_qahw_source_msgs_t;
 
 typedef enum {
-    PA_QAHW_SOURCE_MESSAGE_STANDBY,
-} pa_qahw_read_event_t;
+    QAHW_SOURCE_MESSAGE_STANDBY,
+    QAHW_SOURCE_MESSAGE_CLOSE_INPUT,
+    QAHW_SOURCE_MESSAGE_WAKE_THREAD
+} qahw_msgs_t;
 
 typedef struct {
     pa_msgobject parent;
     void *userdata;
-} pa_qahw_read_msg;
+} qahw_msg_obj;
 
 typedef struct {
     qahw_stream_handle_t *in_handle;
@@ -89,7 +91,7 @@ typedef struct {
     size_t source_buffer_size;
     audio_source_t source_type;
     uint32_t source_latency_us;
-    pa_thread *qahw_read_thread;
+    pa_thread *qahw_thread;
 
     int32_t buffer_duration;
     int32_t preemph_status;
@@ -99,8 +101,9 @@ typedef struct {
     pa_atomic_t first_read;
     pa_atomic_t stopped;
 
-    bool read_thread_active;
-    bool source_opened;
+    pa_thread_mq  qahw_thread_mq;
+    pa_rtpoll *qahw_thread_rtpoll;
+    qahw_msg_obj *qahw_msg;
 
     trace_log ts_log;
 } qahw_source_data;
@@ -115,9 +118,6 @@ typedef struct {
 
     pa_qahw_card_avoid_processing_config_id_t avoid_config_processing;
 
-    pa_thread_mq  read_thread_mq;
-    pa_rtpoll *read_thread_rtpoll;
-    pa_qahw_read_msg *qahw_read_msg;
 } pa_source_data;
 
 typedef struct {
@@ -136,8 +136,8 @@ pa_qahw_source_name_to_enum_mapping source_name_to_enum[] = {
     { AUDIO_SOURCE_UNPROCESSED,         (char*)"AUDIO_SOURCE_UNPROCESSED" },
 };
 
-PA_DEFINE_PRIVATE_CLASS(pa_qahw_read_msg, pa_msgobject);
-#define PA_QAHW_READ_MSG(o) (pa_qahw_read_msg_cast(o))
+PA_DEFINE_PRIVATE_CLASS(qahw_msg_obj, pa_msgobject);
+#define QAHW_MSG_OBJ(o) (qahw_msg_obj_cast(o))
 
 static int restart_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                               audio_input_flags_t flags, int source_id, qahw_source_data *qahw_sdata);
@@ -150,9 +150,9 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
 
 static int close_qahw_source(qahw_source_data *qahw_sdata);
 static int stop_qahw_source(qahw_source_data *qahw_sdata);
-static void free_read_thread_resources(pa_qahw_source_data *source_data);
-static void pa_qahw_source_read_thread_func(void *userdata);
-static int pa_qahw_source_process_read_msg (pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk);
+static void free_qahw_source_thread_resources(qahw_source_data *qahw_sdata);
+static void qahw_source_thread_func(void *userdata);
+static int qahw_source_process_msg (pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk);
 
 static const uint32_t supported_source_rates[] =
                           {8000, 11025, 16000, 22050, 32000, 44100, 48000, 96000, 192000};
@@ -296,37 +296,49 @@ static void pa_qahw_source_fill_info(qahw_source_data *qahw_sdata, pa_encoding_t
     qahw_sdata->qahw_processing_id = qahw_processing_id;
 }
 
-static int pa_qahw_source_start(pa_qahw_source_data *sdata) {
+static int create_qahw_source_thread(pa_qahw_source_data *sdata) {
     char *thread_name;
 
     pa_assert(sdata);
     pa_assert(sdata->qahw_sdata);
     pa_assert(sdata->pa_sdata);
 
-    /* If previous read thread is still active, reuse it instead of creating new one. */
-    if (!sdata->qahw_sdata->read_thread_active) {
-        pa_log_debug("creating new read thread");
+    pa_log_debug("%s", __func__);
 
-        pa_atomic_store(&sdata->qahw_sdata->stopped, 0);
-        pa_atomic_store(&sdata->qahw_sdata->first_read, 0);
+    sdata->qahw_sdata->qahw_thread_rtpoll = pa_rtpoll_new();
+    pa_thread_mq_init(&sdata->qahw_sdata->qahw_thread_mq, sdata->pa_sdata->source->core->mainloop,
+                                                            sdata->qahw_sdata->qahw_thread_rtpoll);
 
-        sdata->pa_sdata->read_thread_rtpoll = pa_rtpoll_new();
-        pa_thread_mq_init(&sdata->pa_sdata->read_thread_mq, sdata->pa_sdata->source->core->mainloop,
-                                                                sdata->pa_sdata->read_thread_rtpoll);
+    sdata->qahw_sdata->qahw_msg = pa_msgobject_new(qahw_msg_obj);
+    sdata->qahw_sdata->qahw_msg->parent.process_msg = qahw_source_process_msg;
+    sdata->qahw_sdata->qahw_msg->userdata = (void *)sdata;
 
-        sdata->pa_sdata->qahw_read_msg = pa_msgobject_new(pa_qahw_read_msg);
-        sdata->pa_sdata->qahw_read_msg->parent.process_msg = pa_qahw_source_process_read_msg;
-        sdata->pa_sdata->qahw_read_msg->userdata = (void *)sdata;
-
-        sdata->qahw_sdata->read_thread_active = true;
-        thread_name = pa_sprintf_malloc("%s_read_thread", sdata->pa_sdata->source->name);
-        if (!(sdata->qahw_sdata->qahw_read_thread = pa_thread_new(thread_name, pa_qahw_source_read_thread_func, sdata))) {
-            sdata->qahw_sdata->read_thread_active = false;
-            pa_log_error("%s: qahw_read_thread creation failed", __func__);
-        }
-
-        pa_xfree(thread_name);
+    thread_name = pa_sprintf_malloc("%s_qahw_thread", sdata->pa_sdata->source->name);
+    if (!(sdata->qahw_sdata->qahw_thread = pa_thread_new(thread_name, qahw_source_thread_func, sdata))) {
+        pa_log_error("%s: qahw_thread creation failed", __func__);
+        return -1;
     }
+
+    pa_xfree(thread_name);
+
+    return 0;
+}
+
+static int pa_qahw_source_start(pa_qahw_source_data *sdata) {
+
+    pa_assert(sdata);
+
+    pa_log_debug("%s", __func__);
+
+    pa_atomic_store(&sdata->qahw_sdata->stopped, 0);
+    pa_atomic_store(&sdata->qahw_sdata->first_read, 0);
+
+    /* Flushing thread message queue */
+    pa_asyncmsgq_flush(sdata->qahw_sdata->qahw_thread_mq.inq, false);
+
+    pa_log_info("%s: Posting message QAHW_SOURCE_MESSAGE_WAKE_THREAD", __func__);
+    pa_asyncmsgq_post(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
+                                                           QAHW_SOURCE_MESSAGE_WAKE_THREAD, NULL, 0, NULL, NULL);
 
     trace_newstream(&sdata->qahw_sdata->ts_log, sdata->pa_sdata->source->name);
 
@@ -337,18 +349,18 @@ static int pa_qahw_source_standby(pa_qahw_source_data *sdata) {
     qahw_source_data *qahw_sdata;
 
     pa_assert(sdata);
+    pa_assert(sdata->qahw_sdata);
 
     qahw_sdata = sdata->qahw_sdata;
 
-    pa_assert(qahw_sdata);
-    pa_assert(qahw_sdata->in_handle);
-
     pa_log_info("%s", __func__);
 
-    stop_qahw_source(sdata->qahw_sdata);
-    qahw_in_standby(qahw_sdata->in_handle);
+    stop_qahw_source(qahw_sdata);
 
-    trace_close(&sdata->qahw_sdata->ts_log);
+    pa_log_info("%s: Posting message QAHW_SOURCE_MESSAGE_STANDBY", __func__);
+    pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
+                                                           QAHW_SOURCE_MESSAGE_STANDBY, NULL, 0, NULL, NULL);
+    trace_close(&qahw_sdata->ts_log);
 
     return 0;
 }
@@ -390,39 +402,50 @@ static int pa_qahw_source_set_state_in_io_thread_cb(pa_source *s, pa_source_stat
     if (new_state == s->thread_info.state)
         return r;
 
-    if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(s->thread_info.state)) {
-        source_data->qahw_sdata->source_opened = true;
+    if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(s->thread_info.state))
         r = pa_qahw_source_start(source_data);
-    } else if (new_state == PA_SOURCE_SUSPENDED) {
-        source_data->qahw_sdata->source_opened = false;
-        pa_log_info("%s: Posting message PA_QAHW_SOURCE_MESSAGE_STANDBY", __func__);
-        pa_asyncmsgq_post(source_data->pa_sdata->read_thread_mq.inq, PA_MSGOBJECT(source_data->pa_sdata->qahw_read_msg),
-                                                                   PA_QAHW_SOURCE_MESSAGE_STANDBY, NULL, 0, NULL, NULL);
-    }
+    else if (new_state == PA_SOURCE_SUSPENDED)
+        pa_qahw_source_standby(source_data);
 
     return r;
 }
 
-static int pa_qahw_source_process_read_msg (pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
-    pa_qahw_source_data *sdata = (pa_qahw_source_data *)(PA_QAHW_READ_MSG(o)->userdata);
+static int qahw_source_process_msg (pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
+    int rc = -1;
+    pa_qahw_source_data *sdata = (pa_qahw_source_data *)(QAHW_MSG_OBJ(o)->userdata);
 
     switch (code) {
-        case PA_QAHW_SOURCE_MESSAGE_STANDBY:
-            pa_qahw_source_standby(sdata);
+        case QAHW_SOURCE_MESSAGE_STANDBY:
+            qahw_in_standby(sdata->qahw_sdata->in_handle);
 
             pa_log_info("%s: Posting PA_QAHW_SOURCE_MESSAGE_STANDBY_DONE", __func__);
             pa_asyncmsgq_post(sdata->pa_sdata->thread_mq.inq, PA_MSGOBJECT(sdata->pa_sdata->source),
                                          PA_QAHW_SOURCE_MESSAGE_STANDBY_DONE, NULL, 0, NULL, NULL);
             return 0;
 
+        case QAHW_SOURCE_MESSAGE_CLOSE_INPUT:
+            rc = qahw_close_input_stream(sdata->qahw_sdata->in_handle);
+            if (PA_UNLIKELY(rc)) {
+                pa_log_error(" could not close source handle %p, error  %d", sdata->qahw_sdata->in_handle, rc);
+            }
+            sdata->qahw_sdata->in_handle = NULL;
+            *((int*) data) = rc;
+
+            return 0;
+
+        case QAHW_SOURCE_MESSAGE_WAKE_THREAD:
+            pa_log_info("%s: QAHW_SOURCE_MESSAGE_WAKE_THREAD", __func__);
+            return 0;
+
         default:
+            pa_log_info("%s: Unknown Message", __func__);
             break;
     }
 
-    return pa_qahw_source_process_read_msg(o, code, data, offset, chunk);
+    return -1;
 }
 
-static int pa_qahw_source_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
+static int pa_qahw_source_io_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
     pa_qahw_source_data *source_data = (pa_qahw_source_data *)(PA_SOURCE(o)->userdata);
 
     pa_assert(source_data);
@@ -443,16 +466,6 @@ static int pa_qahw_source_process_msg(pa_msgobject *o, int code, void *data, int
                 pa_source_post(source_data->pa_sdata->source, chunk);
 
             pa_memblock_unref(chunk->memblock);
-            return 0;
-        }
-        case PA_QAHW_SOURCE_MESSAGE_STANDBY_DONE: {
-            /* Don't free read thread if source is moving from SUSPENDED to IDLE */
-            if (!source_data->qahw_sdata->source_opened)
-                free_read_thread_resources(source_data);
-
-            pa_atomic_store(&source_data->qahw_sdata->stopped, 0);
-            pa_atomic_store(&source_data->qahw_sdata->first_read, 0);
-
             return 0;
         }
 
@@ -613,7 +626,7 @@ static pa_idxset* pa_qahw_source_get_formats(pa_source *s) {
     return pa_idxset_copy(sdata->pa_sdata->formats, (pa_copy_func_t) pa_format_info_copy);
 }
 
-static void pa_qahw_source_read_thread_func(void *userdata) {
+static void qahw_source_thread_func(void *userdata) {
     pa_qahw_source_data *source_data = (pa_qahw_source_data *)userdata;
     pa_source_data *pa_sdata = source_data->pa_sdata;
     qahw_source_data *qahw_sdata = source_data->qahw_sdata;
@@ -621,6 +634,7 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
     pa_usec_t cur_qtimer, ticks = 0;
 #endif
     bool wait;
+    bool timer_enabled;
 
     if ((pa_sdata->source->core->realtime_scheduling)) {
         pa_log_info("%s:: Making read thread for %s as realtime with prio %d", __func__,
@@ -629,7 +643,7 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
         pa_make_realtime(pa_sdata->source->core->realtime_priority);
     }
 
-    pa_thread_mq_install(&pa_sdata->read_thread_mq);
+    pa_thread_mq_install(&qahw_sdata->qahw_thread_mq);
 
     pa_log_debug("Source Qahw Read Thread starting up");
 
@@ -639,6 +653,7 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
         qahw_in_buffer_t in_buf;
         void *data;
         wait = false;
+        timer_enabled = false;
 
         memset(&in_buf, 0, sizeof(qahw_in_buffer_t));
 
@@ -658,8 +673,9 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
                         ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 ret = in_buf.bytes;
                 wait = true;
-                pa_rtpoll_set_timer_relative(pa_sdata->read_thread_rtpoll,
+                pa_rtpoll_set_timer_relative(qahw_sdata->qahw_thread_rtpoll,
                                     pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
+                timer_enabled = true;
                 goto poll;
             }
 
@@ -680,6 +696,8 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
         } else {
             pa_memblock_release(chunk.memblock);
             pa_memblock_unref(chunk.memblock);
+            wait = true;
+            pa_log_debug("%s: waiting...",__func__);
             goto poll;
         }
 
@@ -692,8 +710,11 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
         pa_asyncmsgq_post(pa_sdata->thread_mq.inq, PA_MSGOBJECT(pa_sdata->source), PA_QAHW_SOURCE_READ_EVENT_DONE, NULL, 0, &chunk,NULL);
 
 poll:
-        if ((ret = pa_rtpoll_run(pa_sdata->read_thread_rtpoll, wait)) < 0)
+        if ((ret = pa_rtpoll_run(qahw_sdata->qahw_thread_rtpoll, wait)) < 0)
             goto fail;
+
+        if (timer_enabled)
+            pa_rtpoll_set_timer_disabled(qahw_sdata->qahw_thread_rtpoll);
 
         if (ret == 0)
             goto finish;
@@ -702,14 +723,14 @@ poll:
 fail:
     /* If this was no regular exit from the loop we have to continue
      * processing messages until we received PA_MESSAGE_SHUTDOWN */
-    pa_asyncmsgq_post(pa_sdata->read_thread_mq.outq, PA_MSGOBJECT(pa_sdata->source->core), PA_CORE_MESSAGE_UNLOAD_MODULE, pa_sdata->source->module, 0, NULL, NULL);
-    pa_asyncmsgq_wait_for(pa_sdata->read_thread_mq.inq, PA_MESSAGE_SHUTDOWN);
+    pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.outq, PA_MSGOBJECT(pa_sdata->source->core), PA_CORE_MESSAGE_UNLOAD_MODULE, pa_sdata->source->module, 0, NULL, NULL);
+    pa_asyncmsgq_wait_for(qahw_sdata->qahw_thread_mq.inq, PA_MESSAGE_SHUTDOWN);
 
 finish:
     pa_log_debug("Source QAHW Read Thread shutting down");
 }
 
-static void pa_qahw_source_thread_func(void *userdata) {
+static void pa_qahw_source_io_thread_func(void *userdata) {
     pa_qahw_source_data *source_data = (pa_qahw_source_data *)userdata;
     pa_source_data *pa_sdata = source_data->pa_sdata;
     qahw_source_data *qahw_sdata = source_data->qahw_sdata;
@@ -795,7 +816,7 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
     file_name = pa_sprintf_malloc("/data/pcmdump_source_%d", qahw_sdata->handle);
 
     qahw_sdata->write_fd = open(file_name, O_RDWR | O_TRUNC | O_CREAT, S_IRWXU);
-    if(qahw_sdata->write_fd < 0)
+    if (qahw_sdata->write_fd < 0)
         pa_log_error("Could not open write fd %d for source index %d", qahw_sdata->write_fd, qahw_sdata->handle);
 
     pa_xfree(file_name);
@@ -805,7 +826,7 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
                  qahw_sdata->flags, encoding, qahw_sdata->config.format, qahw_sdata->config.sample_rate, qahw_sdata->config.channel_mask, qahw_sdata->devices);
 
     /* Turn BT_SCO on if bt_sco recording */
-    if(audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
+    if (audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
         ret = qahw_set_parameters(module_handle, bt_sco_on);
         pa_log_info("%s: param %s set to hal with return value %d", __func__, bt_sco_on, ret);
     }
@@ -894,19 +915,16 @@ static int close_qahw_source(qahw_source_data *qahw_sdata) {
     if (PA_UNLIKELY(qahw_sdata->in_handle == NULL)) {
         pa_log_error("Invalid source handle %p", qahw_sdata->in_handle);
     } else {
-        rc = qahw_close_input_stream(qahw_sdata->in_handle);
-        if (PA_UNLIKELY(rc)) {
-            pa_log_error(" could not close source handle %p, error  %d", qahw_sdata->in_handle, rc);
-        }
-
-        qahw_sdata->in_handle = NULL;
+        pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
+                                      QAHW_SOURCE_MESSAGE_CLOSE_INPUT, &rc, 0, NULL);
+        pa_log_debug("%s, Ack closing qahw source rc: %d", __func__, rc);
     }
 #ifdef SOURCE_DUMP_ENABLED
     close(qahw_sdata->write_fd);
 #endif
 
     /* Turn BT_SCO off if bt_sco recording */
-    if(audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
+    if (audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
         ret = qahw_set_parameters(qahw_sdata->module_handle, bt_sco_off);
         pa_log_info("%s: param %s set to hal with return value %d", __func__, bt_sco_off, ret);
     }
@@ -943,29 +961,30 @@ static int free_qahw_source(qahw_source_data *qahw_sdata) {
         pa_log_error("close_qahw_source failed, error %d", rc);
     }
 
+    free_qahw_source_thread_resources(qahw_sdata);
+
     pa_xfree(qahw_sdata);
     qahw_sdata = NULL;
 
     return rc;
 }
 
-static void free_read_thread_resources(pa_qahw_source_data *source_data) {
-    pa_assert(source_data);
+static void free_qahw_source_thread_resources(qahw_source_data *qahw_sdata) {
+    pa_assert(qahw_sdata);
 
-    pa_log_debug("Freeing read thread resources");
+    pa_log_debug("Freeing qahw source thread resources");
 
-    if (source_data->qahw_sdata->qahw_read_thread) {
-        pa_asyncmsgq_send(source_data->pa_sdata->read_thread_mq.inq, NULL, PA_MESSAGE_SHUTDOWN, NULL, 0, NULL);
-        pa_thread_free(source_data->qahw_sdata->qahw_read_thread);
-        source_data->qahw_sdata->qahw_read_thread = NULL;
+    if (qahw_sdata->qahw_thread) {
+        pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, NULL, PA_MESSAGE_SHUTDOWN, NULL, 0, NULL);
+        pa_thread_free(qahw_sdata->qahw_thread);
+        qahw_sdata->qahw_thread = NULL;
     }
 
-    pa_thread_mq_done(&source_data->pa_sdata->read_thread_mq);
+    pa_thread_mq_done(&qahw_sdata->qahw_thread_mq);
 
-    if (source_data->pa_sdata->read_thread_rtpoll)
-        pa_rtpoll_free(source_data->pa_sdata->read_thread_rtpoll);
+    if (qahw_sdata->qahw_thread_rtpoll)
+        pa_rtpoll_free(qahw_sdata->qahw_thread_rtpoll);
 
-    source_data->qahw_sdata->read_thread_active = false;
 }
 
 static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
@@ -1067,7 +1086,7 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_source_new_data_done(&new_data);
 
     pa_sdata->source->userdata = (void *)source_data;
-    pa_sdata->source->parent.process_msg = pa_qahw_source_process_msg;
+    pa_sdata->source->parent.process_msg = pa_qahw_source_io_process_msg;
     pa_sdata->source->set_state_in_io_thread = pa_qahw_source_set_state_in_io_thread_cb;
     pa_sdata->source->set_port = pa_qahw_source_set_port_cb;
     pa_sdata->source->priority = priority;
@@ -1088,12 +1107,18 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
         }
     }
 
+    /* Create qahw thread */
+    if (create_qahw_source_thread(source_data)) {
+        pa_log_error("Could not create QAHW thread");
+        goto fail;
+    }
+
     pa_source_set_asyncmsgq(pa_sdata->source, pa_sdata->thread_mq.inq);
     pa_source_set_rtpoll(pa_sdata->source, pa_sdata->rtpoll);
     pa_source_set_max_rewind(pa_sdata->source, 0);
     pa_source_set_fixed_latency(pa_sdata->source, source_data->qahw_sdata->source_latency_us);
 
-    pa_sdata->thread = pa_thread_new(source_name, pa_qahw_source_thread_func, source_data);
+    pa_sdata->thread = pa_thread_new(source_name, pa_qahw_source_io_thread_func, source_data);
     if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
         pa_log_error("Could not spawn I/O thread");
         goto fail;
@@ -1283,11 +1308,9 @@ void pa_qahw_source_close(pa_qahw_source_handle_t *handle) {
 
     stop_qahw_source(sdata->qahw_sdata);
 
-    free_read_thread_resources(sdata);
-
     pa_qahw_source_extn_free(sdata->source_extn_handle);
-    free_pa_source(sdata->pa_sdata);
     free_qahw_source(sdata->qahw_sdata);
+    free_pa_source(sdata->pa_sdata);
     pa_xfree(sdata);
 }
 
