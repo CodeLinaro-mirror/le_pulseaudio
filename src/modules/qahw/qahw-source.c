@@ -637,7 +637,7 @@ static void pa_qahw_source_read_thread_func(void *userdata) {
 
         if (!pa_atomic_load(&qahw_sdata->stopped)) {
             if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) <= 0) {
-                pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %lldms",
+                pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %" PRIu64 "ms",
                         ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 ret = in_buf.bytes;
                 wait = true;
