@@ -860,10 +860,15 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
         payload.in_channel_map_params = qahw_sdata->qahw_be_map;
         rc = qahw_in_set_param_data(qahw_sdata->in_handle, QAHW_PARAM_IN_CHANNEL_MAP, &payload);
         if (rc) {
-            qahw_close_input_stream(qahw_sdata->in_handle);
-            rc = -1;
-            pa_log_error("set_param_data for QAHW_PARAM_IN_CHANNEL_MAP failed %d", rc);
-            goto fail;
+            if (rc == -ENOSYS) {
+                pa_log_warn("set param for QAHW_PARAM_IN_CHANNEL_MAP not supported %d", rc);
+                rc = 0;
+            } else {
+                qahw_close_input_stream(qahw_sdata->in_handle);
+                rc = -1;
+                pa_log_error("set_param_data for QAHW_PARAM_IN_CHANNEL_MAP failed %d", rc);
+                goto fail;
+            }
         }
     }
 
