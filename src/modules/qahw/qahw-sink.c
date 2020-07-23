@@ -153,7 +153,8 @@ typedef struct {
     struct userdata *u;
 
     pa_fdsem *fdsem; /* common resource between pa and qahw sink */
-    bool enable_qahw_sink;
+    bool qahw_sink_opened; /* set when HAL session is to enabled */
+    bool disable_qahw_sink; /* populated from conf file */
     bool use_hw_volume;
 } pa_qahw_sink_data;
 
@@ -604,7 +605,7 @@ static void pa_qahw_sink_set_volume_cb(pa_sink *s) {
     int rc;
     pa_volume_t volume;
 
-    if (!sdata->enable_qahw_sink)
+    if (!sdata->qahw_sink_opened)
         return;
 
     pa_assert(sdata);
@@ -638,7 +639,7 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)s->userdata;
     int rc = 0;
 
-    if (!sdata->enable_qahw_sink)
+    if (!sdata->qahw_sink_opened)
         return rc;
 
     pa_assert(sdata);
@@ -709,7 +710,7 @@ static int pa_qahw_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t ne
         return r;
 
     if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(s->thread_info.state)) {
-        if (sdata->enable_qahw_sink) {
+        if (sdata->qahw_sink_opened) {
             r = pa_qahw_sink_start(sdata, new_state);
         } else {
             /* Enable qahw sink only when moving from SUSPENDED */
@@ -728,13 +729,13 @@ static int pa_qahw_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t ne
                 r = pa_qahw_sink_start(sdata, new_state);
             }
         }
-    } else if (new_state == PA_SINK_SUSPENDED && sdata->enable_qahw_sink) {
+    } else if (new_state == PA_SINK_SUSPENDED && sdata->qahw_sink_opened) {
         pa_log_info("%s: Posting message QAHW_SINK_MESSAGE_STANDBY", __func__);
         pa_asyncmsgq_post(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
                                                               QAHW_SINK_MESSAGE_STANDBY, NULL, 0, NULL, NULL);
-    } else if (PA_SINK_IS_RUNNING(new_state) && (s->thread_info.state == PA_SINK_IDLE) && sdata->enable_qahw_sink) {
+    } else if (PA_SINK_IS_RUNNING(new_state) && (s->thread_info.state == PA_SINK_IDLE) && sdata->qahw_sink_opened) {
         r = pa_qahw_sink_pause(sdata, false);
-    } else if (PA_SINK_IS_RUNNING(s->thread_info.state) && (new_state == PA_SINK_IDLE) && sdata->enable_qahw_sink) {
+    } else if (PA_SINK_IS_RUNNING(s->thread_info.state) && (new_state == PA_SINK_IDLE) && sdata->qahw_sink_opened) {
         r = pa_qahw_sink_pause(sdata, true);
     }
 
@@ -839,7 +840,7 @@ static int pa_qahw_sink_drain_cb(pa_sink *s) {
     qahw_sink_data *qahw_sdata;
     int rc = 0;
 
-    if (!sdata->enable_qahw_sink)
+    if (!sdata->qahw_sink_opened)
         return rc;
 
     pa_assert(sdata);
@@ -859,7 +860,7 @@ static int pa_qahw_sink_flush_cb(pa_sink *s) {
     qahw_sink_data *qahw_sdata;
     int rc = 0;
 
-    if (!sdata->enable_qahw_sink)
+    if (!sdata->qahw_sink_opened)
         return rc;
 
     pa_assert(sdata);
@@ -1000,7 +1001,7 @@ static int qahw_sink_process_msg (pa_msgobject *o, int code, void *data, int64_t
             pa_qahw_sink_standby(sdata);
             pa_log_info("%s: Posting message PA_QAHW_SINK_MESSAGE_STANDBY_DONE", __func__);
             pa_asyncmsgq_post(sdata->pa_sdata->thread_mq.inq, PA_MSGOBJECT(sdata->pa_sdata->sink),
-                                          PA_QAHW_SINK_MESSAGE_STANDBY_DONE, NULL, 0, NULL, NULL);
+                                        PA_QAHW_SINK_MESSAGE_STANDBY_DONE, NULL, 0, NULL, NULL);
 
             return 0;
 
@@ -1054,7 +1055,7 @@ static int pa_qahw_sink_io_process_msg(pa_msgobject *o, int code, void *data, in
 
     switch (code) {
         case PA_SINK_MESSAGE_GET_LATENCY:
-            if (pa_atomic_load(&sdata->qahw_sdata->first_write_done))
+            if (pa_atomic_load(&sdata->qahw_sdata->first_write_done) && sdata->qahw_sink_opened)
                 *((int64_t*) data) = pa_qahw_sink_get_latency(sdata);
 
             return 0;
@@ -1158,7 +1159,7 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chan
         rc = restart_qahw_sink(qahw_sdata->module_handle, encoding, &tmp_spec, &new_map, qahw_sdata->devices, qahw_sdata->flags, qahw_sdata->handle, sdata);
         if (rc) {
             pa_log_error("%s: could note create qahw sink with requested conf, error %d, restoring old conf", __func__, rc);
-            if (!sdata->enable_qahw_sink) {
+            if (!sdata->qahw_sink_opened) {
                 /* Open non primary sink with old configs */
                 rc = pa_qahw_sink_enable_qahw_sink(qahw_sdata->module_handle, encoding, &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map,
                                                                                  qahw_sdata->devices, qahw_sdata->flags, qahw_sdata->handle, sdata);
@@ -1339,7 +1340,7 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
         wait = true;
 
         /* Render only if qahw sink is enabled */
-        if (sdata->enable_qahw_sink) {
+        if (sdata->qahw_sink_opened) {
             if (pa_sdata->sink->thread_info.rewind_requested)
                 pa_sink_process_rewind(pa_sdata->sink, 0);
 
@@ -1524,14 +1525,14 @@ static int pa_qahw_sink_enable_qahw_sink(qahw_module_handle_t *module_handle, pa
     pa_assert(sdata);
     pa_assert(sdata->qahw_sdata);
 
-    pa_log_info("%s: enabling qahw sink", __func__);
+    pa_log_info("%s: Enabling qahw sink for %s", __func__, sdata->pa_sdata->sink->name);
 
-    sdata->enable_qahw_sink = true;
+    sdata->qahw_sink_opened = true;
 
     rc = open_qahw_sink(module_handle, encoding, ss, map, devices, flags, sink_id, sdata, sdata->qahw_sdata->buffer_duration, sdata->qahw_sdata->max_gain);
     if (rc) {
         pa_log_error("open_qahw_sink failed, error %d", rc);
-        sdata->enable_qahw_sink = false;
+        sdata->qahw_sink_opened = false;
         goto exit;
     }
 
@@ -1546,7 +1547,6 @@ static void pa_qahw_sink_set_pa_sink_cb(pa_qahw_sink_data *sdata) {
     pa_sink_data *pa_sdata = NULL;
 
     pa_assert(sdata);
-    pa_assert(sdata->qahw_sdata);
     pa_assert(sdata->pa_sdata);
 
     pa_sdata = sdata->pa_sdata;
@@ -1618,7 +1618,7 @@ static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t 
     qahw_sdata = sdata->qahw_sdata;
     pa_atomic_store(&qahw_sdata->restart_in_progress, 1);
 
-    if (sdata->enable_qahw_sink) {
+    if (sdata->qahw_sink_opened) {
         rc = close_qahw_sink(sdata);
         if (rc) {
             pa_log_error("close_qahw_sink failed, error %d", rc);
@@ -1988,6 +1988,8 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     pa_log_info("%s: creating sink with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &sink->default_spec));
 
     sdata = pa_xnew0(pa_qahw_sink_data, 1);
+    sdata->qahw_sink_opened = true;
+    sdata->disable_qahw_sink = sink->disable_qahw_sink;
 
     rc = pa_qahw_sink_alloc_common_resources(sdata);
     if (PA_UNLIKELY(rc)) {
@@ -1996,9 +1998,6 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
         sdata = NULL;
         goto exit;
     }
-
-    if (pa_strneq(sink->type, "offload-primary", strlen("offload-primary")))
-        sdata->enable_qahw_sink = true;
 
     rc = create_qahw_sink(module_handle, sink->default_encoding, &sink->default_spec, &sink->default_map, port_device_data->device, sink->flags, sink->id, sdata, sink->buffer_duration,
                               sink->max_gain);
@@ -2033,15 +2032,17 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     }
 
     /* Close HAL session for non primary sinks */
-    if (!sdata->enable_qahw_sink) {
-        pa_log_info("%s: closing hal session for non primary sinks", __func__);
+    if (sdata->disable_qahw_sink) {
+        pa_log_info("%s: closing hal session for %s", __func__, sink->name);
+
         rc = close_qahw_sink(sdata);
         if (rc)
             pa_log_error("close_qahw_sink failed, error %d", rc);
+        else
+            sdata->qahw_sink_opened = false;
     }
 
-    /* Update extn handle for primary sinks *
-     * out_handle will be valid only for primary sinks */
+    /* Update out_handle in sink extn for valid qahw sinks */
     if (sdata->qahw_sdata->out_handle)
         pa_qahw_sink_extn_sink_handle_update(sdata->sink_extn_handle, sdata->qahw_sdata->out_handle);
 
