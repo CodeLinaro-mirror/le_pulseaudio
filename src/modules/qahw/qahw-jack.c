@@ -69,7 +69,7 @@ static bool pa_qahw_jack_check_enable_status(struct pa_qahw_jack_data *jdata, co
 }
 
 pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t jack_type, pa_qahw_jack_callback_t callback, pa_module *m,
-                                                              pa_qahw_jack_in_config *jack_in_config, void *client_data, bool is_external) {
+                         pa_qahw_jack_in_config *jack_in_config, void *client_data, bool is_external, qahw_module_handle_t *module_handle) {
     struct jack_userdata *u;
     struct pa_qahw_jack_data *jdata = NULL;
     const char *port_name = NULL;
@@ -105,7 +105,8 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
             jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
         } else if  (jack_type == PA_QAHW_JACK_TYPE_SPDIF) {
             if (!is_external)
-                jdata = pa_qahw_spdif_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data);
+                jdata = pa_qahw_spdif_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data,
+                                                                                                                   module_handle);
             else
                 jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
         } else if (jack_type == PA_QAHW_JACK_TYPE_BTSCO_IN) {

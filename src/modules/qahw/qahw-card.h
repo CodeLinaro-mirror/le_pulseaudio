@@ -102,6 +102,7 @@ typedef struct {
     char *arc_audio_preemph_node_path;
 
     char *hdmi_tx_state_path;
+    char *channel_status_path;
 
     char *detection;
 } pa_qahw_card_port_config;
