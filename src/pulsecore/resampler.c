@@ -2,7 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2006 Lennart Poettering
-  Copyright (c) 2019, The Linux Foundation. All rights reserved.
+  Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -119,6 +119,7 @@ static int (* const init_table[])(pa_resampler *r) = {
     [PA_RESAMPLER_SOXR_HQ]                 = NULL,
     [PA_RESAMPLER_SOXR_VHQ]                = NULL,
 #endif
+    [PA_RESAMPLER_NEON_PROP]               = pa_resampler_neon_prop_init,
 };
 
 static pa_resample_method_t choose_auto_resampler(pa_resample_flags_t flags) {
@@ -178,6 +179,13 @@ static pa_resample_method_t fix_method(
         case PA_RESAMPLER_PEAKS:
             if (rate_a < rate_b) {
                 pa_log_warn("The 'peaks' resampler only supports downsampling, reverting to resampler 'auto'.");
+                method = PA_RESAMPLER_AUTO;
+            }
+            break;
+
+        case PA_RESAMPLER_NEON_PROP:
+            if(pa_neon_prop_supported(flags, rate_a, rate_b) == false) {
+                pa_log_warn("Can't use Neon, reverting to resampler 'auto'.");
                 method = PA_RESAMPLER_AUTO;
             }
             break;
@@ -276,6 +284,7 @@ static pa_sample_format_t choose_work_format(
          * support the S16 sample format. */
         case PA_RESAMPLER_SPEEX_FIXED_BASE:
         case PA_RESAMPLER_FFMPEG:
+        case PA_RESAMPLER_NEON_PROP:
             work_format = PA_SAMPLE_S16NE;
             break;
 
@@ -660,7 +669,8 @@ static const char * const resample_methods[] = {
     "peaks",
     "soxr-mq",
     "soxr-hq",
-    "soxr-vhq"
+    "soxr-vhq",
+    "neon-src"
 };
 
 const char *pa_resample_method_to_string(pa_resample_method_t m) {

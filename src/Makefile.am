@@ -1096,6 +1096,8 @@ libpulsecore_@PA_MAJORMINOR@_la_CFLAGS += $(LIBSPEEX_CFLAGS)
 libpulsecore_@PA_MAJORMINOR@_la_LIBADD += $(LIBSPEEX_LIBS)
 endif
 
+libpulsecore_@PA_MAJORMINOR@_la_SOURCES += pulsecore/resampler/neon.c
+
 if HAVE_SOXR
 libpulsecore_@PA_MAJORMINOR@_la_SOURCES += pulsecore/resampler/soxr.c
 libpulsecore_@PA_MAJORMINOR@_la_CFLAGS += $(LIBSOXR_CFLAGS)
