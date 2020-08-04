@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -297,7 +297,7 @@ static void qahw_jack_external_start_compress_stream(DBusConnection *conn, DBusM
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Unsupported encoding %s", encoding_str);
         dbus_error_free(&error);
         return;
-    } else if (config.encoding == PA_ENCODING_PCM) {
+    } else if (config.encoding == PA_ENCODING_PCM || config.encoding == PA_ENCODING_DSD) {
         config.ss.format = pa_parse_sample_format(format_str);
     }
 

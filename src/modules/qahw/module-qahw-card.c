@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -202,6 +202,19 @@ exit:
     return;
 }
 
+static void pa_qahw_card_set_actual_channel_map(pa_format_info *requested_format,
+                                                 pa_qahw_jack_out_config *config) {
+    char map_str[PA_CHANNEL_MAP_SNPRINT_MAX];
+
+    pa_assert(requested_format);
+    pa_assert(config);
+
+    pa_channel_map_snprint(map_str, sizeof(map_str), &(config->map));
+
+    if (config->encoding == PA_ENCODING_DSD)
+        pa_format_info_set_prop_string(requested_format, "dsd-actual-channel-map", map_str);
+}
+
 static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_out_config *config, struct userdata *u) {
     int rc;
 
@@ -212,6 +225,7 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
 
     pa_idxset *requested_formats;
     pa_format_info *requested_format;
+    pa_format_info *compr_stream_format = NULL;
 
     pa_format_info *current_format;
     pa_format_info *config_format = NULL;
@@ -241,8 +255,16 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
         pa_format_info_set_rate(requested_format, config->ss.rate);
 
         if (config->encoding == PA_ENCODING_DSD) {
+            compr_stream_format = pa_format_info_new();
+            pa_format_info_set_prop_int(compr_stream_format, "dsd-actual-channel-count", (int32_t)config->ss.channels);
+            /* Update channel count to be compatible with DSP expectation */
+            config->ss.channels = config->ss.channels * 2;
             pa_format_info_set_channels(requested_format, config->ss.channels);
-            pa_format_info_set_prop_int(requested_format, "dsd-type", (int32_t)config->dsd_rate);
+            pa_format_info_set_sample_format(requested_format, config->ss.format);
+            pa_format_info_set_prop_int(compr_stream_format, "dsd-type", (int32_t)config->dsd_rate);
+            pa_qahw_card_set_actual_channel_map(compr_stream_format, config);
+            /* Publish actual encoding as DSD will be enumerated as PCM */
+            pa_format_info_set_prop_string(compr_stream_format, "actual-encoding", "dsd");
         }
     }
 
@@ -307,8 +329,18 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
         goto exit;
     }
 
+    /* Enumerate DSD source as PCM */
+    if (requested_format->encoding == PA_ENCODING_DSD) {
+        requested_format->encoding = PA_ENCODING_PCM;
+        compr_stream_format->encoding = requested_format->encoding;
+    }
+
     requested_formats = pa_idxset_new(NULL, NULL);
     pa_idxset_put(requested_formats, requested_format, NULL);
+
+    /* Add compress stream properties */
+    if (compr_stream_format)
+        pa_idxset_put(requested_formats, compr_stream_format, NULL);
 
     new_source = *source;
     new_source.default_spec = config->ss;
