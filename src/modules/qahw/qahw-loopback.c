@@ -610,7 +610,8 @@ static void pa_qahw_loopback_register_jack_callback(struct pa_qahw_loopback_sess
 
     if (jack_type != PA_QAHW_JACK_TYPE_INVALID)
         ses_data->jack_handle = pa_qahw_jack_register_event_callback(jack_type, callback,
-              pa_qahw_loopback_mdata->m, NULL, (void *)ses_data, ses_data->external_jack);
+              pa_qahw_loopback_mdata->m, NULL, (void *)ses_data, ses_data->external_jack,
+                                                   pa_qahw_loopback_mdata->module_handle);
 }
 
 static bool pa_qahw_loopback_config_change_valid(pa_qahw_jack_out_config *port_config) {

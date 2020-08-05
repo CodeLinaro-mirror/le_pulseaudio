@@ -30,6 +30,11 @@
 #define KV_PAIR_MAX_LENGTH 100
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
+#ifndef memscpy
+#define memscpy(dst, dst_size, src, bytes_to_copy) \
+        (void) memcpy(dst, src, MIN(dst_size, bytes_to_copy))
+#endif
+
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format);
 const char* pa_qahw_util_get_port_name_from_jack_type(pa_qahw_jack_type_t jack_type);
 pa_qahw_jack_type_t pa_qahw_util_get_jack_type_from_port_name( const char *port_name);

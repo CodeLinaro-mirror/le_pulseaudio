@@ -20,6 +20,7 @@
 #define fooqahwjackhfoo
 
 #include <pulsecore/module.h>
+#include <qahw_api.h>
 
 typedef enum {
     PA_QAHW_JACK_TYPE_INVALID = -1,
@@ -35,7 +36,9 @@ typedef enum {
     PA_QAHW_JACK_TYPE_BTSCO_IN = 0x200,
     PA_QAHW_JACK_TYPE_BTSCO_OUT = 0x400,
     PA_QAHW_JACK_TYPE_HDMI_OUT = 0x800,
-    PA_QAHW_JACK_TYPE_LAST = PA_QAHW_JACK_TYPE_HDMI_OUT,
+    PA_QAHW_JACK_TYPE_SPDIF_OUT_OPTICAL = 0x1000,
+    PA_QAHW_JACK_TYPE_SPDIF_OUT_COAXIAL = 0x2000,
+    PA_QAHW_JACK_TYPE_LAST = PA_QAHW_JACK_TYPE_SPDIF_OUT_COAXIAL,
     PA_QAHW_JACK_TYPE_MAX = PA_QAHW_JACK_TYPE_LAST,
 } pa_qahw_jack_type_t;
 
@@ -83,6 +86,7 @@ typedef struct {
     const char *arc_audio_preemph;
 
     const char *hdmi_tx_state;
+    const char *channel_status;
 } pa_qahw_jack_sys_path;
 
 typedef struct {
@@ -93,7 +97,7 @@ typedef struct {
 typedef pa_hook_result_t (* pa_qahw_jack_callback_t) (void *dummy __attribute__((unused)), pa_qahw_jack_event_data_t *event_data, void *client_data);
 
 pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t jack_type, pa_qahw_jack_callback_t callback, pa_module *m,
-                                                              pa_qahw_jack_in_config *jack_in_config, void *client_data, bool is_external);
+                         pa_qahw_jack_in_config *jack_in_config, void *client_data, bool is_external, qahw_module_handle_t *module_handle);
 bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *handle, pa_module *m, bool is_external);
 
 #endif

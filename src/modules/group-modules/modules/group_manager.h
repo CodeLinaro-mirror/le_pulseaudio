@@ -29,6 +29,7 @@
 PA_C_DECL_BEGIN
 #include <pulsecore/memblockq.h>
 #include <pulsecore/module.h>
+#include <pulsecore/protocol-dbus.h>
 #include <pulsecore/sink.h>
 #include <pulsecore/trace_log.h>
 PA_C_DECL_END
@@ -54,6 +55,8 @@ class GroupManager {
 
     void resetTimestamp(pa_sink_input *new_input = nullptr);
 
+    pa_nsec_t getTargetLatency();
+
  private:
     bool init(pa_module *m, pa_sink *master,
         std::set<GroupSinkCtrl *> group,
@@ -64,6 +67,9 @@ class GroupManager {
     pa_sink *sink_{nullptr};
     pa_sink_input *sink_input_{nullptr};
 
+    std::string dbus_path_;
+    pa_dbus_protocol *dbus_protocol_{nullptr};
+
     std::mutex lock_;
     std::condition_variable cond_;
 
@@ -72,6 +78,8 @@ class GroupManager {
     pa_sink_input *active_input_{nullptr};
     bool has_timestamps_{false};
     bool in_underrun_{false};
+    // Latency currently in use, used only by I/O thread
+    pa_nsec_t latency_in_use_{PA_NSEC_INVALID};
     pa_nsec_t timestamp_{PA_NSEC_INVALID};
 
     size_t min_chunk_length_{0};
@@ -79,12 +87,14 @@ class GroupManager {
     pa_memchunk remaining_chunk_;
 
     trace_log ts_logging_ = TRACE_LOG_STATIC_INIT;
-    // name for tracing the first query for a packet
     std::string ts_query_name_;
     // time when we first ask for a packet (need to save it because we might
     // not know yet what the packet timestamp is)
     pa_nsec_t ts_query_ltime_{PA_NSEC_INVALID};
     pa_nsec_t ts_query_expected_ts{PA_NSEC_INVALID};
+
+    // Latency allocated by audio-manager, can be access by both Main and I/O thread
+    std::atomic<pa_nsec_t> allocated_latency_{PA_NSEC_INVALID};
 };
 
 #endif  // SRC_MODULES_GROUP_MODULES_MODULES_GROUP_MANAGER_H_

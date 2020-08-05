@@ -25,8 +25,9 @@
 
 typedef size_t pa_qahw_sink_extn_handle_t;
 
-int pa_qahw_sink_extn_create(pa_core *core, qahw_stream_handle_t *out_handle, int pa_sink_index, pa_qahw_sink_extn_handle_t **handle);
+int pa_qahw_sink_extn_create(pa_core *core, int pa_sink_index, pa_qahw_sink_extn_handle_t **handle);
 int pa_qahw_sink_extn_free(pa_qahw_sink_extn_handle_t *handle);
 int pa_qahw_sink_extn_sink_handle_update(pa_qahw_sink_extn_handle_t *handle, qahw_stream_handle_t *out_handle);
+void pa_qahw_sink_extn_process_requests(pa_qahw_sink_extn_handle_t *handle);
 
 #endif

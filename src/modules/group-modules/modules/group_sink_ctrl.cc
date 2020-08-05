@@ -24,8 +24,9 @@
 #include <pthread.h>
 
 #include <pulse/rtclock.h>
-#include <pulse/timeval.h>
 PA_C_DECL_BEGIN
+#include <pulsecore/dbus-shared.h>
+#include <pulsecore/dbus-util.h>
 #include <pulsecore/ltdl-helper.h>
 #include <pulsecore/rtpoll.h>
 #include <pulsecore/sink.h>
@@ -40,20 +41,90 @@ constexpr char kIpcNamespace[] = "pulse.groupsink";
 static constexpr pa_usec_t kMaxSilence = 1 * PA_USEC_PER_MSEC;  // 1ms
 
 enum {
-    GROUP_SINK_ENABLE = PA_SINK_MESSAGE_MAX,
+    GROUP_SINK_IO_MSG_ENABLE = PA_SINK_MESSAGE_MAX,
+};
+enum {
+    GROUP_SINK_MAIN_MSG_SIGNAL_MINIMUM_LATENCY_UPDATE
 };
 
 template <>
 struct is_flags<pa_sink_flags_t> : std::true_type {};
+
+template <typename T, size_t S>
+constexpr size_t arraySize(T (&)[S]) {
+    return S;
+}
+
+struct GroupSinkMsg {
+    pa_msgobject parent;
+    GroupSinkCtrl *group_sink;
+
+    // Message parameters
+    union {
+        // GROUP_SINK_MAIN_MSG_SIGNAL_MINIMUM_LATENCY_UPDATE
+        struct {
+            pa_usec_t latency;
+        } signalMinimumLatencyUpdate;
+    };
+};
+PA_DEFINE_PRIVATE_CLASS(GroupSinkMsg, pa_msgobject);
+
+static void handleDbusGetMinimumLatency(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void handleDbusSetAllocatedLatency(DBusConnection *conn, DBusMessage *msg, void *userdata);
+
+static constexpr const char kGroupSinkDbusPathPrefix[] = "/org/pulseaudio/ext/latency/sink";
+static constexpr const char kGroupSinkDbusIntf[] = "org.PulseAudio.Ext.Latency.Sink";
+
+static pa_dbus_arg_info dbus_get_minimum_latency_args[] = {
+    {"latency", DBUS_TYPE_UINT64_AS_STRING, "out"},
+    {"name", DBUS_TYPE_STRING_AS_STRING, "out"}};
+
+static pa_dbus_arg_info dbus_set_allocated_latency_args[] = {
+    {"latency", DBUS_TYPE_UINT64_AS_STRING, "in"}};
+
+static pa_dbus_arg_info dbus_minimum_latency_update_args[] = {
+    {"latency", DBUS_TYPE_UINT64_AS_STRING, nullptr},
+    {"name", DBUS_TYPE_STRING_AS_STRING, nullptr}};
+
+static pa_dbus_method_handler method_handlers[] = {
+    {"GetMinimumLatency",
+        dbus_get_minimum_latency_args, arraySize(dbus_get_minimum_latency_args),
+        handleDbusGetMinimumLatency},
+    {"SetAllocatedLatency",
+        dbus_set_allocated_latency_args, arraySize(dbus_set_allocated_latency_args),
+        handleDbusSetAllocatedLatency}};
+
+static constexpr const char kDbusMinimumLatencyUpdateSignal[] = "MinimumLatencyUpdate";
+static pa_dbus_signal_info signals[] = {
+    {kDbusMinimumLatencyUpdateSignal,
+        dbus_minimum_latency_update_args, arraySize(dbus_minimum_latency_update_args)}};
+
+static pa_dbus_interface_info interface_info = {
+    kGroupSinkDbusIntf,
+    method_handlers, arraySize(method_handlers),
+    nullptr, 0,
+    nullptr,
+    signals, arraySize(signals)};
 
 static std::weak_ptr<adk::msg::AdkMessageService> message_service_weak_ptr;
 
 GroupSinkCtrl::~GroupSinkCtrl() {
     pa_sink_unlink(sink);
 
+    if (dbus_protocol_) {
+        pa_assert_se(pa_dbus_protocol_remove_interface(dbus_protocol_, dbus_path_.c_str(), interface_info.name) >= 0);
+        pa_dbus_protocol_unref(dbus_protocol_);
+        dbus_protocol_ = nullptr;
+    }
+
     if (thread.joinable()) {
         pa_asyncmsgq_send(thread_mq.inq, nullptr, PA_MESSAGE_SHUTDOWN, nullptr, 0, nullptr);
         thread.join();
+    }
+
+    if (main_msg_) {
+        GroupSinkMsg_unref(main_msg_);
+        main_msg_ = nullptr;
     }
 
     pa_thread_mq_done(&thread_mq);
@@ -107,7 +178,7 @@ void GroupSinkCtrl::updateInterfaces(const std::vector<GroupSinkInterfaces> &int
 }
 
 void GroupSinkCtrl::enable(bool enable) {
-    pa_asyncmsgq_post(thread_mq.inq, PA_MSGOBJECT(sink), GROUP_SINK_ENABLE, reinterpret_cast<void *>(enable), 0, nullptr, nullptr);
+    pa_asyncmsgq_post(thread_mq.inq, PA_MSGOBJECT(sink), GROUP_SINK_IO_MSG_ENABLE, reinterpret_cast<void *>(enable), 0, nullptr, nullptr);
 }
 
 /* Called from main context */
@@ -135,8 +206,23 @@ static int sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state,
     return 0;
 }
 
+/* Called from main context */
+static int sink_process_main_msg(pa_msgobject *o, int code, void * /*userdata*/, int64_t /*offset*/, pa_memchunk * /*chunk*/) {
+    pa_assert(o);
+    pa_assert_ctl_context();
+
+    struct GroupSinkMsg *msg = GroupSinkMsg_cast(o);
+    switch (code) {
+        case GROUP_SINK_MAIN_MSG_SIGNAL_MINIMUM_LATENCY_UPDATE:
+            msg->group_sink->signalMinimumLatencyUpdate(msg->signalMinimumLatencyUpdate.latency);
+            return 0;
+    }
+
+    return -1;
+}
+
 /* Called from I/O thread context */
-static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
+static int sink_process_io_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
     auto u = reinterpret_cast<GroupSinkCtrl *>(PA_SINK(o)->userdata);
     switch (code) {
         case PA_SINK_MESSAGE_GET_LATENCY:
@@ -150,18 +236,26 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
             *reinterpret_cast<int64_t *>(data) = static_cast<int64_t>(u->group_sink->getCurrentLatency(u->group_sink));
             return 0;
 
-        case GROUP_SINK_ENABLE: {
+        case GROUP_SINK_IO_MSG_ENABLE: {
+            pa_usec_t old_latency = u->group_sink->getTargetLatency(u->group_sink);
+
             bool enable = (data != nullptr);
             u->group_sink->enable(u->group_sink, enable);
 
-            pa_usec_t latency = u->group_sink->getTargetLatency(u->group_sink);
-            pa_sink_set_latency_range_within_thread(u->sink, latency, latency);
+            pa_usec_t new_latency = u->group_sink->getTargetLatency(u->group_sink);
+            if (old_latency != new_latency) {
+                pa_sink_set_latency_range_within_thread(u->sink, new_latency, new_latency);
+
+                u->main_msg_->signalMinimumLatencyUpdate.latency = new_latency;
+                pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(u->main_msg_), GROUP_SINK_MAIN_MSG_SIGNAL_MINIMUM_LATENCY_UPDATE, NULL, 0, NULL, NULL);
+            }
             return 0;
         }
     }
     return pa_sink_process_msg(o, code, data, offset, chunk);
 }
 
+/* I/O thread */
 static void thread_func(GroupSinkCtrl *u) {
     if (u->sink->core->realtime_scheduling) {
         pa_make_realtime(u->sink->core->realtime_priority);
@@ -191,7 +285,10 @@ static void thread_func(GroupSinkCtrl *u) {
 
         // Expire chunks from queue
         pa_usec_t queue_latency = u->group_sink->getCurrentLatency(u->group_sink);
-        pa_usec_t target_latency = u->group_sink->getTargetLatency(u->group_sink);
+        pa_usec_t target_latency = u->target_latency_;
+        if (target_latency == PA_USEC_INVALID) {
+            target_latency = u->group_sink->getTargetLatency(u->group_sink);
+        }
 
         if (queue_latency >= target_latency) {
             // Queue latency is maxed out, sleep a little bit
@@ -220,6 +317,70 @@ fail:
 
 finish:
     pa_log_debug("Thread shutting down");
+}
+
+/* Called from Main thread context */
+static void handleDbusGetMinimumLatency(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    auto d = reinterpret_cast<GroupSinkCtrl *>(userdata);
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(d);
+
+    // TODO(jbing): should we consider the helper library thread safe? Or should
+    // all access be limited to the I/O thread (in which case we need to fix
+    // the following)?
+    auto latency = static_cast<dbus_uint64_t>(d->group_sink->getTargetLatency(d->group_sink));
+
+    DBusMessage *reply;
+    pa_assert_se((reply = dbus_message_new_method_return(msg)));
+    pa_assert_se(dbus_message_append_args(reply, DBUS_TYPE_UINT64, &latency, DBUS_TYPE_STRING, &d->sink->name, DBUS_TYPE_INVALID));
+
+    pa_assert_se(dbus_connection_send(conn, reply, NULL));
+    dbus_message_unref(reply);
+}
+
+/* Called from Main thread context */
+static void handleDbusSetAllocatedLatency(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    auto d = reinterpret_cast<GroupSinkCtrl *>(userdata);
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(d);
+
+    DBusError error;
+    dbus_error_init(&error);
+
+    dbus_uint64_t latency;
+    if ((dbus_message_get_args(msg, &error, DBUS_TYPE_UINT64, &latency, DBUS_TYPE_INVALID)) == 0) {
+        pa_log("SetAllocatedLatency invalid args: %s", error.message);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_log_info("Allocated latency for %susec: %" PRIu64, d->sink->name, latency);
+    d->target_latency_ = latency;
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+/* Called from Main thread context */
+void GroupSinkCtrl::signalMinimumLatencyUpdate(pa_usec_t _latency) {
+    pa_assert_ctl_context();
+
+    auto latency = static_cast<dbus_uint64_t>(_latency);
+    pa_log_info("Signaling minimum latency %" PRIu64 "usec for %s", latency, sink->name);
+
+    DBusMessage *signal_msg;
+    pa_assert_se(signal_msg = dbus_message_new_signal(dbus_path_.c_str(),
+                     kGroupSinkDbusIntf,
+                     kDbusMinimumLatencyUpdateSignal));
+    pa_assert_se(dbus_message_append_args(signal_msg,
+        DBUS_TYPE_UINT64, &latency,
+        DBUS_TYPE_STRING, &sink->name,
+        DBUS_TYPE_INVALID));
+    pa_dbus_protocol_send_signal(dbus_protocol_, signal_msg);
 }
 
 std::shared_ptr<GroupSinkCtrl> GroupSinkCtrl::create(pa_module *_module,
@@ -273,9 +434,15 @@ std::shared_ptr<GroupSinkCtrl> GroupSinkCtrl::create(pa_module *_module,
         goto fail;
     }
 
-    u->sink->parent.process_msg = sink_process_msg;
-    u->sink->set_state_in_main_thread = sink_set_state_in_main_thread_cb;
+    // Handlers for messages in io thread
+    u->sink->parent.process_msg = sink_process_io_msg;
     u->sink->set_state_in_io_thread = sink_set_state_in_io_thread_cb;
+
+    // Handlers for messages in main thread
+    u->main_msg_ = pa_msgobject_new(GroupSinkMsg);
+    u->main_msg_->parent.process_msg = sink_process_main_msg;
+    u->main_msg_->group_sink = u.get();
+    u->sink->set_state_in_main_thread = sink_set_state_in_main_thread_cb;
 
     // sink->update_requested_latency = sink_update_requested_latency_cb;
     pa_sink_set_asyncmsgq(u->sink, u->thread_mq.inq);
@@ -308,6 +475,10 @@ std::shared_ptr<GroupSinkCtrl> GroupSinkCtrl::create(pa_module *_module,
         message_service_weak_ptr = u->message_service_;
         pa_log_debug("Group Sink Create success to initialise message service");
     }
+
+    u->dbus_protocol_ = pa_dbus_protocol_get(u->module->core);
+    u->dbus_path_ = kGroupSinkDbusPathPrefix + std::to_string(u->sink->index);
+    pa_assert_se(pa_dbus_protocol_add_interface(u->dbus_protocol_, u->dbus_path_.c_str(), &interface_info, u.get()) >= 0);
 
     pa_sink_put(u->sink);
 
