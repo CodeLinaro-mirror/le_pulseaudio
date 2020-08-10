@@ -755,9 +755,6 @@ static bool pa_qahw_sink_set_format_cb(pa_sink *s, const pa_format_info *format)
     int rc = 0;
     bool ret = false;
 
-    if (!sdata->enable_qahw_sink)
-        return rc;
-
     pa_assert(sdata);
     pa_assert(sdata->qahw_sdata);
 
