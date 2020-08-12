@@ -461,8 +461,9 @@ static int pa_qahw_source_io_process_msg(pa_msgobject *o, int code, void *data, 
 #ifdef SOURCE_DUMP_ENABLED
             pa_log_debug("%s: chunk length %d chunk index %d ", __func__, chunk->length, chunk->index);
 #endif
-            /* Don't post if source is already shutting down */
-            if (!pa_atomic_load(&source_data->qahw_sdata->stopped))
+            /* Don't post if source is already shutting down or if source is not linked yet */
+            if (!pa_atomic_load(&source_data->qahw_sdata->stopped) &&
+                 PA_SOURCE_IS_LINKED(source_data->pa_sdata->source->thread_info.state))
                 pa_source_post(source_data->pa_sdata->source, chunk);
 
             pa_memblock_unref(chunk->memblock);
