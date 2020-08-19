@@ -1988,7 +1988,7 @@ static char* pa_qahw_config_parser_get_conf_file_name(char *dir, char *conf_name
         }
     }
 
-    pa_log_debug("%s:: config file name  %s", __func__, conf_path);
+    pa_log_debug("%s:: config file name  %s", __func__, conf_path == NULL ? "NULL" : conf_path);
 
     return conf_path;
 }
