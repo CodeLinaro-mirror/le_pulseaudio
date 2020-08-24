@@ -2,7 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2008 Lennart Poettering
-  Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+  Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -55,6 +55,7 @@ MOD_EXPORT bool pa__load_once(void);
 #define RATE_MAP_PARAM "rate"
 #define CHANNELS_PARAM "channels"
 #define CHANNEL_MAP_PARAM "channel_map"
+#define AVOID_PROCESSING_PARAM "avoid_processing"
 
 PA_MODULE_AUTHOR("Qualcomm Technologies, Inc.");
 PA_MODULE_DESCRIPTION(_("Group sink"));
@@ -70,6 +71,7 @@ PA_MODULE_USAGE(
     RATE_MAP_PARAM "=<sample rate> "
     CHANNELS_PARAM "=<number of channels> "
     CHANNEL_MAP_PARAM "=<channel map> "
+    AVOID_PROCESSING_PARAM "=<use stream original sample spec if possible?>"
 );
 // clang-format on
 
@@ -82,6 +84,7 @@ static const char *const valid_modargs[] = {
     RATE_MAP_PARAM,
     CHANNELS_PARAM,
     CHANNEL_MAP_PARAM,
+    AVOID_PROCESSING_PARAM,
     nullptr};
 
 static constexpr uint32_t kLeadLatency = 500;   // 500ms
@@ -136,6 +139,12 @@ int pa__init(pa_module *module) {
         return -1;
     }
 
+    bool avoid_processing = module->core->avoid_processing;
+    if (pa_modargs_get_value_boolean(ma.get(), AVOID_PROCESSING_PARAM, &avoid_processing) < 0) {
+         pa_log("Failed to parse avoid_processing argument.");
+         return -1;
+    }
+
     // Create sink
     pa_sample_spec sample_spec = module->core->default_sample_spec;
     pa_channel_map channel_map = module->core->default_channel_map;
@@ -149,7 +158,7 @@ int pa__init(pa_module *module) {
 
     d->sink = GroupSinkCtrl::create(module, name, library,
         lead_latency * PA_USEC_PER_MSEC, slave_latency * PA_USEC_PER_MSEC,
-        sample_spec, channel_map);
+        sample_spec, channel_map, avoid_processing);
     if (!d->sink) {
         pa__done(module);
         return -1;

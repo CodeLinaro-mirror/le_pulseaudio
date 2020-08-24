@@ -255,6 +255,16 @@ static int sink_process_io_msg(pa_msgobject *o, int code, void *data, int64_t of
     return pa_sink_process_msg(o, code, data, offset, chunk);
 }
 
+static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough) {
+    pa_sink_assert_ref(s);
+    s->sample_spec.rate = spec->rate;
+    s->sample_spec.format = spec->format;
+    /*Note:
+    We do not want to reconfigure channels/channel map because it will affect the sink graph settings
+    */
+    return 0;
+}
+
 /* I/O thread */
 static void thread_func(GroupSinkCtrl *u) {
     if (u->sink->core->realtime_scheduling) {
@@ -386,7 +396,7 @@ void GroupSinkCtrl::signalMinimumLatencyUpdate(pa_usec_t _latency) {
 std::shared_ptr<GroupSinkCtrl> GroupSinkCtrl::create(pa_module *_module,
     const char *name, const char *library,
     pa_usec_t lead_latency, pa_usec_t slave_latency,
-    const pa_sample_spec &sample_spec, const pa_channel_map &channel_map) {
+    const pa_sample_spec &sample_spec, const pa_channel_map &channel_map, bool avoid_processing) {
     pa_sink_new_data data;
 
     auto u = std::shared_ptr<GroupSinkCtrl>(new GroupSinkCtrl);
@@ -416,6 +426,7 @@ std::shared_ptr<GroupSinkCtrl> GroupSinkCtrl::create(pa_module *_module,
     pa_sink_new_data_init(&data);
     data.driver = __FILE__;
     data.module = u->module;
+    data.avoid_processing = avoid_processing;
     pa_sink_new_data_set_name(&data, name);
 
     pa_sink_new_data_set_sample_spec(&data, &sample_spec);
@@ -437,6 +448,7 @@ std::shared_ptr<GroupSinkCtrl> GroupSinkCtrl::create(pa_module *_module,
     // Handlers for messages in io thread
     u->sink->parent.process_msg = sink_process_io_msg;
     u->sink->set_state_in_io_thread = sink_set_state_in_io_thread_cb;
+    u->sink->reconfigure = sink_reconfigure_cb;
 
     // Handlers for messages in main thread
     u->main_msg_ = pa_msgobject_new(GroupSinkMsg);

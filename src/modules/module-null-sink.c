@@ -443,7 +443,7 @@ int pa__init(pa_module*m) {
         pa_sink_new_data_done(&data);
         goto fail;
     }
-    data.avoid_processing = avoid_processing;
+    //data.avoid_processing = avoid_processing;
 
     if (pa_modargs_get_value_boolean(ma, "timestamp_mode", &u->timestamp_mode) < 0) {
         pa_log("Failed to parse timestamp_mode argument.");
@@ -488,6 +488,7 @@ int pa__init(pa_module*m) {
     }
 
     pa_sink_new_data_init(&data);
+    data.avoid_processing = avoid_processing;
     data.driver = __FILE__;
     data.module = m;
     pa_sink_new_data_set_name(&data, pa_modargs_get_value(ma, "sink_name", DEFAULT_SINK_NAME));

@@ -46,7 +46,7 @@ class GroupSinkCtrl {
 
     static std::shared_ptr<GroupSinkCtrl> create(pa_module *_module, const char *name, const char *library,
         pa_usec_t lead_latency, pa_usec_t slave_latency,
-        const pa_sample_spec &sample_spec, const pa_channel_map &channel_map);
+        const pa_sample_spec &sample_spec, const pa_channel_map &channel_map, bool avoid_processing);
 
     void setPeers(std::vector<std::string> peers);
     void updateInterfaces(const std::vector<GroupSinkInterfaces> &interfaces);

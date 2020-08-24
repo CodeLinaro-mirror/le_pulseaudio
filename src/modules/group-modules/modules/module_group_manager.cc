@@ -64,6 +64,7 @@ MOD_EXPORT bool pa__load_once(void);
 #define CHANNELS_PARAM "channels"
 #define CHANNEL_MAP_PARAM "channel_map"
 #define MASTER_PARAM "master"
+#define AVOID_PROCESSING_PARAM "avoid_processing"
 
 PA_MODULE_AUTHOR("Qualcomm Technologies, Inc.");
 PA_MODULE_DESCRIPTION(_("Group Manager sink"));
@@ -76,6 +77,7 @@ PA_MODULE_USAGE(
     CHANNELS_PARAM "=<number of channels> "
     CHANNEL_MAP_PARAM "=<channel map> "
     MASTER_PARAM "=<name of sink to filter> "
+    AVOID_PROCESSING_PARAM "=<use stream original sample spec if possible?>"
 );
 // clang-format on
 
@@ -88,6 +90,7 @@ static const char *const valid_modargs[] = {
     CHANNELS_PARAM,
     CHANNEL_MAP_PARAM,
     MASTER_PARAM,
+    AVOID_PROCESSING_PARAM,
     nullptr};
 
 static constexpr const char kGroupMultiroomSinkName[] = "multiroom";
@@ -244,6 +247,11 @@ int pa__init(pa_module *module) {
         return -1;
     }
 
+    bool avoid_processing = module->core->avoid_processing;
+    if (pa_modargs_get_value_boolean(ma.get(), AVOID_PROCESSING_PARAM, &avoid_processing) < 0) {
+        pa_log("Failed to parse avoid_processing argument.");
+        return -1;
+    }
     auto d = new GroupManagerModule;
     module->userdata = d;
 
@@ -272,7 +280,7 @@ int pa__init(pa_module *module) {
     }
 
     d->group_manager = GroupManager::create(module, master, std::move(groups),
-        sample_spec, channel_map);
+        sample_spec, channel_map, avoid_processing);
 
     return 0;
 }
