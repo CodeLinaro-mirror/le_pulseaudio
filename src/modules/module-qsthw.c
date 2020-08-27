@@ -73,6 +73,15 @@ struct qsthw_session_data {
     pa_cond *cond;
 };
 
+struct dbus_sm_data{
+    DBusConnection *connect;
+    DBusMessage *message;
+    void *userdata;
+    struct qsthw_session_data *ses_data;
+    sound_model_handle_t *sm_handle;
+    dbus_int32_t *status;
+};
+
 static int unload_sm(DBusConnection *conn, struct qsthw_session_data *ses_data);
 static void get_properties(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_version(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -891,10 +900,12 @@ static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *use
     pa_dbus_send_empty_reply(conn, msg);
 }
 
-/* implementations exposed by module global object path */
-static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata) {
-    struct qsthw_module_data *m_data = userdata;
-    struct qsthw_session_data *ses_data = NULL;
+static void load_sm_thread(void *userdata1) {
+    DBusConnection *conn;
+    DBusMessage *msg;
+    void *userdata;
+    struct qsthw_module_data *m_data;
+
     struct sound_trigger_sound_model sound_model;
     struct sound_trigger_phrase_sound_model phrase_sound_model = {0, };
     struct sound_trigger_phrase_sound_model *p_sound_model = NULL;
@@ -902,21 +913,30 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     DBusError error;
     DBusMessageIter arg_i, struct_i, struct_ii, struct_iii, array_i, sub_array_i;
     dbus_int32_t sm_type, sm_data_size, i, j, status = 0;
-    sound_model_handle_t sm_handle;
+
     int n_elements = 0, arg_type;
-    char *value = NULL, *thread_name = NULL;
+    char *value = NULL;
     char **addr_value = &value;
+
+    struct dbus_sm_data *unpack = (struct dbus_sm_data *)userdata1;
+    conn = unpack->connect;
+    msg = unpack->message;
+    userdata = unpack->userdata;
 
     pa_assert(conn);
     pa_assert(msg);
     pa_assert(userdata);
+
+    m_data = userdata;
+
+    pa_mutex_lock(unpack->ses_data->mutex);
 
     dbus_error_init(&error);
     if (!dbus_message_iter_init(msg, &arg_i)) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
             "load_sound_model has no arguments");
         dbus_error_free(&error);
-        return;
+        goto errorState;
     }
 
     if (!pa_streq(dbus_message_get_signature(msg),
@@ -924,7 +944,7 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
         pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
             "Invalid signature for load_sound_model");
         dbus_error_free(&error);
-        return;
+        goto errorState;
     }
 
     pa_log_debug("load sound model");
@@ -1036,25 +1056,76 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     }
 
     status = qsthw_load_sound_model(m_data->st_mod_handle, common_sound_model,
-                    NULL, NULL, &sm_handle);
+                    NULL, NULL, unpack->sm_handle);
+
+    *(unpack->status) = status;
 
     pa_xfree(common_sound_model);
+
+errorState:
+    pa_cond_signal(unpack->ses_data->cond,0);
+    pa_mutex_unlock(unpack->ses_data->mutex);
+    return;
+}
+
+/* implementations exposed by module global object path */
+static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct qsthw_module_data *m_data = userdata;
+    struct qsthw_session_data *ses_data = NULL;
+    sound_model_handle_t sm_handle;
+    DBusError error;
+    dbus_int32_t status = -1;
+    char *thread_name = NULL;
+    pa_thread *sm_thread = NULL;
+    struct dbus_sm_data sm_pack;
+
+    ses_data = pa_xnew0(struct qsthw_session_data, 1);
+    ses_data->mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
+    ses_data->cond = pa_cond_new();
+
+    sm_pack.connect = conn;
+    sm_pack.message = msg;
+    sm_pack.userdata = userdata;
+    sm_pack.ses_data = ses_data;
+    sm_pack.sm_handle = &sm_handle;
+    sm_pack.status = &status;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    pa_mutex_lock(ses_data->mutex);
+
+    dbus_error_init(&error);
+
+    sm_thread = pa_thread_new("load_sm thread", load_sm_thread, &sm_pack);
+    if (!sm_thread){
+        pa_log_error("%s: load_sm thread creation failed", __func__);
+        status = -1;
+    } else {
+        pa_cond_wait(ses_data->cond, ses_data->mutex);
+    }
     if (OK != status) {
+        pa_log_debug("load sound model failed");
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "load_sound_model failed");
         dbus_error_free(&error);
+        pa_mutex_unlock(ses_data->mutex);
+        pa_cond_free(ses_data->cond);
+        pa_mutex_free(ses_data->mutex);
+        if(sm_thread != NULL)
+            pa_thread_free(sm_thread);
+        pa_xfree(ses_data);
         return;
     }
 
    /* After successful load sound model, allocate session data */
-    ses_data = pa_xnew0(struct qsthw_session_data, 1);
     ses_data->common = (struct qsthw_module_data *)userdata;
     ses_data->ses_handle = sm_handle;
     ses_data->obj_path = pa_sprintf_malloc("%s/ses_%d", m_data->obj_path, sm_handle);
 
-    ses_data->mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
-    ses_data->cond = pa_cond_new();
     ses_data->thread_state = QSTHW_THREAD_IDLE;
     ses_data->read_buf = NULL;
+    pa_mutex_unlock(ses_data->mutex);
 
     thread_name = pa_sprintf_malloc("qsthw async thread%d", sm_handle);
     if (!(ses_data->async_thread = pa_thread_new(thread_name, async_thread_func, ses_data)))
@@ -1067,6 +1138,8 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     pa_assert_se(dbus_connection_add_filter(conn, disconnection_filter_cb, ses_data, NULL));
 
     pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_OBJECT_PATH, &ses_data->obj_path);
+    pa_thread_free(sm_thread);
+    pa_log_debug("load sound model success");
 }
 
 static void get_properties(DBusConnection *conn, DBusMessage *msg, void *userdata) {
