@@ -1109,6 +1109,31 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_disable_qahw_sink(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if (!(sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    sink->disable_qahw_sink = pa_parse_boolean(state->rvalue);
+
+    pa_log_debug("%s: disable_qahw_sink %d for sink %s", __func__, sink->disable_qahw_sink, sink->name);
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
 static int pa_qahw_config_parse_avoid_processing(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink = NULL;
@@ -2025,6 +2050,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "uuid",                        pa_qahw_config_parse_effect_uuid,                         NULL, NULL },
 
         { "use-hw-volume",               pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
+        { "disable-qahw-sink",           pa_qahw_config_parse_disable_qahw_sink,                   NULL, NULL },
 
         /* common between sink and source*/
         { "type",                        pa_qahw_config_parse_type,                                NULL, NULL },
