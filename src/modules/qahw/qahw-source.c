@@ -55,7 +55,7 @@
 #define PA_DEFAULT_SOURCE_CHANNELS 2
 #define AUDIO_IN_VALID_CH_COUNT_FOR_CH_MASK 8
 
-#define PA_DEFAULT_STARTUP_LATENCY_MS 100
+#define PA_DEFAULT_STARTUP_LATENCY_USEC (100 * 1000)
 
 //#define SOURCE_DUMP_ENABLED
 
@@ -461,8 +461,9 @@ static int pa_qahw_source_io_process_msg(pa_msgobject *o, int code, void *data, 
 #ifdef SOURCE_DUMP_ENABLED
             pa_log_debug("%s: chunk length %d chunk index %d ", __func__, chunk->length, chunk->index);
 #endif
-            /* Don't post if source is already shutting down */
-            if (!pa_atomic_load(&source_data->qahw_sdata->stopped))
+            /* Don't post if source is already shutting down or if source is not linked yet */
+            if (!pa_atomic_load(&source_data->qahw_sdata->stopped) &&
+                 PA_SOURCE_IS_LINKED(source_data->pa_sdata->source->thread_info.state))
                 pa_source_post(source_data->pa_sdata->source, chunk);
 
             pa_memblock_unref(chunk->memblock);
@@ -753,8 +754,9 @@ static void pa_qahw_source_io_thread_func(void *userdata) {
 
         /* Start timer */
         if (PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
-            if (!pa_atomic_load(&qahw_sdata->first_read))
-                timeout += (PA_DEFAULT_STARTUP_LATENCY_MS * 1000);
+            timeout = pa_atomic_load(&qahw_sdata->first_read) ? (qahw_sdata->source_latency_us * 2)
+                                                              : ((qahw_sdata->source_latency_us * 2)
+                                                                + PA_DEFAULT_STARTUP_LATENCY_USEC);
 
             pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, timeout);
             timer_enabled = true;
