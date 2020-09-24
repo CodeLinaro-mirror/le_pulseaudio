@@ -680,7 +680,7 @@ static void qahw_source_thread_func(void *userdata) {
                 goto poll;
             }
 
-            if (qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP) {
+            if ((qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP) && (chunk.timestamp != PA_NSEC_INVALID)){
                 chunk.timestamp = chunk.timestamp * PA_NSEC_PER_USEC;
 #ifdef SOURCE_DUMP_ENABLED
 #if defined __aarch64__
