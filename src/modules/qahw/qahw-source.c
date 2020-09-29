@@ -117,7 +117,7 @@ typedef struct {
     pa_idxset *formats;
 
     pa_qahw_card_avoid_processing_config_id_t avoid_config_processing;
-
+    pa_suspend_cause_t new_suspend_cause;
 } pa_source_data;
 
 typedef struct {
@@ -333,9 +333,6 @@ static int pa_qahw_source_start(pa_qahw_source_data *sdata) {
     pa_atomic_store(&sdata->qahw_sdata->stopped, 0);
     pa_atomic_store(&sdata->qahw_sdata->first_read, 0);
 
-    /* Flushing thread message queue */
-    pa_asyncmsgq_flush(sdata->qahw_sdata->qahw_thread_mq.inq, false);
-
     pa_log_info("%s: Posting message QAHW_SOURCE_MESSAGE_WAKE_THREAD", __func__);
     pa_asyncmsgq_post(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
                                                            QAHW_SOURCE_MESSAGE_WAKE_THREAD, NULL, 0, NULL, NULL);
@@ -347,9 +344,11 @@ static int pa_qahw_source_start(pa_qahw_source_data *sdata) {
 
 static int pa_qahw_source_standby(pa_qahw_source_data *sdata) {
     qahw_source_data *qahw_sdata;
+    char suspend_cause_buf[PA_SUSPEND_CAUSE_TO_STRING_BUF_SIZE];
 
     pa_assert(sdata);
     pa_assert(sdata->qahw_sdata);
+    pa_assert(sdata->pa_sdata);
 
     qahw_sdata = sdata->qahw_sdata;
 
@@ -357,9 +356,18 @@ static int pa_qahw_source_standby(pa_qahw_source_data *sdata) {
 
     stop_qahw_source(qahw_sdata);
 
-    pa_log_info("%s: Posting message QAHW_SOURCE_MESSAGE_STANDBY", __func__);
-    pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
-                                                           QAHW_SOURCE_MESSAGE_STANDBY, NULL, 0, NULL, NULL);
+    pa_log_info("%s: Posting message QAHW_SOURCE_MESSAGE_STANDBY, suspend cause: %s", __func__,
+             pa_suspend_cause_to_string(sdata->pa_sdata->new_suspend_cause, suspend_cause_buf));
+
+    /* Suspend source asynchronously only on SUSPEND ON IDLE that is when no client is connected */
+    if (sdata->pa_sdata->new_suspend_cause != PA_SUSPEND_IDLE){
+        pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
+                                           QAHW_SOURCE_MESSAGE_STANDBY, NULL, 0, NULL, NULL);
+    } else {
+        pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
+                                                  QAHW_SOURCE_MESSAGE_STANDBY, NULL, 0, NULL);
+    }
+
     trace_close(&qahw_sdata->ts_log);
 
     return 0;
@@ -391,7 +399,7 @@ static int pa_qahw_source_set_port_cb(pa_source *s, pa_device_port *p) {
     return rc;
 }
 
-static int pa_qahw_source_set_state_in_io_thread_cb(pa_source *s, pa_source_state_t new_state, pa_suspend_cause_t new_suspend_cause PA_GCC_UNUSED)
+static int pa_qahw_source_set_state_in_io_thread_cb(pa_source *s, pa_source_state_t new_state, pa_suspend_cause_t new_suspend_cause)
 {
     pa_qahw_source_data *source_data = (pa_qahw_source_data *)(s->userdata);
     int r = 0;
@@ -402,10 +410,12 @@ static int pa_qahw_source_set_state_in_io_thread_cb(pa_source *s, pa_source_stat
     if (new_state == s->thread_info.state)
         return r;
 
-    if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(s->thread_info.state))
+    if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(s->thread_info.state)) {
         r = pa_qahw_source_start(source_data);
-    else if (new_state == PA_SOURCE_SUSPENDED)
+    } else if (new_state == PA_SOURCE_SUSPENDED) {
+        source_data->pa_sdata->new_suspend_cause = new_suspend_cause;
         pa_qahw_source_standby(source_data);
+    }
 
     return r;
 }
