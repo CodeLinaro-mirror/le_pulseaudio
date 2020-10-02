@@ -523,9 +523,6 @@ static int pa_qahw_sink_start(pa_qahw_sink_data *sdata, pa_sink_state_t new_stat
     pa_atomic_store(&qahw_sdata->first_write_done, 0);
     pa_atomic_store(&qahw_sdata->write_done, 1);
 
-    /* Flushing thread message queue */
-    pa_asyncmsgq_flush(qahw_sdata->qahw_thread_mq.inq, false);
-
     /* Required to resume paused compressed streams in case new state is RUNNING */
     if (new_state == PA_SINK_RUNNING)
         r = pa_qahw_sink_pause(sdata, false);
@@ -690,11 +687,12 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     return rc;
 }
 
-static int pa_qahw_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state, pa_suspend_cause_t new_suspend_cause PA_GCC_UNUSED)
+static int pa_qahw_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state, pa_suspend_cause_t new_suspend_cause)
 {
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)(s->userdata);
     qahw_sink_data *qahw_sdata;
     pa_sink_data *pa_sdata;
+    char new_suspend_cause_buf[PA_SUSPEND_CAUSE_TO_STRING_BUF_SIZE];
     int r = 0;
 
     pa_assert(sdata->qahw_sdata);
@@ -730,9 +728,18 @@ static int pa_qahw_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t ne
             }
         }
     } else if (new_state == PA_SINK_SUSPENDED && sdata->qahw_sink_opened) {
-        pa_log_info("%s: Posting message QAHW_SINK_MESSAGE_STANDBY", __func__);
-        pa_asyncmsgq_post(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
-                                                              QAHW_SINK_MESSAGE_STANDBY, NULL, 0, NULL, NULL);
+        pa_log_info("%s: Posting message QAHW_SINK_MESSAGE_STANDBY, suspend cause %s", __func__,
+                            pa_suspend_cause_to_string(new_suspend_cause, new_suspend_cause_buf));
+
+        /* Suspend sink asynchronously only on SUSPEND ON IDLE that is when no client is connected */
+        if (new_suspend_cause != PA_SUSPEND_IDLE) {
+            pa_asyncmsgq_send(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
+                                                                       QAHW_SINK_MESSAGE_STANDBY, &r, 0, NULL);
+            pa_log_debug("%s Ack suspend returned: %d", __func__, r);
+        } else {
+            pa_asyncmsgq_post(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
+                                                                  QAHW_SINK_MESSAGE_STANDBY, NULL, 0, NULL, NULL);
+        }
     } else if (PA_SINK_IS_RUNNING(new_state) && (s->thread_info.state == PA_SINK_IDLE) && sdata->qahw_sink_opened) {
         r = pa_qahw_sink_pause(sdata, false);
     } else if (PA_SINK_IS_RUNNING(s->thread_info.state) && (new_state == PA_SINK_IDLE) && sdata->qahw_sink_opened) {
