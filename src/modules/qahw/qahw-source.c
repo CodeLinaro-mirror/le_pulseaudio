@@ -361,11 +361,11 @@ static int pa_qahw_source_standby(pa_qahw_source_data *sdata) {
 
     /* Suspend source asynchronously only on SUSPEND ON IDLE that is when no client is connected */
     if (sdata->pa_sdata->new_suspend_cause != PA_SUSPEND_IDLE){
+        pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
+                                                 QAHW_SOURCE_MESSAGE_STANDBY, NULL, 0, NULL);
+    } else {
         pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
                                            QAHW_SOURCE_MESSAGE_STANDBY, NULL, 0, NULL, NULL);
-    } else {
-        pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
-                                                  QAHW_SOURCE_MESSAGE_STANDBY, NULL, 0, NULL);
     }
 
     trace_close(&qahw_sdata->ts_log);
@@ -477,6 +477,10 @@ static int pa_qahw_source_io_process_msg(pa_msgobject *o, int code, void *data, 
                 pa_source_post(source_data->pa_sdata->source, chunk);
 
             pa_memblock_unref(chunk->memblock);
+            return 0;
+        }
+        case PA_QAHW_SOURCE_MESSAGE_STANDBY_DONE: {
+            pa_log_info("%s: Received PA_QAHW_SOURCE_MESSAGE_STANDBY_DONE", __func__);
             return 0;
         }
 
@@ -783,6 +787,7 @@ static void pa_qahw_source_io_thread_func(void *userdata) {
                 if (source_data->qahw_sdata) {
                     pa_log_info("%s: timer exceeded. unblock read() by calling stop()", __func__);
                     qahw_in_stop(qahw_sdata->in_handle);
+                    pa_atomic_store(&qahw_sdata->first_read, 0);
                 }
             }
 
