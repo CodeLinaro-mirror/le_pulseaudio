@@ -6,6 +6,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright (c) 2020 The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -376,6 +377,7 @@ typedef enum pa_sink_message {
     PA_SINK_MESSAGE_SET_MAX_REQUEST,
     PA_SINK_MESSAGE_UPDATE_VOLUME_AND_MUTE,
     PA_SINK_MESSAGE_SET_PORT_LATENCY_OFFSET,
+    PA_SINK_MESSAGE_CHUNK_AVAILABLE,
     PA_SINK_MESSAGE_MAX
 } pa_sink_message_t;
 
@@ -482,6 +484,10 @@ bool pa_sink_flat_volume_enabled(pa_sink *s);
 
 /* Get the master sink when sharing volumes */
 pa_sink *pa_sink_get_master(pa_sink *s);
+
+/* Get root sink for the given filter sink (as long as the sink input can
+ * be determine, e.g. stops at module-combine-sink) */
+pa_sink *pa_sink_get_root(pa_sink *s);
 
 bool pa_sink_is_filter(pa_sink *s);
 
