@@ -47,6 +47,7 @@ static pa_qahw_sink_config* pa_qahw_config_get_sink(pa_hashmap *sinks, char *nam
 static pa_qahw_source_config *pa_qahw_config_get_source(pa_hashmap *sources, char *name);
 static pa_qahw_card_profile_config* pa_qahw_config_get_profile(pa_hashmap *profiles, char *name);
 static pa_qahw_card_port_config* pa_qahw_config_get_port(pa_hashmap *ports, char *name);
+static char *pa_qahw_read_from_file(const char *name);
 
 static pa_qahw_loopback_config* pa_qahw_config_get_loopback(pa_hashmap *loopbacks, char *name) {
     pa_qahw_loopback_config *loopback = NULL;
@@ -1912,6 +1913,26 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
     pa_xfree(port);
 }
 
+char *pa_qahw_read_from_file(const char *fn)
+{
+   FILE *fp;
+   char ln[256] = "";
+
+   if (!(fp = pa_fopen_cloexec(fn, "r")))
+       return NULL;
+
+   while (fgets(ln, sizeof(ln)-1, fp) != NULL) {
+          if (strstr(ln, QAHW_CARD_SND_SUFFIX))
+              break;
+          else
+              continue;
+   }
+   fclose(fp);
+
+  pa_strip_nl(ln);
+  return pa_xstrdup(ln);
+}
+
 static char *pa_qahw_config_get_conf_file_name() {
     const char *cards = "/proc/asound/cards";
 
@@ -1921,7 +1942,7 @@ static char *pa_qahw_config_get_conf_file_name() {
     char *conf_file_name = NULL;
     uint32_t i = 0;
 
-    card_string = pa_read_line_from_file(cards);
+    card_string = pa_qahw_read_from_file(cards);
     if (!card_string) {
         pa_log_error("%s: can't open %s file to get list of sound cards", __func__, cards);
         goto exit;
@@ -1988,7 +2009,7 @@ static char* pa_qahw_config_parser_get_conf_file_name(char *dir, char *conf_name
         }
     }
 
-    pa_log_debug("%s:: config file name  %s", __func__, conf_path);
+    pa_log_debug("%s:: config file name  %s", __func__, conf_path == NULL ? "NULL" : conf_path);
 
     return conf_path;
 }

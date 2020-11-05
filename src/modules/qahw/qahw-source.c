@@ -55,7 +55,7 @@
 #define PA_DEFAULT_SOURCE_CHANNELS 2
 #define AUDIO_IN_VALID_CH_COUNT_FOR_CH_MASK 8
 
-#define PA_DEFAULT_STARTUP_LATENCY_MS 100
+#define PA_DEFAULT_STARTUP_LATENCY_USEC (100 * 1000)
 
 //#define SOURCE_DUMP_ENABLED
 
@@ -361,11 +361,11 @@ static int pa_qahw_source_standby(pa_qahw_source_data *sdata) {
 
     /* Suspend source asynchronously only on SUSPEND ON IDLE that is when no client is connected */
     if (sdata->pa_sdata->new_suspend_cause != PA_SUSPEND_IDLE){
+        pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
+                                                 QAHW_SOURCE_MESSAGE_STANDBY, NULL, 0, NULL);
+    } else {
         pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
                                            QAHW_SOURCE_MESSAGE_STANDBY, NULL, 0, NULL, NULL);
-    } else {
-        pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
-                                                  QAHW_SOURCE_MESSAGE_STANDBY, NULL, 0, NULL);
     }
 
     trace_close(&qahw_sdata->ts_log);
@@ -477,6 +477,10 @@ static int pa_qahw_source_io_process_msg(pa_msgobject *o, int code, void *data, 
                 pa_source_post(source_data->pa_sdata->source, chunk);
 
             pa_memblock_unref(chunk->memblock);
+            return 0;
+        }
+        case PA_QAHW_SOURCE_MESSAGE_STANDBY_DONE: {
+            pa_log_info("%s: Received PA_QAHW_SOURCE_MESSAGE_STANDBY_DONE", __func__);
             return 0;
         }
 
@@ -690,7 +694,7 @@ static void qahw_source_thread_func(void *userdata) {
                 goto poll;
             }
 
-            if (qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP) {
+            if ((qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP) && (chunk.timestamp != PA_NSEC_INVALID)){
                 chunk.timestamp = chunk.timestamp * PA_NSEC_PER_USEC;
 #ifdef SOURCE_DUMP_ENABLED
 #if defined __aarch64__
@@ -764,8 +768,9 @@ static void pa_qahw_source_io_thread_func(void *userdata) {
 
         /* Start timer */
         if (PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
-            if (!pa_atomic_load(&qahw_sdata->first_read))
-                timeout += (PA_DEFAULT_STARTUP_LATENCY_MS * 1000);
+            timeout = pa_atomic_load(&qahw_sdata->first_read) ? (qahw_sdata->source_latency_us * 2)
+                                                              : ((qahw_sdata->source_latency_us * 2)
+                                                                + PA_DEFAULT_STARTUP_LATENCY_USEC);
 
             pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, timeout);
             timer_enabled = true;
@@ -782,6 +787,7 @@ static void pa_qahw_source_io_thread_func(void *userdata) {
                 if (source_data->qahw_sdata) {
                     pa_log_info("%s: timer exceeded. unblock read() by calling stop()", __func__);
                     qahw_in_stop(qahw_sdata->in_handle);
+                    pa_atomic_store(&qahw_sdata->first_read, 0);
                 }
             }
 

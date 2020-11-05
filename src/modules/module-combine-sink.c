@@ -2,7 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2008 Lennart Poettering
-  Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+  Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -121,6 +121,8 @@ struct output {
     pa_atomic_t max_request;
     pa_atomic_t max_latency;
     pa_atomic_t min_latency;
+
+    bool needs_chunk;
 
     PA_LLIST_FIELDS(struct output);
 };
@@ -401,6 +403,7 @@ static void render_memblock(struct userdata *u, struct output *o, size_t length)
         if (length != 0) {
             pa_sink_render(u->sink, length, &chunk);
         } else if (!pa_sink_render_one(u->sink, &chunk)) {
+            o->needs_chunk = true;
             return;
         }
 
@@ -895,6 +898,7 @@ static void sink_update_requested_latency(pa_sink *s) {
 /* Called from thread context of the io thread */
 static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
     struct userdata *u = PA_SINK(o)->userdata;
+    struct output *out;
 
     switch (code) {
 
@@ -911,6 +915,19 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
 
             return 0;
         }
+
+        case PA_SINK_MESSAGE_CHUNK_AVAILABLE:
+            PA_LLIST_FOREACH(out, u->thread_info.active_outputs) {
+                pa_sink *root_sink;
+                if (!out->needs_chunk) {
+                    continue;
+                }
+                out->needs_chunk = false;
+                root_sink = pa_sink_get_root(out->sink);
+                pa_assert(root_sink);
+                pa_asyncmsgq_post(out->control_inq, PA_MSGOBJECT(root_sink), PA_SINK_MESSAGE_CHUNK_AVAILABLE, NULL, 0, NULL, NULL);
+            }
+            return 0;
 
         case SINK_MESSAGE_ADD_OUTPUT:
             output_add_within_thread(data);

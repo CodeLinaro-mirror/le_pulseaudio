@@ -153,6 +153,8 @@ typedef struct playback_stream {
 
     trace_log ts_log;
     const char *ts_name;
+
+    bool needs_chunk;
 } playback_stream;
 
 #define PLAYBACK_STREAM(o) (playback_stream_cast(o))
@@ -1388,6 +1390,12 @@ static int sink_input_process_msg(pa_msgobject *o, int code, void *userdata, int
                 s->seek_windex = -1;
                 handle_seek(s, windex);
             }
+
+            if (s->needs_chunk) {
+                pa_sink *root_sink = pa_sink_get_root(i->sink);
+                pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(root_sink), PA_SINK_MESSAGE_CHUNK_AVAILABLE, NULL, 0, NULL, NULL);
+                s->needs_chunk = false;
+            }
             return 0;
         }
 
@@ -1625,6 +1633,7 @@ static bool sink_input_pop_one_cb(pa_sink_input *i, pa_memchunk *chunk) {
         s->is_underrun = false;
 
     if (pa_memblockq_peek_one(s->memblockq, chunk) < 0) {
+        s->needs_chunk = true;
         return false;
     }
 
