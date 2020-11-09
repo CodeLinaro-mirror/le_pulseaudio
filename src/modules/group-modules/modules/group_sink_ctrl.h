@@ -45,7 +45,6 @@ class GroupSinkCtrl {
     ~GroupSinkCtrl();
 
     static std::shared_ptr<GroupSinkCtrl> create(pa_module *_module, const char *name, const char *library,
-        pa_usec_t lead_latency, pa_usec_t slave_latency,
         const pa_sample_spec &sample_spec, const pa_channel_map &channel_map, bool avoid_processing);
 
     void setPeers(std::vector<std::string> peers);
@@ -58,7 +57,8 @@ class GroupSinkCtrl {
     void setPeersCount(size_t peers_count) { peers_count_ = peers_count; }
     size_t getPeersCount() const { return peers_count_; }
 
-    void signalMinimumLatencyUpdate(pa_usec_t latency);
+    void updateMinimumLatency(pa_usec_t latency);
+    void signalMinimumLatencyUpdate(pa_usec_t _latency);
 
  public:  // TODO(jbing): should all be private
     std::shared_ptr<adk::msg::AdkMessageService> message_service_;
@@ -73,6 +73,8 @@ class GroupSinkCtrl {
 
     lt_dlhandle dl{nullptr};
     GroupSink *group_sink{nullptr};
+
+    pa_nsec_t next_timestamp_{PA_NSEC_INVALID};
 
     size_t peers_count_{0};
 
