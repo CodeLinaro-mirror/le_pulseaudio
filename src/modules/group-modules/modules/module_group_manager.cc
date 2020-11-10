@@ -147,8 +147,15 @@ static void handle_set_group_peers(DBusConnection *conn, DBusMessage *msg, void 
 
     auto iter = d->group_sinks.find(group);
     if (iter == d->group_sinks.end()) {
-        pa_log("Invalid group %s", group);
-        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "Invalid group %s", group);
+        // The caller can't really know if the group sink is loaded or not when
+        // the group is not created, it's a matter of resource optimization.
+        // So only complain about an invalid group if there are peers in it.
+        if (peers_vec.empty()) {
+            pa_dbus_send_empty_reply(conn, msg);
+        } else {
+            pa_log("Invalid group %s", group);
+            pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "Invalid group %s", group);
+        }
         return;
     }
 
