@@ -93,8 +93,6 @@ pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
     { (char *)"hdmi-out",         AUDIO_DEVICE_OUT_HDMI,                 (char *)"AUDIO_DEVICE_OUT_HDMI" },
     { (char *)"spdif-out-optical",QAHW_AUDIO_DEVICE_OUT_OPTICAL,         (char *)"QAHW_AUDIO_DEVICE_OUT_OPTICAL" },
     { (char *)"spdif-out-coaxial",AUDIO_DEVICE_OUT_SPDIF,                (char *)"AUDIO_DEVICE_OUT_SPDIF" },
-    { (char*)"speaker-mic2",         QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC2,                 (char *)"QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC2" },
-    { (char*)"speaker-mic3",         QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC3,                 (char *)"QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC3" },
 };
 
 /*
