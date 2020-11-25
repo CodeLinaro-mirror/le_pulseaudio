@@ -80,7 +80,6 @@ static const pa_daemon_conf default_conf = {
     .log_backtrace = 0,
     .log_meta = false,
     .log_time = false,
-    .resample_method = PA_RESAMPLER_AUTO,
     .avoid_processing = false,
     .disable_remixing = false,
     .remixing_use_all_sink_channels = true,
