@@ -463,8 +463,13 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
     /*        pa_memblockq_get_maxrewind(o->memblockq), */
     /*        pa_memblockq_get_maxrewind(i->thread_info.render_memblockq)); */
 
-    if (pa_memblockq_peek(o->memblockq, chunk) < 0)
-        return -1;
+    if (nbytes != 0) {
+        if (pa_memblockq_peek(o->memblockq, chunk) < 0)
+            return -1;
+    } else {
+        if (pa_memblockq_peek_one(o->memblockq, chunk) < 0)
+            return -1;
+    }
 
     pa_memblockq_drop(o->memblockq, chunk->length);
 
@@ -1319,15 +1324,18 @@ static pa_hook_result_t sink_state_changed_hook_cb(pa_core *c, pa_sink *s, struc
 static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough) {
     struct userdata *u;
     size_t nbytes;
+    struct output *o;
+    uint32_t idx = 0;
+    uint32_t slave_num = 0;
+    pa_sink **slaves;
     pa_sink_assert_ref(s);
     pa_assert_se(u = s->userdata);
 
     s->sample_spec.rate = spec->rate;
     s->sample_spec.format = spec->format;
-    /*Note:
-    We do not want to reconfigure channels/channel map because it will affect the sink graph settings
-    */
-
+    /*
+     * Note: We do not want to reconfigure channels/map because it will affect the sink graph
+     */
     if (u->block_usec == (pa_usec_t) -1)
         u->block_usec = s->thread_info.max_latency;
 
@@ -1335,6 +1343,20 @@ static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map 
     pa_sink_set_max_request(s, nbytes);
     pa_sink_set_latency_range(s, 0, u->block_usec);
 
+    /* Each output from combine sink has a memblockq associated with it.
+     * The memblockq needs to be recreated, when the combine-sink configuration is
+     * changed - otherwise memblockq_push_align works with older sample spec
+     */
+    slaves = pa_xnew(pa_sink*, pa_idxset_size(u->outputs));
+    PA_IDXSET_FOREACH(o, u->outputs, idx) {
+        slaves[slave_num++] = o->sink;
+    }
+    pa_idxset_remove_all(u->outputs, output_free);
+
+    for (idx = 0; idx < slave_num; idx++) {
+        pa_assert(output_new(u, slaves[idx]));
+    }
+    pa_xfree(slaves);
     return 0;
 }
 

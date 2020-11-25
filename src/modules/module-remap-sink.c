@@ -352,18 +352,15 @@ static void sink_input_moving_cb(pa_sink_input *i, pa_sink *dest) {
 }
 
 
-static void sink_input_remove(pa_sink_input *i)
+static void sink_input_remove(struct userdata *u)
 {
-    pa_assert(i);
-    if (i)
-    {
-        pa_sink_input_cork(i, true);
-        pa_sink_input_unlink(i);
-        pa_sink_input_unref(i);
-    }
-    i = NULL;
-
+    // Remap sink inputs to master always exists
+    pa_sink_input_cork(u->sink_input, true);
+    pa_sink_input_unlink(u->sink_input);
+    pa_sink_input_unref(u->sink_input);
+    u->sink_input = NULL;
 }
+
 static bool sink_input_create(struct userdata *u)
 {
     pa_sink_input_new_data sink_input_data;
@@ -417,7 +414,7 @@ static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map 
     struct userdata *u;
     pa_sink_assert_ref(s);
     pa_assert_se(u = s->userdata);
-    sink_input_remove(s->input_to_master);
+    sink_input_remove(u);
 
     s->sample_spec.rate = spec->rate;
     s->sample_spec.format = spec->format;
