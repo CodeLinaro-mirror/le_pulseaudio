@@ -35,14 +35,6 @@
         (void) memcpy(dst, src, MIN(dst_size, bytes_to_copy))
 #endif
 
-#ifndef QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC2
-#define QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC2 AUDIO_DEVICE_NONE
-#endif
-
-#ifndef QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC3
-#define QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC3 AUDIO_DEVICE_NONE
-#endif
-
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format);
 const char* pa_qahw_util_get_port_name_from_jack_type(pa_qahw_jack_type_t jack_type);
 pa_qahw_jack_type_t pa_qahw_util_get_jack_type_from_port_name( const char *port_name);
