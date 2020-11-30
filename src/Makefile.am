@@ -2301,8 +2301,8 @@ module_bluez5_discover_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) -DPA_MODULE_NAME=
 
 module_bluez5_device_la_SOURCES = modules/bluetooth/module-bluez5-device.c
 module_bluez5_device_la_LDFLAGS = $(MODULE_LDFLAGS)
-module_bluez5_device_la_LIBADD = $(MODULE_LIBADD) $(SBC_LIBS) libbluez5-util.la
-module_bluez5_device_la_CFLAGS = $(AM_CFLAGS) $(SBC_CFLAGS) -DPA_MODULE_NAME=module_bluez5_device
+module_bluez5_device_la_LIBADD = $(MODULE_LIBADD) $(SBC_LIBS)  $(DBUS_LIBS) libbluez5-util.la
+module_bluez5_device_la_CFLAGS = $(AM_CFLAGS) $(SBC_CFLAGS) $(DBUS_CFLAGS) -DPA_MODULE_NAME=module_bluez5_device
 
 # Apple Airtunes/RAOP
 module_raop_sink_la_SOURCES = modules/raop/module-raop-sink.c
