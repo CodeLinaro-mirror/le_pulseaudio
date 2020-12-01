@@ -19,73 +19,101 @@
 #ifndef fooqahwpasinkfoo
 #define fooqahwpasinkfoo
 
-#include <stdio.h>
-
-#include <pulse/timeval.h>
-#include <pulsecore/sink.h>
 #include <pulsecore/device-port.h>
+#include <pulse/sample.h>
+#include <pulsecore/card.h>
+#include <pulsecore/core.h>
 #include <pulsecore/core-util.h>
-#include <pulsecore/modargs.h>
-#include <pulsecore/thread.h>
-#include <pulsecore/thread-mq.h>
-#include <pulsecore/rtpoll.h>
-#include <pulsecore/sink.h>
-#include <pulsecore/memchunk.h>
-#include <pulsecore/mutex.h>
 
 #include <qahw_api.h>
 #include <qahw_defs.h>
 
+#include "qahw-card.h"
 #include "qahw-sink-extn.h"
 
-typedef size_t sink_handle_t;
-
-struct qahw_sink_data {
-    qahw_stream_handle_t *out_handle;
-    audio_io_handle_t handle;
-    qahw_module_handle_t *module_handle;
-
+typedef struct {
+    char *name;
+    char *description;
+    char *type;
+    int id;
     audio_output_flags_t flags;
-    uint32_t devices;
-    audio_config_t config;
+    bool use_hw_volume;
+    uint32_t alternate_sample_rate;
+    pa_idxset *formats;
+    pa_hashmap *ports;
+    pa_hashmap *profiles;
+    char **port_conf_string;
+    pa_qahw_card_usecase_type_t usecase_type;
+} pa_qahw_sink_config;
 
-    const char *device_url;
+typedef size_t pa_qahw_sink_handle_t;
 
-    size_t sink_buffer_size;
-    uint32_t sink_latency_us;
-    pa_usec_t buffer_duration_us;
-    uint64_t bytes_written;
-
-    pa_atomic_t wait_for_write_ready;
-    int write_fd;
-};
-
-struct pa_sink_data {
-    bool first;
-    pa_sink *sink;
-    pa_rtpoll *rtpoll;
-    pa_thread_mq thread_mq;
-    pa_thread *thread;
-
-    pa_rtpoll_item *rtpoll_item;
-};
-
-struct sink_data {
-    struct qahw_sink_data *qahw_sdata;
-    struct pa_sink_data *pa_sdata;
-    sink_extn_handle_t *sink_extn_handle;
-    struct userdata *u;
-
-    pa_fdsem *fdsem; /* common resource between pa and qahw sink */
-};
-
-void deinit_sink(struct userdata *u);
-void init_sink(struct userdata *u);
+audio_io_handle_t pa_qahw_sink_get_io_handle(pa_qahw_sink_handle_t *handle);
+int pa_qahw_sink_get_index(pa_qahw_sink_handle_t *handle);
+int pa_qahw_sink_get_flags(pa_qahw_sink_handle_t *handle);
+bool pa_qahw_sink_is_supported_sample_rate(uint32_t sample_rate);
 
 /* create qahw session and pa sink */
-int create_sink(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name,
-                 const char *profile_name, pa_sample_spec *ss, pa_channel_map *map, uint32_t sink_devices, int32_t flags,
-                 int sink_idx, sink_handle_t **handle);
-void close_sink(sink_handle_t *handle);
+int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name, pa_qahw_sink_config *sink,
+                        pa_qahw_sink_handle_t **handle);
+void pa_qahw_sink_close(pa_qahw_sink_handle_t *handle);
+
+static inline bool pa_qahw_sink_is_supported_type(char *sink_type) {
+    pa_assert(sink_type);
+
+    if (pa_streq(sink_type, "ultra-low-latency") ||  pa_streq(sink_type, "low-latency") || pa_streq(sink_type, "pcm-offload"))
+        return true;
+
+    return false;
+}
+
+static inline bool pa_qahw_sink_is_supported_sample_format(char *sink_type) {
+    pa_assert(sink_type);
+
+    if (pa_streq(sink_type, "s16le") ||  pa_streq(sink_type, "s24le"))
+        return true;
+
+    return false;
+}
+
+static inline bool pa_qahw_sink_is_supported_encoding(pa_encoding_t encoding) {
+    bool supported = true;
+
+    switch (encoding) {
+        case PA_ENCODING_PCM:
+            break;
+
+        default :
+            supported = false;
+            pa_log_error("%s: unsupported encoding %s", __func__, pa_encoding_to_string(encoding));
+    }
+
+    return supported;
+}
+
+static inline audio_output_flags_t pa_qahw_sink_get_flags_from_string(const char *flag_name) {
+    audio_output_flags_t flag;
+
+    if (pa_streq(flag_name, "AUDIO_OUTPUT_FLAG_FAST")) {
+        flag = AUDIO_OUTPUT_FLAG_FAST;
+    } else if (pa_streq(flag_name,"AUDIO_OUTPUT_FLAG_RAW")) {
+        flag = AUDIO_OUTPUT_FLAG_RAW;
+    } else if (pa_streq(flag_name, "AUDIO_OUTPUT_FLAG_DEEP_BUFFER")) {
+        flag = AUDIO_OUTPUT_FLAG_DEEP_BUFFER;
+    } else if (pa_streq(flag_name, "AUDIO_OUTPUT_FLAG_DIRECT")) {
+        flag = AUDIO_OUTPUT_FLAG_DIRECT;
+    } else if (pa_streq(flag_name, "AUDIO_OUTPUT_FLAG_DIRECT_PCM")) {
+        flag = AUDIO_OUTPUT_FLAG_DIRECT_PCM;
+    } else if (pa_streq(flag_name, "AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD")) {
+        flag = AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD;
+    } else if (pa_streq(flag_name, "AUDIO_OUTPUT_FLAG_NON_BLOCKING")) {
+        flag = AUDIO_OUTPUT_FLAG_NON_BLOCKING;
+    } else {
+        flag = AUDIO_OUTPUT_FLAG_NONE;
+        pa_log_error("%s: Unsupported flag_name %s", __func__, flag_name);
+    }
+
+    return flag;
+}
 
 #endif

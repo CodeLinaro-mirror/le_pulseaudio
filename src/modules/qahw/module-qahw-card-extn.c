@@ -211,7 +211,7 @@ static void qahw_module_set_port_config(DBusConnection *conn, DBusMessage *msg, 
         dbus_error_free(&error);
         return;
     } else if (encoding == PA_ENCODING_PCM) {
-        payload.device_cfg_params.format = get_qahw_audio_format(pa_parse_sample_format(format_str));
+        payload.device_cfg_params.format = pa_qahw_util_get_qahw_format_from_pa_sample(pa_parse_sample_format(format_str));
     } else {
         payload.device_cfg_params.format = pa_qahw_util_get_qahw_format_from_pa_encoding(encoding);
     }
@@ -567,6 +567,7 @@ int pa_qahw_module_extn_deinit(void) {
 
     pa_xfree(qahw_extn_mdata->obj_path);
     pa_xfree(qahw_extn_mdata);
+    qahw_extn_mdata = NULL;
 
     return 0;
 }

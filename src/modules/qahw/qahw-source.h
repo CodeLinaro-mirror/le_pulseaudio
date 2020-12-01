@@ -19,56 +19,94 @@
 #ifndef fooqahwpasourcehfoo
 #define fooqahwpasourcehfoo
 
-#include <stdio.h>
-
-#include <pulse/timeval.h>
-#include <pulsecore/sink.h>
-#include <pulsecore/device-port.h>
-#include <pulsecore/core-util.h>
-#include <pulsecore/modargs.h>
-#include <pulsecore/thread.h>
-#include <pulsecore/thread-mq.h>
-#include <pulsecore/rtpoll.h>
-#include <pulsecore/sink.h>
-#include <pulsecore/memchunk.h>
+#include <pulse/sample.h>
+#include <pulsecore/card.h>
+#include <pulsecore/core.h>
 
 #include <qahw_api.h>
 #include <qahw_defs.h>
 
-typedef size_t source_handle_t;
+#include "qahw-card.h"
 
-struct qahw_source_data {
-    qahw_stream_handle_t *in_handle;
-    audio_io_handle_t handle;
-    qahw_module_handle_t *module_handle;
+typedef size_t pa_qahw_source_handle_t;
 
-    uint32_t devices;
+typedef struct {
+    char *name;
+    char *description;
+    char *type;
+    int id;
     audio_input_flags_t flags;
-    audio_config_t config;
-
-    const char *device_url;
-
-    size_t source_buffer_size;
-};
-
-struct pa_source_data {
-    bool first;
-    pa_source *source;
-    pa_rtpoll *rtpoll;
-    pa_thread_mq thread_mq;
-    pa_thread *thread;
-};
-
-struct source_data {
-    struct qahw_source_data *qahw_sdata;
-    struct pa_source_data *pa_sdata;
-    struct userdata *u;
-};
+    uint32_t alternate_sample_rate;
+    pa_idxset *formats;
+    pa_hashmap *ports;
+    pa_hashmap *profiles;
+    char **port_conf_string;
+    pa_qahw_card_usecase_type_t usecase_type;
+} pa_qahw_source_config;
 
 /*create qahw session and pa source */
-int create_source(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name,
-                 const char *profile_name, pa_sample_spec *ss, pa_channel_map *map, uint32_t source_devices, int32_t flags,int source_idx,
-                 source_handle_t **handle);
-void close_source(source_handle_t *handle);
+int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name,
+                          pa_qahw_source_config *source, pa_qahw_source_handle_t **handle);
+pa_idxset* pa_qahw_source_get_config(pa_qahw_source_handle_t *handle);
+void pa_qahw_source_close(pa_qahw_source_handle_t *handle);
+bool pa_qahw_source_is_supported_sample_rate(uint32_t sample_rate);
+
+static inline bool pa_qahw_source_is_supported_type(char *source_type) {
+    pa_assert(source_type);
+
+    if (pa_streq(source_type, "low-latency") || pa_streq(source_type, "regular") || pa_streq(source_type, "compress") || pa_streq(source_type, "passthrough"))
+        return true;
+
+    return false;
+}
+
+static inline bool pa_qahw_source_is_supported_sample_format(char *source_type) {
+    pa_assert(source_type);
+
+    if (pa_streq(source_type, "s16le") ||  pa_streq(source_type, "s24le"))
+        return true;
+
+    return false;
+}
+
+static inline bool pa_qahw_source_is_supported_encoding(pa_encoding_t encoding) {
+    bool supported = true;
+
+    switch (encoding) {
+        case PA_ENCODING_PCM:
+        case PA_ENCODING_UNKNOWN_IEC61937:
+        case PA_ENCODING_UNKNOWN_4X_IEC61937:
+        case PA_ENCODING_UNKNOWN_HBR_IEC61937:
+            break;
+
+        default :
+            supported = false;
+            pa_log_error("%s: unsupported encoding %s", __func__, pa_encoding_to_string(encoding));
+    }
+
+    return supported;
+}
+
+static inline audio_input_flags_t pa_qahw_source_get_flags_from_string(const char *flag_name) {
+    audio_input_flags_t flag;
+
+    if (pa_streq(flag_name, "AUDIO_INPUT_FLAG_NONE")) {
+        flag = AUDIO_INPUT_FLAG_NONE;
+    } else if (pa_streq(flag_name,"AUDIO_INPUT_FLAG_FAST")) {
+        flag = AUDIO_INPUT_FLAG_FAST;
+    } else if (pa_streq(flag_name, "QAHW_INPUT_FLAG_TIMESTAMP")) {
+        flag = QAHW_INPUT_FLAG_TIMESTAMP;
+    } else if (pa_streq(flag_name, "QAHW_INPUT_FLAG_COMPRESS")) {
+        flag = QAHW_INPUT_FLAG_COMPRESS;
+    } else if (pa_streq(flag_name, "QAHW_INPUT_FLAG_PASSTHROUGH")) {
+        flag = QAHW_INPUT_FLAG_PASSTHROUGH;
+    } else {
+        flag = AUDIO_INPUT_FLAG_NONE;
+        pa_log_error("%s: Unsupported flag name %s", __func__, flag_name);
+    }
+
+    return flag;
+}
+
 
 #endif

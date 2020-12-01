@@ -16,17 +16,26 @@
  * 02110-1301  USA
  */
 
-#ifndef fooqahwpasinkextnfoo
-#define fooqahwpasinkextnfoo
+#ifndef fooqahwconfparserfoo
+#define fooqahwconfparserfoo
 
-#include <pulsecore/core.h>
+#include <pulsecore/conf-parser.h>
 
 #include <qahw_api.h>
+#include <qahw_defs.h>
 
-typedef size_t pa_qahw_sink_extn_handle_t;
+#include "qahw-card.h"
 
-int pa_qahw_sink_extn_create(pa_core *core, qahw_stream_handle_t *out_handle, int pa_sink_index, pa_qahw_sink_extn_handle_t **handle);
-int pa_qahw_sink_extn_free(pa_qahw_sink_extn_handle_t *handle);
-int pa_qahw_sink_extn_sink_handle_update(pa_qahw_sink_extn_handle_t *handle, qahw_stream_handle_t *out_handle);
+typedef struct {
+    pa_hashmap *ports;
+    pa_hashmap *profiles;
+    pa_hashmap *sinks;
+    pa_hashmap *sources;
+    pa_hashmap *effects;
+    char *default_profile;
+    bool use_dolby_hw_loopback;
+} pa_qahw_config_data;
 
+pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name);
+void pa_qahw_config_parse_free(pa_qahw_config_data *config_data);
 #endif

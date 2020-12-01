@@ -16,17 +16,24 @@
  * 02110-1301  USA
  */
 
-#ifndef fooqahwpasinkextnfoo
-#define fooqahwpasinkextnfoo
+#ifndef fooqahwjackformathfoo
+#define fooqahwjackformathfoo
 
-#include <pulsecore/core.h>
+typedef enum {
+    PA_QAHW_JACK_INPUT_MODE_PCM = 0,
+    PA_QAHW_JACK_INPUT_MODE_COMPRESS = 1,
+} pa_qahw_jack_input_mode_t;
 
-#include <qahw_api.h>
+typedef struct pa_qahw_jack_config {
+    uint32_t sample_rate;
+    uint32_t bitwidth;
+    uint32_t channels;
+    uint32_t layout;
+    uint32_t channel_allocation;
+    pa_qahw_jack_input_mode_t mode;
+} pa_qahw_jack_config_t;
 
-typedef size_t pa_qahw_sink_extn_handle_t;
-
-int pa_qahw_sink_extn_create(pa_core *core, qahw_stream_handle_t *out_handle, int pa_sink_index, pa_qahw_sink_extn_handle_t **handle);
-int pa_qahw_sink_extn_free(pa_qahw_sink_extn_handle_t *handle);
-int pa_qahw_sink_extn_sink_handle_update(pa_qahw_sink_extn_handle_t *handle, qahw_stream_handle_t *out_handle);
+bool pa_qahw_hdmi_jack_get_config(pa_qahw_jack_config_t *curr_config);
 
 #endif
+

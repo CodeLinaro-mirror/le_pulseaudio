@@ -16,17 +16,17 @@
  * 02110-1301  USA
  */
 
-#ifndef fooqahwpasinkextnfoo
-#define fooqahwpasinkextnfoo
+#ifndef fooqahwpasourceextnfoo
+#define fooqahwpasourceextnfoo
 
 #include <pulsecore/core.h>
 
-#include <qahw_api.h>
+#include <qahw_defs.h>
 
-typedef size_t pa_qahw_sink_extn_handle_t;
+typedef size_t pa_qahw_source_extn_handle_t;
 
-int pa_qahw_sink_extn_create(pa_core *core, qahw_stream_handle_t *out_handle, int pa_sink_index, pa_qahw_sink_extn_handle_t **handle);
-int pa_qahw_sink_extn_free(pa_qahw_sink_extn_handle_t *handle);
-int pa_qahw_sink_extn_sink_handle_update(pa_qahw_sink_extn_handle_t *handle, qahw_stream_handle_t *out_handle);
+int pa_qahw_source_extn_create(pa_core *core, qahw_stream_handle_t *in_handle, int pa_source_index, pa_qahw_source_extn_handle_t **handle);
+int pa_qahw_source_extn_free(pa_qahw_source_extn_handle_t *handle);
+int pa_qahw_source_extn_source_handle_update(pa_qahw_source_extn_handle_t *handle, qahw_stream_handle_t *in_handle);
 
 #endif

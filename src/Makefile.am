@@ -37,6 +37,9 @@ endif
 if HAVE_GSETTINGS
 gsettingsdataconvertdir=$(datadir)/GConf/gsettings
 endif
+if HAVE_QAHW
+qahwconfsetsdir=$(datadir)/pulseaudio/qahw/configs
+endif
 
 ###################################
 #     Compiler/linker flags       #
@@ -50,7 +53,8 @@ AM_CPPFLAGS = \
 	-DPA_ALSA_PROFILE_SETS_DIR=\"$(alsaprofilesetsdir)\" \
 	-DPA_SRCDIR=\"$(abs_srcdir)\" \
 	-DPA_BUILDDIR=\"$(abs_builddir)\" \
-	-DPULSE_LOCALEDIR=\"$(localedir)\"
+	-DPULSE_LOCALEDIR=\"$(localedir)\" \
+	-DQAHW_CARD_DEFAULT_CONF_PATH=\"$(qahwconfsetsdir)\"
 AM_CFLAGS = -std=gnu11 \
 	$(PTHREAD_CFLAGS)
 AM_CXXFLAGS = -std=c++11 \
@@ -1401,6 +1405,12 @@ endif
 
 if HAVE_QAHW
 modlibexec_LTLIBRARIES += module-qahw-card.la
+
+dist_qahwconfsets_DATA = \
+      modules/qahw/configs/msm8998-tasha-snd-card.conf \
+      modules/qahw/configs/qcs405-snd-card.conf \
+      modules/qahw/configs/qcs405-wsa-snd-card.conf \
+      modules/qahw/configs/qcs405-csra-snd-card.conf
 endif
 
 if HAVE_SOLARIS
@@ -1633,12 +1643,16 @@ module_qahw_card_la_SOURCES = \
         modules/qahw/qahw-sink.c modules/qahw/qahw-sink.h \
         modules/qahw/qahw-sink-extn.c modules/qahw/qahw-sink-extn.h \
         modules/qahw/qahw-source.c modules/qahw/qahw-source.h \
+        modules/qahw/qahw-source-extn.c modules/qahw/qahw-source-extn.h \
         modules/qahw/qahw-utils.c modules/qahw/qahw-utils.h \
         modules/qahw/qahw-jack.c modules/qahw/qahw-jack.h \
         modules/qahw/qahw-jack-evdev.c modules/qahw/qahw-jack-common.h \
         modules/qahw/qahw-loopback.c modules/qahw/qahw-loopback.h \
-        modules/qahw/qahw-jack-hdmi.c
-module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
+        modules/qahw/qahw-jack-hdmi.c \
+        modules/qahw/qahw-effect.c modules/qahw/qahw-effect.h \
+        modules/qahw/qahw-format-detection.c modules/qahw/qahw-jack-format.h \
+        modules/qahw/qahw-config-parser.c modules/qahw/qahw-config-parser.h
+module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(QAHW_API_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
 module_qahw_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qahw_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqahw
 endif
