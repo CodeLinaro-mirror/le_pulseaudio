@@ -1260,7 +1260,10 @@ modlibexec_LTLIBRARIES += \
 		module-filter-apply.la \
 		module-filter-heuristics.la \
 		module-role-ducking.la \
-		module-allow-passthrough.la
+		module-role-exclusive.la \
+		module-role-ignore.la \
+		module-allow-passthrough.la \
+		module-policy-voiceui.la
 
 if HAVE_ESOUND
 modlibexec_LTLIBRARIES += \
@@ -1413,6 +1416,10 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/qcs405-csra1-snd-card.conf \
       modules/qahw/configs/qcs405-csra6-snd-card.conf \
       modules/qahw/configs/qcs405-amic-snd-card.conf
+endif
+
+if HAVE_QSTHW
+modlibexec_LTLIBRARIES += module-qsthw.la
 endif
 
 if HAVE_SOLARIS
@@ -1657,6 +1664,13 @@ module_qahw_card_la_SOURCES = \
 module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(QAHW_API_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
 module_qahw_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qahw_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqahw
+endif
+
+if HAVE_QSTHW
+module_qsthw_la_SOURCES = modules/module-qsthw.c
+module_qsthw_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) $(QSTHW_CFLAGS) -Werror -DPA_MODULE_NAME=module_qsthw
+module_qsthw_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_qsthw_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqtisoundtriggerhw
 endif
 
 # Pipes
@@ -1970,6 +1984,24 @@ module_role_cork_la_SOURCES = modules/module-role-cork.c \
 module_role_cork_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_role_cork_la_LIBADD = $(MODULE_LIBADD)
 module_role_cork_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_cork
+
+# Stream get exclusive hold on the sink while any active stream of same role will be corked/muted
+module_role_exclusive_la_SOURCES = modules/module-role-exclusive.c
+module_role_exclusive_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_role_exclusive_la_LIBADD = $(MODULE_LIBADD)
+module_role_exclusive_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_exclusive
+
+# Defines policy when there is a qsthw lab session is initiated
+module_policy_voiceui_la_SOURCES = modules/module-policy-voiceui.c
+module_policy_voiceui_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_policy_voiceui_la_LIBADD = $(MODULE_LIBADD)
+module_policy_voiceui_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_policy_voiceui
+
+# Ignore certain streams while others are active (e.g. mute tones when there is active voice-prompt)
+module_role_ignore_la_SOURCES = modules/module-role-ignore.c
+module_role_ignore_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_role_ignore_la_LIBADD = $(MODULE_LIBADD)
+module_role_ignore_la_CFLAGS = $(AM_CFLAGS) -DPA_MODULE_NAME=module_role_ignore
 
 # Device description restore module
 module_device_manager_la_SOURCES = modules/module-device-manager.c

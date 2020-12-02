@@ -37,6 +37,11 @@ typedef struct {
     char *port_name;
 } pa_qahw_util_jack_type_to_port_name;
 
+typedef struct {
+    char *port_name;
+    audio_devices_t qahw_device;
+    char *qahw_device_name;
+} pa_qahw_util_port_to_qahw_device_mapping;
 
 pa_qahw_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_QAHW_JACK_TYPE_WIRED_HEADSET, (char*)"headset" },
@@ -44,6 +49,18 @@ pa_qahw_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_QAHW_JACK_TYPE_WIRED_HEADPHONE, (char*)"headphone" },
     { PA_QAHW_JACK_TYPE_LINEOUT, (char*)"lineout"},
     { PA_QAHW_JACK_TYPE_HDMI, (char*)"hdmi-in" },
+};
+
+pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
+    { (char*)"speaker",          AUDIO_DEVICE_OUT_SPEAKER,          (char *)"AUDIO_DEVICE_OUT_SPEAKER" },
+    { (char *)"headset",         AUDIO_DEVICE_OUT_WIRED_HEADSET,    (char *)"AUDIO_DEVICE_OUT_WIRED_HEADSET" },
+    { (char*)"lineout",          AUDIO_DEVICE_OUT_LINE,             (char *)"AUDIO_DEVICE_OUT_LINE"},
+    { (char*)"headphone",        AUDIO_DEVICE_OUT_WIRED_HEADPHONE,  (char *)"AUDIO_DEVICE_OUT_WIRED_HEADPHONE" },
+    { (char *)"headset-mic",     AUDIO_DEVICE_IN_WIRED_HEADSET,     (char *)"AUDIO_DEVICE_IN_WIRED_HEADSET" },
+    { (char *)"builtin-mic",     AUDIO_DEVICE_IN_BUILTIN_MIC,       (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC" },
+    { (char *)"hdmi-in",         AUDIO_DEVICE_IN_HDMI,              (char *)"AUDIO_DEVICE_IN_HDMI" },
+    { (char *)"spdif-in",        AUDIO_DEVICE_IN_SPDIF ,            (char *)"AUDIO_DEVICE_IN_SPDIF" },
+    { (char *)"linein",          AUDIO_DEVICE_IN_LINE,              (char *)"AUDIO_DEVICE_IN_LINE" },
 };
 
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format) {
@@ -244,29 +261,16 @@ const char* pa_qahw_util_audio_device_to_port_name(audio_devices_t audio_device,
 }
 
 audio_devices_t pa_qahw_util_port_to_qahw_device(const char *port_name) {
-    audio_devices_t device;
+    audio_devices_t device = AUDIO_DEVICE_NONE;
+    uint32_t count;
 
-    if (pa_streq(port_name, "speaker")) {
-        device = AUDIO_DEVICE_OUT_SPEAKER;
-    } else if (pa_streq(port_name, "headset")) {
-        device = AUDIO_DEVICE_OUT_WIRED_HEADSET;
-    } else if (pa_streq(port_name, "headphone")) {
-        device = AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
-    } else if (pa_streq(port_name, "lineout")) {
-        device = AUDIO_DEVICE_OUT_LINE;
-    } else if (pa_streq(port_name,"headset-mic")) {
-        device = AUDIO_DEVICE_IN_WIRED_HEADSET;
-    } else if (pa_streq(port_name, "builtin-mic")) {
-        device = AUDIO_DEVICE_IN_BUILTIN_MIC;
-    } else if (pa_streq(port_name, "hdmi-in")) {
-        device = AUDIO_DEVICE_IN_HDMI;
-    } else if (pa_streq(port_name, "linein")) {
-        device = AUDIO_DEVICE_IN_LINE;
-    } else if (pa_streq(port_name, "spdif-in")) {
-        device = AUDIO_DEVICE_IN_SPDIF;
-    } else {
-        device = AUDIO_DEVICE_NONE;
-        pa_log_error("%s: No qahw device mapping for  port %s", __func__, port_name);
+    pa_assert(port_name);
+
+    for (count = 0; count < ARRAY_SIZE(port_to_qahw_device); count++) {
+        if (pa_streq(port_name, port_to_qahw_device[count].port_name)) {
+            device = port_to_qahw_device[count].qahw_device;
+            break;
+        }
     }
 
     pa_log_debug("%s: port %s qahw device %u", __func__, port_name, device);
@@ -274,33 +278,20 @@ audio_devices_t pa_qahw_util_port_to_qahw_device(const char *port_name) {
     return device;
 }
 
-audio_devices_t pa_qahw_util_device_name_convert_string_to_enum(const char *device_name) {
-    audio_devices_t device;
+audio_devices_t pa_qahw_util_device_name_to_enum(const char *device_name) {
+    uint32_t count;
+    audio_devices_t device = AUDIO_DEVICE_NONE;
 
-    if (pa_streq(device_name, "AUDIO_DEVICE_OUT_SPEAKER")) {
-        device = AUDIO_DEVICE_OUT_SPEAKER;
-    } else if (pa_streq(device_name, "AUDIO_DEVICE_OUT_WIRED_HEADSET")) {
-        device = AUDIO_DEVICE_OUT_WIRED_HEADSET;
-    } else if (pa_streq(device_name, "AUDIO_DEVICE_OUT_WIRED_HEADPHONE")) {
-        device = AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
-    } else if (pa_streq(device_name, "AUDIO_DEVICE_OUT_LINE")) {
-        device = AUDIO_DEVICE_OUT_LINE;
-    } else if (pa_streq(device_name,"AUDIO_DEVICE_IN_WIRED_HEADSET")) {
-        device = AUDIO_DEVICE_IN_WIRED_HEADSET;
-    } else if (pa_streq(device_name, "AUDIO_DEVICE_IN_BUILTIN_MIC")) {
-        device = AUDIO_DEVICE_IN_BUILTIN_MIC;
-    } else if (pa_streq(device_name, "AUDIO_DEVICE_IN_HDMI")) {
-        device = AUDIO_DEVICE_IN_HDMI;
-    } else if (pa_streq(device_name, "AUDIO_DEVICE_IN_LINE")) {
-        device = AUDIO_DEVICE_IN_LINE;
-    } else if (pa_streq(device_name, "AUDIO_DEVICE_IN_SPDIF")) {
-        device = AUDIO_DEVICE_IN_SPDIF;
-    } else {
-        device = AUDIO_DEVICE_NONE;
-        pa_log_error("%s: No qahw device mapping for port %s", __func__, device_name);
+    pa_assert(device_name);
+
+    for (count = 0; count < ARRAY_SIZE(port_to_qahw_device); count++) {
+        if (pa_streq(device_name, port_to_qahw_device[count].qahw_device_name)) {
+            device = port_to_qahw_device[count].qahw_device;
+            break;
+        }
     }
 
-    pa_log_debug("%s: port %s qahw device %u", __func__, device_name, device);
+    pa_log_debug("%s: device_name %s qahw device %u", __func__, device_name, device);
 
     return device;
 }

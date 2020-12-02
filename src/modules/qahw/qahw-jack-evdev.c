@@ -49,6 +49,14 @@
 /* Macro to tell if a bit in array is set */
 #define TEST_BIT_SET(BIT, ARRAY)  (ARRAY[(BIT)/8] & (1<<((BIT)%8)))
 
+typedef struct {
+    int fd;
+    pa_io_event *io;
+    pa_hook event_hook;
+    pa_available_t jack_status;
+    int switch_values;
+} pa_qahw_evdev_jack_data_t;
+
 static struct pa_qahw_jack_info supported_jacks[] = {
     {PA_QAHW_JACK_TYPE_WIRED_HEADSET, (char *)"snd-card Headset Jack"},
     {PA_QAHW_JACK_TYPE_WIRED_HEADPHONE, (char *)"snd-card Headset Jack"},
@@ -56,20 +64,21 @@ static struct pa_qahw_jack_info supported_jacks[] = {
     {PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS, (char *)"snd-card Button Jack"}
 };
 
-static void report_jack_state(struct pa_qahw_jack_data *jdata) {
+static void report_jack_state(pa_qahw_evdev_jack_data_t *evdev_jdata) {
     pa_qahw_jack_event_data_t event_data;
+
     pa_qahw_jack_type_t jack_type = PA_QAHW_JACK_TYPE_INVALID;
 
-    if (!jdata->switch_values) {
-        pa_log_debug("Invalid switch value %x", jdata->switch_values);
+    if (!evdev_jdata->switch_values) {
+        pa_log_debug("Invalid switch value %x", evdev_jdata->switch_values);
         return;
     }
 
-    jdata->switch_values = (jdata->switch_values & ~HEADSET_SWITCH_MASK) | jdata->switch_values;
+    evdev_jdata->switch_values = (evdev_jdata->switch_values & ~HEADSET_SWITCH_MASK) | evdev_jdata->switch_values;
 
-    pa_log_debug("switch value %x", jdata->switch_values);
+    pa_log_debug("switch value %x", evdev_jdata->switch_values);
 
-    switch (jdata->switch_values & HEADSET_SWITCH_MASK) {
+    switch (evdev_jdata->switch_values & HEADSET_SWITCH_MASK) {
        case SW_HEADPHONE_INSERT_BIT | SW_MICROPHONE_INSERT_BIT:
             jack_type = PA_QAHW_JACK_TYPE_WIRED_HEADSET;
             break;
@@ -90,38 +99,38 @@ static void report_jack_state(struct pa_qahw_jack_data *jdata) {
             jack_type = PA_QAHW_JACK_TYPE_INVALID;
      }
 
-    jdata->switch_values = 0x0;
+    evdev_jdata->switch_values = 0x0;
 
     if (jack_type == PA_QAHW_JACK_TYPE_INVALID)
         return;
 
     event_data.jack_type = jack_type;
-    if (jdata->jack_status == PA_AVAILABLE_YES) {
+    if (evdev_jdata->jack_status == PA_AVAILABLE_YES) {
         pa_log_info("qahw jack type %d available", jack_type);
         event_data.event = PA_QAHW_JACK_AVAILABLE;
-        pa_hook_fire(&(jdata->event_hook), &event_data);
+        pa_hook_fire(&(evdev_jdata->event_hook), &event_data);
     } else {
         pa_log_info("qahw jack type %d unavailable", jack_type);
         event_data.event = PA_QAHW_JACK_UNAVAILABLE;
-        pa_hook_fire(&(jdata->event_hook), &event_data);
+        pa_hook_fire(&(evdev_jdata->event_hook), &event_data);
     }
 }
 
-static void update_switch_value(struct pa_qahw_jack_data *jdata, uint16_t code, uint16_t value) {
+static void update_switch_value(pa_qahw_evdev_jack_data_t *evdev_jdata, uint16_t code, uint16_t value) {
 
     bool update_jack_status = true;
 
     switch (code) {
         case SW_HEADPHONE_INSERT:
-            jdata->switch_values |= SW_HEADPHONE_INSERT_BIT;
+            evdev_jdata->switch_values |= SW_HEADPHONE_INSERT_BIT;
             break;
 
         case SW_MICROPHONE_INSERT:
-            jdata->switch_values |= SW_MICROPHONE_INSERT_BIT;
+            evdev_jdata->switch_values |= SW_MICROPHONE_INSERT_BIT;
             break;
 
         case SW_LINEOUT_INSERT:
-            jdata->switch_values |= SW_LINEOUT_INSERT_BIT;
+            evdev_jdata->switch_values |= SW_LINEOUT_INSERT_BIT;
             break;
 
         case SW_JACK_PHYSICAL_INSERT:
@@ -135,18 +144,18 @@ static void update_switch_value(struct pa_qahw_jack_data *jdata, uint16_t code, 
     }
 
     if (update_jack_status)
-        jdata->jack_status = value ? PA_AVAILABLE_YES : PA_AVAILABLE_NO;
+        evdev_jdata->jack_status = value ? PA_AVAILABLE_YES : PA_AVAILABLE_NO;
 
     return;
 }
 
 static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_event_flags_t io_events, void *userdata) {
-    struct pa_qahw_jack_data *jdata = userdata;
+    pa_qahw_evdev_jack_data_t *evdev_jdata = userdata;
     int fd_type;
     struct input_event event;
 
     pa_assert(io);
-    pa_assert(jdata);
+    pa_assert(evdev_jdata);
 
     if (io_events & (PA_IO_EVENT_HANGUP|PA_IO_EVENT_ERROR)) {
         pa_log("connection to evdev device Lost");
@@ -155,7 +164,7 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
 
     if (io_events & PA_IO_EVENT_INPUT) {
 
-        if (pa_loop_read(jdata->fd, &event, sizeof(event), &fd_type) <= 0) {
+        if (pa_loop_read(evdev_jdata->fd, &event, sizeof(event), &fd_type) <= 0) {
             pa_log("Failed to read from event device: %s", pa_cstrerror(errno));
             return;
         }
@@ -164,9 +173,9 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
 
         if (event.type == EV_SW) {
             pa_log_debug("event type is Switch");
-            update_switch_value(jdata, event.code, event.value);
+            update_switch_value(evdev_jdata, event.code, event.value);
         } else if ((event.type == EV_SYN)) {
-            report_jack_state(jdata);
+            report_jack_state(evdev_jdata);
         } else if (event.type == EV_KEY) {
             pa_log_debug("event type is Button(not supported currently)");
         }
@@ -175,7 +184,7 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
 }
 
 static struct pa_qahw_jack_data* open_device(pa_qahw_jack_type_t jack_type, pa_module *m, const char *dev_name,
-                                    pa_hook_slot **hook_slot, pa_qahw_jack_callback_t callback, void *prv_data) {
+                                    pa_hook_slot **hook_slot, pa_qahw_jack_callback_t callback, void *client_data) {
     int version;
     char name[256];
     uint8_t evtype_bitmask[EV_MAX/8 + 1];
@@ -183,6 +192,7 @@ static struct pa_qahw_jack_data* open_device(pa_qahw_jack_type_t jack_type, pa_m
     struct input_id input_id;
     int fd, i, size;
     struct pa_qahw_jack_data *jdata = NULL;
+    pa_qahw_evdev_jack_data_t *evdev_jdata = NULL;
 
     pa_assert(m);
     pa_assert(dev_name);
@@ -235,12 +245,19 @@ static struct pa_qahw_jack_data* open_device(pa_qahw_jack_type_t jack_type, pa_m
     jdata = pa_xnew0(struct pa_qahw_jack_data, 1);
 
     jdata->jack_type = jack_type;
-    jdata->fd = fd;
-    pa_hook_init(&(jdata->event_hook), NULL);
 
-    *hook_slot = pa_hook_connect(&(jdata->event_hook), PA_HOOK_NORMAL, (pa_hook_cb_t)callback, prv_data);
+    evdev_jdata = pa_xnew0(pa_qahw_evdev_jack_data_t, 1);
+    evdev_jdata->fd = fd;
 
-    jdata->io = m->core->mainloop->io_new(m->core->mainloop, fd, PA_IO_EVENT_INPUT | PA_IO_EVENT_HANGUP, jack_io_callback, jdata);
+    pa_hook_init(&(evdev_jdata->event_hook), NULL);
+
+    jdata->event_hook = &(evdev_jdata->event_hook);
+
+    jdata->prv_data = evdev_jdata;
+
+    *hook_slot = pa_hook_connect(&(evdev_jdata->event_hook), PA_HOOK_NORMAL, (pa_hook_cb_t)callback, client_data);
+
+    evdev_jdata->io = m->core->mainloop->io_new(m->core->mainloop, fd, PA_IO_EVENT_INPUT | PA_IO_EVENT_HANGUP, jack_io_callback, evdev_jdata);
 
     if ((jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADSET) || (jack_type == PA_QAHW_JACK_TYPE_LINEOUT)) {
 
@@ -250,20 +267,20 @@ static struct pa_qahw_jack_data* open_device(pa_qahw_jack_type_t jack_type, pa_m
             if (ioctl(fd, EVIOCGSW(sizeof(sw_state)), sw_state) >= 0) {
                 if (TEST_BIT_SET(SW_MICROPHONE_INSERT, sw_state)) {
                     pa_log_debug("SW_MICROPHONE_INSERT");
-                    update_switch_value(jdata, SW_MICROPHONE_INSERT, 1);
+                    update_switch_value(evdev_jdata, SW_MICROPHONE_INSERT, 1);
                 }
 
                 if (TEST_BIT_SET(SW_HEADPHONE_INSERT, sw_state)) {
                     pa_log_debug("SW_HEADPHONE_INSERT");
-                    update_switch_value(jdata, SW_HEADPHONE_INSERT, 1);
+                    update_switch_value(evdev_jdata, SW_HEADPHONE_INSERT, 1);
                 }
 
                 if (TEST_BIT_SET(SW_LINEOUT_INSERT, sw_state)) {
                     pa_log_debug("SW_LINEOUT_INSERT");
-                    update_switch_value(jdata, SW_LINEOUT_INSERT, 1);
+                    update_switch_value(evdev_jdata, SW_LINEOUT_INSERT, 1);
                 }
 
-                report_jack_state(jdata);
+                report_jack_state(evdev_jdata);
             } else {
                 pa_log_error("Device has no software switch.");
                 goto fail;
@@ -277,6 +294,9 @@ static struct pa_qahw_jack_data* open_device(pa_qahw_jack_type_t jack_type, pa_m
    return jdata;
 
 fail:
+   if (evdev_jdata)
+       pa_xfree(evdev_jdata);
+
    if (jdata)
        pa_xfree(jdata);
 
@@ -285,18 +305,23 @@ fail:
 }
 
 int pa_qahw_evdev_jack_device_close(struct pa_qahw_jack_data *jdata, pa_module *m) {
+    pa_qahw_evdev_jack_data_t *evdev_jdata;
     int rc;
 
     pa_assert(jdata);
 
-    if(jdata->io)
-        m->core->mainloop->io_free(jdata->io);
+    evdev_jdata = (pa_qahw_evdev_jack_data_t *)jdata->prv_data;
 
-    rc= pa_close(jdata->fd);
+    if(evdev_jdata->io)
+        m->core->mainloop->io_free(evdev_jdata->io);
+
+    rc= pa_close(evdev_jdata->fd);
     if (rc < 0)
-        pa_log("pa_close (fd %d) failed: %s",jdata->fd, pa_cstrerror(errno));
+        pa_log("pa_close (fd %d) failed: %s",evdev_jdata->fd, pa_cstrerror(errno));
 
-    pa_hook_done(&(jdata->event_hook));
+    pa_hook_done(&(evdev_jdata->event_hook));
+
+    pa_xfree(evdev_jdata);
 
     pa_xfree(jdata);
     jdata = NULL;
@@ -305,7 +330,7 @@ int pa_qahw_evdev_jack_device_close(struct pa_qahw_jack_data *jdata, pa_module *
 }
 
 struct pa_qahw_jack_data* pa_qahw_evdev_jack_device_open(pa_qahw_jack_type_t jack_type, pa_module *m, pa_hook_slot **hook_slot,
-                                                                              pa_qahw_jack_callback_t callback, void *prv_data) {
+                                                                              pa_qahw_jack_callback_t callback, void *client_data) {
     char dev_name[PATH_MAX];
     char *filename;
     DIR *dir;
@@ -327,7 +352,7 @@ struct pa_qahw_jack_data* pa_qahw_evdev_jack_device_open(pa_qahw_jack_type_t jac
         strlcpy(filename, de->d_name, sizeof(filename));
 
         /* continue till both headset and button device are opened */
-        jdata = open_device(jack_type, m, dev_name, hook_slot, callback, prv_data);
+        jdata = open_device(jack_type, m, dev_name, hook_slot, callback, client_data);
         if (jdata) {
             pa_log_debug("jack type %d is supported", jack_type);
             break;

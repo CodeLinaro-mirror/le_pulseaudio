@@ -16,16 +16,19 @@
  * 02110-1301  USA
  */
 
-#ifndef fooqahwjackformathfoo
-#define fooqahwjackformathfoo
+#ifndef fooqsthwutilfoo
+#define fooqsthwutilfoo
 
-typedef struct pa_qahw_jack_config {
-    pa_encoding_t encoding;
-    pa_sample_spec ss;
-    pa_channel_map map;
-} pa_qahw_jack_config_t;
+typedef struct pa_qsthw_hooks pa_qsthw_hooks;
 
-int pa_qahw_hdmi_jack_get_config(pa_qahw_jack_config_t *curr_config);
+typedef enum pa_qsthw_hook {
+    PA_HOOK_QSTHW_START_DETECTION,
+    PA_HOOK_QSTHW_STOP_DETECTION,
+    PA_HOOK_QSTHW_MAX,
+} pa_qsthw_hook_t;
 
-#endif
+struct pa_qsthw_hooks {
+    pa_hook hooks[PA_HOOK_QSTHW_MAX];
+};
 
+#endif //fooqsthwutilfoo
