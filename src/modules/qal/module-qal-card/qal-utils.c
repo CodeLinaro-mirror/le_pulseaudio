@@ -39,8 +39,16 @@ typedef struct {
 } pa_qal_util_port_to_qal_device_mapping;
 
 pa_qal_util_port_to_qal_device_mapping port_to_qal_device[] = {
-    { (char*)"speaker",          QAL_DEVICE_OUT_SPEAKER,          (char *)"QAL_DEVICE_OUT_SPEAKER" },
-    { (char *)"builtin-mic",     QAL_DEVICE_IN_SPEAKER_MIC,       (char *)"QAL_DEVICE_IN_SPEAKER_MIC" },
+    { (char *)"speaker",          QAL_DEVICE_OUT_SPEAKER,          (char *)"QAL_DEVICE_OUT_SPEAKER" },
+    { (char *)"lineout",          QAL_DEVICE_OUT_LINE,             (char *)"QAL_DEVICE_OUT_LINE" },
+    { (char *)"headset",          QAL_DEVICE_OUT_WIRED_HEADSET,    (char *)"QAL_DEVICE_OUT_WIRED_HEADSET" },
+    { (char *)"headphone",        QAL_DEVICE_OUT_WIRED_HEADPHONE,  (char *)"QAL_DEVICE_OUT_WIRED_HEADPHONE" },
+    { (char *)"bta2dp-out",       QAL_DEVICE_OUT_BLUETOOTH_A2DP,   (char *)"QAL_DEVICE_OUT_BLUETOOTH_A2DP" },
+    { (char *)"builtin-mic",      QAL_DEVICE_IN_HANDSET_MIC,       (char *)"QAL_DEVICE_IN_HANDSET_MIC" },
+    { (char *)"speaker-mic",      QAL_DEVICE_IN_SPEAKER_MIC,       (char *)"QAL_DEVICE_IN_SPEAKER_MIC" },
+    { (char *)"tri-mic",          QAL_DEVICE_IN_TRI_MIC,           (char *)"QAL_DEVICE_IN_TRI_MIC" },
+    { (char *)"quad-mic",         QAL_DEVICE_IN_QUAD_MIC,          (char *)"QAL_DEVICE_IN_QUAD_MIC" },
+    { (char *)"linein",           QAL_DEVICE_IN_LINE,              (char *)"QAL_DEVICE_IN_LINE" },
 };
 
 qal_device_id_t pa_qal_util_device_name_to_enum(const char *device_name) {
@@ -89,6 +97,11 @@ static pa_qal_util_pa_qal_channel_map pa_qal_channel_map[] = {
     { PA_CHANNEL_POSITION_TOP_SIDE_LEFT, QAL_CHMAP_CHANNEL_TSL },
     { PA_CHANNEL_POSITION_TOP_SIDE_RIGHT, QAL_CHMAP_CHANNEL_TSR }
 };
+
+uint32_t pa_qal_get_channel_count(pa_channel_map *pa_map) {
+    pa_assert(pa_map);
+    return pa_map->channels;
+}
 
 bool pa_qal_channel_map_to_qal(pa_channel_map *pa_map, struct qal_channel_info *qal_map) {
     uint32_t channels;

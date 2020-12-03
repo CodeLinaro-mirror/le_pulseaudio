@@ -46,11 +46,13 @@ struct pa_qahw_source_extn_data {
 /* source set params based on key,value */
 static void pa_qahw_source_set_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_source_get_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void pa_qahw_source_set_ttp_offset(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 enum source_method_handler_index {
     METHOD_HANDLER_SOURCE_SET_PARAMETERS,
     METHOD_HANDLER_SOURCE_GET_PARAMETERS,
-    METHOD_HANDLER_SOURCE_LAST = METHOD_HANDLER_SOURCE_GET_PARAMETERS,
+    METHOD_HANDLER_SOURCE_SET_TTP_OFFSET,
+    METHOD_HANDLER_SOURCE_LAST = METHOD_HANDLER_SOURCE_SET_TTP_OFFSET,
     METHOD_HANDLER_SOURCE_MAX = METHOD_HANDLER_SOURCE_LAST + 1,
 };
 
@@ -63,6 +65,9 @@ static pa_dbus_arg_info source_get_parameters_args[] = {
     {"value", "s", "out"},
 };
 
+static pa_dbus_arg_info source_ttp_offset_args[] = {
+    {"ttp_offset", "t", "in"},
+};
 
 static pa_dbus_method_handler source_method_handlers[METHOD_HANDLER_SOURCE_MAX] = {
 [METHOD_HANDLER_SOURCE_SET_PARAMETERS] = {
@@ -75,6 +80,11 @@ static pa_dbus_method_handler source_method_handlers[METHOD_HANDLER_SOURCE_MAX] 
         .arguments = source_get_parameters_args,
         .n_arguments = sizeof(source_get_parameters_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = pa_qahw_source_get_parameters},
+[METHOD_HANDLER_SOURCE_SET_TTP_OFFSET] = {
+        .method_name = "SetTTPOffset",
+        .arguments = source_ttp_offset_args,
+        .n_arguments = sizeof(source_ttp_offset_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = pa_qahw_source_set_ttp_offset},
 };
 
 static pa_dbus_interface_info source_interface_info = {
@@ -154,6 +164,49 @@ static void pa_qahw_source_get_parameters(DBusConnection *conn, DBusMessage *msg
     pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_STRING, &param);
 
     free(param);
+}
+
+static void pa_qahw_source_set_ttp_offset(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    int rc = 0;
+
+    struct pa_qahw_source_extn_data *qahw_extn_sdata = (struct pa_qahw_source_extn_data *)userdata;
+    qahw_param_payload payload;
+
+    DBusMessageIter arg_i;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
+                "pa_qahw_source_set_ttp_offset has no arguments");
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (!pa_streq(dbus_message_get_signature(msg), "t")) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
+                "Invalid signature for pa_qahw_source_set_ttp_offset");
+        dbus_error_free(&error);
+        return;
+    }
+
+    dbus_message_iter_get_basic(&arg_i, &payload.ttp_offset.ttp_offset);
+
+    pa_log_debug("%s:: start_delay %" PRId64 "us", __func__, payload.ttp_offset.ttp_offset);
+
+    rc = qahw_in_set_param_data(qahw_extn_sdata->in_handle, QAHW_PARAM_IN_TTP_OFFSET, &payload);
+    if (rc) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "set_param_data for QAHW_PARAM_IN_TTP_OFFSET failed");
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_dbus_send_empty_reply(conn, msg);
 }
 
 int pa_qahw_source_extn_source_handle_update(pa_qahw_source_extn_handle_t *handle, qahw_stream_handle_t *in_handle) {

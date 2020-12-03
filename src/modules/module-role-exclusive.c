@@ -50,10 +50,12 @@ struct userdata {
     uint32_t n_groups;
     pa_idxset *exclusive_roles;
     bool global;
+    pa_hashmap *inputs_states;
     pa_hook_slot
         *sink_input_put_slot,
         *sink_input_state_changed_slot,
-        *sink_input_mute_changed_slot;
+        *sink_input_mute_changed_slot,
+        *sink_input_unlink_slot;
 };
 
 static void process_on_sink(struct userdata *u, pa_sink *s, pa_sink_input *i, const char *exclusive_role){
@@ -72,10 +74,11 @@ static void process_on_sink(struct userdata *u, pa_sink *s, pa_sink_input *i, co
 
         if (pa_streq(role, exclusive_role)) {
             /* Check if the stream with active role is playing/unmuted */
-            if ((pa_sink_input_get_state(si) == PA_SINK_INPUT_RUNNING) && !(si->muted)) {
+            if ((si->state == PA_SINK_INPUT_RUNNING) && !(si->muted)) {
                 pa_log_debug("There is a active stream with exclusive role %s alive", role);
                 /* Set the active stream status as mute and pause the stream */
                 pa_sink_input_set_mute(si, true, false);
+                pa_hashmap_put(u->inputs_states, si, PA_INT_TO_PTR(1));
                 pa_sink_input_send_event(si, PA_STREAM_EVENT_REQUEST_CORK, NULL);
                 return;
             }
@@ -123,7 +126,15 @@ static pa_hook_result_t sink_input_state_changed_cb(pa_core *core, pa_sink_input
     pa_core_assert_ref(core);
     pa_sink_input_assert_ref(i);
 
-    if (PA_SINK_INPUT_IS_LINKED(pa_sink_input_get_state(i)) && !(i->muted))
+    if (i->state == PA_SINK_INPUT_CORKED) {
+        if(pa_hashmap_get(u->inputs_states, i)) {
+            pa_sink_input_set_mute(i, false, false);
+            pa_hashmap_remove(u->inputs_states, i);
+        }
+        return PA_HOOK_OK;
+    }
+
+    if (PA_SINK_INPUT_IS_LINKED(i->state) && !(i->muted))
         return process(u, i);
 
     return PA_HOOK_OK;
@@ -133,8 +144,25 @@ static pa_hook_result_t sink_input_mute_changed_cb(pa_core *core, pa_sink_input 
     pa_core_assert_ref(core);
     pa_sink_input_assert_ref(i);
 
-    if (PA_SINK_INPUT_IS_LINKED(pa_sink_input_get_state(i)) && !(i->muted))
+    if (!(i->muted)) {
+        if(pa_hashmap_get(u->inputs_states, i)) {
+            pa_hashmap_remove(u->inputs_states, i);
+        }
+    }
+
+    if (PA_SINK_INPUT_IS_LINKED(i->state) && (i->state != PA_SINK_INPUT_CORKED) && !(i->muted))
         return process(u, i);
+
+    return PA_HOOK_OK;
+}
+
+static pa_hook_result_t sink_input_unlink_cb(pa_core *core, pa_sink_input *i, struct userdata *u) {
+    pa_core_assert_ref(core);
+    pa_sink_input_assert_ref(i);
+
+    if(pa_hashmap_get(u->inputs_states, i)) {
+        pa_hashmap_remove(u->inputs_states, i);
+    }
 
     return PA_HOOK_OK;
 }
@@ -155,6 +183,7 @@ int pa__init(pa_module *m) {
     m->userdata = u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
     u->exclusive_roles = pa_idxset_new(NULL, NULL);
+    u->inputs_states = pa_hashmap_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
 
     roles = pa_modargs_get_value(ma, "exclusive_roles", NULL);
     if (roles) {
@@ -188,6 +217,7 @@ int pa__init(pa_module *m) {
     u->sink_input_put_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_PUT], PA_HOOK_LATE, (pa_hook_cb_t) sink_input_put_cb, u);
     u->sink_input_state_changed_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_STATE_CHANGED], PA_HOOK_LATE, (pa_hook_cb_t) sink_input_state_changed_cb, u);
     u->sink_input_mute_changed_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_MUTE_CHANGED], PA_HOOK_LATE, (pa_hook_cb_t) sink_input_mute_changed_cb, u);
+    u->sink_input_unlink_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_UNLINK], PA_HOOK_LATE, (pa_hook_cb_t) sink_input_unlink_cb, u);
     pa_modargs_free(ma);
     return 0;
 
@@ -207,6 +237,7 @@ void pa__done(pa_module *m) {
     if (!(u = m->userdata))
         return;
 
+    pa_hashmap_free(u->inputs_states);
     pa_idxset_free(u->exclusive_roles, pa_xfree);
 
     if (u->sink_input_put_slot)
@@ -215,5 +246,7 @@ void pa__done(pa_module *m) {
         pa_hook_slot_free(u->sink_input_state_changed_slot);
     if (u->sink_input_mute_changed_slot)
         pa_hook_slot_free(u->sink_input_mute_changed_slot);
+    if (u->sink_input_unlink_slot)
+        pa_hook_slot_free(u->sink_input_unlink_slot);
     pa_xfree(u);
 }

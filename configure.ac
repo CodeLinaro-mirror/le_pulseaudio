@@ -893,6 +893,18 @@ AS_IF([test "x$with_qal" != "xno"], [QAL_CFLAGS="-I$with_qal"])
 
 AC_SUBST(QAL_CFLAGS)
 
+#### AGM Support (optional) ####
+AC_ARG_WITH([agm],
+    AS_HELP_STRING([--without-agm],[Disable optional AGM support]),[],[with_agm=no])
+AM_CONDITIONAL([HAVE_AGM], [test "x$with_agm" != "xno"])
+
+AGM_CFLAGS=
+AS_IF([test "x$with_agm" != "xno"], [HAVE_AGM=1])
+AS_IF([test "x$with_agm" != "xno"], [AGM_CFLAGS="-I$with_agm"])
+
+AC_SUBST(AGM_CFLAGS)
+
+
 #### EsounD support (optional) ####
 
 AC_ARG_ENABLE([esound],
@@ -1565,6 +1577,11 @@ else
 fi
 
 AM_CONDITIONAL([FORCE_PREOPEN], [test "x$FORCE_PREOPEN" = "xyes"])
+
+AC_ARG_ENABLE([effect-trumpet],
+   AC_HELP_STRING([--disable-effect-trumpet],
+      [Disable effect trumpet [default=yes]]))
+AM_CONDITIONAL([DISABLE_EFFECT_TRUMPET], [test "x${enable_effect_trumpet}" = "xno"])
 
 AC_CONFIG_FILES([
 Makefile

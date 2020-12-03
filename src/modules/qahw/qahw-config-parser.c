@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -47,6 +47,7 @@ static pa_qahw_sink_config* pa_qahw_config_get_sink(pa_hashmap *sinks, char *nam
 static pa_qahw_source_config *pa_qahw_config_get_source(pa_hashmap *sources, char *name);
 static pa_qahw_card_profile_config* pa_qahw_config_get_profile(pa_hashmap *profiles, char *name);
 static pa_qahw_card_port_config* pa_qahw_config_get_port(pa_hashmap *ports, char *name);
+static char *pa_qahw_read_from_file(const char *name);
 
 static pa_qahw_loopback_config* pa_qahw_config_get_loopback(pa_hashmap *loopbacks, char *name) {
     pa_qahw_loopback_config *loopback = NULL;
@@ -126,6 +127,7 @@ static pa_qahw_effect_config* pa_qahw_config_get_effect(pa_hashmap *effects, cha
 
     effect->sinks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
     effect->ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+    effect->loopbacks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
     pa_log_debug("%s::effect name is %s", __func__, effect->name);
 
@@ -139,6 +141,7 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink = NULL;
     pa_qahw_card_port_config *port = NULL;
+    pa_qahw_loopback_config *loopback = NULL;
     pa_qahw_effect_config *effect = NULL;
 
     int ret = -1;
@@ -146,7 +149,7 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
     char **items;
     char *endpoint_name;
 
-    pa_log_error("%s", __func__);
+    pa_log_debug("%s", __func__);
     pa_assert(config_data);
     pa_assert(state);
     pa_assert(state->rvalue);
@@ -165,33 +168,77 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
     }
 
     while ((endpoint_name = items[i++])) {
-        if (pa_streq(effect->type, "sink")) {
-            if ((sink = pa_hashmap_get(config_data->sinks, endpoint_name))) {
-                pa_hashmap_put(effect->sinks, endpoint_name, sink);
-                pa_log_error("%s: adding sink %s to effect %s ", __func__, sink->name, effect->name);
-            } else {
-                pa_log_error("%s: invalid sink %s", __func__, endpoint_name);
-                goto exit;
-            }
+        if ((sink = pa_hashmap_get(config_data->sinks, endpoint_name))) {
+            pa_hashmap_put(effect->sinks, endpoint_name, sink);
+            pa_log_debug("%s: adding sink %s to effect %s ", __func__, sink->name, effect->name);
+            continue;
         }
 
-        if (pa_streq(effect->type, "port")) {
-            if ((port = pa_hashmap_get(config_data->ports, endpoint_name))) {
-                pa_hashmap_put(effect->ports, endpoint_name, port);
-                pa_log_error("%s: adding port %s to effect %s ", __func__, port->name, effect->name);
-            } else {
-                pa_log_error("%s: invalid port %s", __func__, endpoint_name);
-                goto exit;
-            }
+        if ((port = pa_hashmap_get(config_data->ports, endpoint_name))) {
+            pa_hashmap_put(effect->ports, endpoint_name, port);
+            pa_log_debug("%s: adding port %s to effect %s ", __func__, port->name, effect->name);
+            continue;
         }
 
+        if ((loopback = pa_hashmap_get(config_data->loopbacks, endpoint_name))) {
+            pa_hashmap_put(effect->loopbacks, endpoint_name, loopback);
+            pa_log_debug("%s: adding loopback %s to effect %s ", __func__, loopback->name, effect->name);
+            continue;
+        }
 
+        pa_log_error("%s: invalid endpoint %s", __func__, endpoint_name);
+        goto exit;
     }
     ret = 0;
 exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_effect_lib_name(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_effect_config *effect;
+    int ret = -1;
+
+    pa_assert(state);
+    pa_assert(config_data);
+
+    pa_log_debug("%s", __func__);
+
+    if (!(effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    effect->lib_name = pa_xstrdup(state->rvalue);
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_effect_uuid(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_effect_config *effect;
+    int ret = -1;
+
+    pa_assert(state);
+    pa_assert(config_data);
+
+    pa_log_debug("%s", __func__);
+
+    if (!(effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    effect->uuid = pa_xstrdup(state->rvalue);
+
+    ret = 0;
+
+exit:
+    return ret;
+}
 
 static void pa_qahw_config_free_effect(pa_qahw_effect_config *effect) {
     pa_assert(effect);
@@ -200,13 +247,17 @@ static void pa_qahw_config_free_effect(pa_qahw_effect_config *effect) {
 
     pa_xfree(effect->name);
 
-    pa_xfree(effect->description);
+    pa_xfree(effect->uuid);
 
-    pa_xfree(effect->type);
+    pa_xfree(effect->lib_name);
+
+    pa_xfree(effect->description);
 
     pa_hashmap_free(effect->sinks);
 
     pa_hashmap_free(effect->ports);
+
+    pa_hashmap_free(effect->loopbacks);
 
     if (effect->endpoint_conf_string)
         pa_xstrfreev(effect->endpoint_conf_string);
@@ -293,7 +344,6 @@ static int pa_qahw_config_parse_type(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_sink_config *sink;
     pa_qahw_source_config *source;
-    pa_qahw_effect_config *effect;
 
     int ret = -1;
 
@@ -315,14 +365,7 @@ static int pa_qahw_config_parse_type(pa_config_parser_state *state) {
         }
         source->type = pa_xstrdup(state->rvalue);
         pa_log_debug("%s: type %s for source %s", __func__, source->type, source->name);
-    } else if ((effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
-        if (!pa_qahw_effect_is_supported_type(state->rvalue)) {
-            pa_log_error("%s: invalid effect type %s", __func__, state->lvalue);
-            goto exit;
-        }
-        effect->type = pa_xstrdup(state->rvalue);
-        pa_log_debug("%s: type %s for effect %s", __func__, effect->type, effect->name);
-     } else {
+    } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
     }
@@ -800,6 +843,169 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_source_type(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_source_config *source = NULL;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        source->source_type = pa_qahw_source_name_to_enum((const char *)state->rvalue);
+        pa_log_debug("%s: adding source type %d to %s", __func__, source->source_type, source->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_buffer_duration(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_source_config *source = NULL;
+    pa_qahw_sink_config *sink = NULL;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        if (pa_atoi(state->rvalue, &source->buffer_duration) < 0) {
+            pa_log_debug("%s: invalid buffer duration", __func__);
+            goto exit;
+        }
+
+        pa_log_debug("%s: adding buffer duration %d to %s", __func__, source->buffer_duration, source->name);
+    } else if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        if (pa_atoi(state->rvalue, &sink->buffer_duration) < 0) {
+            pa_log_debug("%s: invalid buffer duration", __func__);
+            goto exit;
+        }
+
+        pa_log_debug("%s: adding buffer duration %d to %s", __func__, sink->buffer_duration, sink->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_max_sink_gain(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink;
+
+    int ret = 0;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        if (pa_atod(state->rvalue, &sink->max_gain) < 0) {
+            pa_log_debug("%s: invalid sink gain", __func__);
+            ret = -1;
+        }
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        ret = -1;
+    }
+
+    return ret;
+}
+
+static int pa_qahw_config_parse_port_sys_path(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_card_port_config *port = NULL;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        if (pa_streq(state->lvalue, "state-node-path")) {
+            port->state_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding state node path %s to %s", __func__, port->state_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "sample-format-node-path")) {
+            port->sample_format_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding sample format node path %s to %s", __func__, port->sample_format_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "sample-rate-node-path")) {
+            port->sample_rate_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding sample rate node path %s to %s", __func__, port->sample_rate_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "sample-layout-node-path")) {
+            port->sample_layout_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding sample layout node path %s to %s", __func__, port->sample_layout_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "sample-channel-node-path")) {
+            port->sample_channel_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding sample channel node path %s to %s", __func__, port->sample_channel_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "sample-ch-alloc-node-path")) {
+            port->sample_channel_alloc_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding sample channel alloc node path %s to %s", __func__, port->sample_channel_alloc_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "linkon0-node-path")) {
+            port->linkon0_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding linkon0 node path %s to %s", __func__, port->linkon0_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "poweron-node-path")) {
+            port->poweron_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding poweron node path %s to %s", __func__, port->poweron_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "audio-path-node-path")) {
+            port->audio_path_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding audio path node path %s to %s", __func__, port->audio_path_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "arc-enable-node-path")) {
+            port->arc_enable_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding arc enable node path %s to %s", __func__, port->arc_enable_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "earc-enable-node-path")) {
+            port->earc_enable_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding earc enable node path %s to %s", __func__, port->earc_enable_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "arc-state-node-path")) {
+            port->arc_state_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding arc state node path %s to %s", __func__, port->arc_state_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "arc-sample-format-node-path")) {
+            port->arc_sample_format_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding arc sample format node path %s to %s", __func__, port->arc_sample_format_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "arc-sample-rate-node-path")) {
+            port->arc_sample_rate_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding arc sample rate node path %s to %s", __func__, port->arc_sample_rate_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "audio-preemph-node-path")) {
+            port->audio_preemph_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding audio preemph node path %s to %s", __func__, port->audio_preemph_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "arc-audio-preemph-node-path")) {
+            port->arc_audio_preemph_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding arc audio preemph node path %s to %s", __func__, port->arc_audio_preemph_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "dsd-rate-node-path")) {
+            port->dsd_rate_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding DSD rate node path %s to %s", __func__, port->dsd_rate_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "hdmi-tx-state")) {
+            port->hdmi_tx_state_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding hdmi-tx-state node path %s to %s", __func__, port->hdmi_tx_state_path, port->name);
+        } else if (pa_streq(state->lvalue, "channel-status-node-path")) {
+            port->channel_status_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding channel-status-node-path node path %s to %s", __func__, port->channel_status_path, port->name);
+        } else {
+            pa_log_error ("%s: invalid property %s", __func__, state->lvalue);
+            goto exit;
+        }
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
 static int pa_qahw_config_parse_alternative_sample_rate(pa_config_parser_state *state) {
 
     pa_qahw_config_data* config_data = state->userdata;
@@ -904,6 +1110,162 @@ exit:
     return ret;
 }
 
+static int pa_qahw_config_parse_disable_qahw_sink(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if (!(sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    sink->disable_qahw_sink = pa_parse_boolean(state->rvalue);
+
+    pa_log_debug("%s: disable_qahw_sink %d for sink %s", __func__, sink->disable_qahw_sink, sink->name);
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_avoid_processing(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+    char **items = NULL;
+    char *item;
+    char *name;
+    int i = 0;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    items = pa_split_spaces_strv(state->rvalue);
+
+    if (!items) {
+        pa_log_error("%s: [%s:%u] flag list missing", __func__, state->filename, state->lineno);
+        goto exit;
+    }
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        name = sink->name;
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        name = source->name;
+    }  else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    /* add list to sink/source */
+    while ((item = items[i++])) {
+        if (sink) {
+            sink->avoid_config_processing |= pa_qahw_utils_get_config_id_from_string(item);
+            pa_log_debug("%s: adding %s to the list of configs to avoid processing for sink %s", __func__, item, name);
+        } else {
+            source->avoid_config_processing |= pa_qahw_utils_get_config_id_from_string(item);
+            pa_log_debug("%s: adding %s to the list of configs to avoid processing for source %s", __func__, item, name);
+        }
+    }
+
+    ret = 0;
+
+exit:
+    if (items)
+        pa_xstrfreev(items);
+
+    return ret;
+}
+
+static int pa_qahw_config_parse_use_qahw_processing(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+    char **items = NULL;
+    char *item;
+    char *name;
+    int i = 0;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    items = pa_split_spaces_strv(state->rvalue);
+
+    if (!items) {
+        pa_log_error("%s: [%s:%u] flag list missing", __func__, state->filename, state->lineno);
+        goto exit;
+    }
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        name = sink->name;
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        name = source->name;
+    }  else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    /* add list to sink/source */
+    while ((item = items[i++])) {
+        if (sink) {
+            sink->qahw_processing_id |= pa_qahw_utils_get_qahw_processing_id_from_string(item);
+            pa_log_debug("%s: adding %s to the list of qahw processing ids for sink %s", __func__, item, name);
+        } else {
+            source->qahw_processing_id |= pa_qahw_utils_get_qahw_processing_id_from_string(item);
+            pa_log_debug("%s: adding %s to the list of qahw processing ids for source %s", __func__, item, name);
+        }
+    }
+
+    ret = 0;
+
+exit:
+    if (items)
+        pa_xstrfreev(items);
+
+    return ret;
+}
+
+static int pa_qahw_config_parse_proplist(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_sink_config *sink = NULL;
+    pa_qahw_source_config *source = NULL;
+
+    pa_proplist *props;
+    int ret = 0;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    props = pa_proplist_from_string(state->rvalue);
+    if (!props) {
+        pa_log_error("Could not parse proplist string: %s", state->rvalue);
+        return -1;
+    }
+
+    if ((sink = pa_qahw_config_get_sink(config_data->sinks, state->section))) {
+        sink->proplist = props;
+        pa_log_debug("%s: proplist %s for sink %s", __func__, state->rvalue, sink->name);
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        source->proplist = props;
+        pa_log_debug("%s: proplist %s for source %s", __func__, state->rvalue, source->name);
+    }  else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        ret = -1;
+    }
+
+    return ret;
+}
 
 static void pa_qahw_config_free_sink(pa_qahw_sink_config *sink) {
     pa_assert(sink);
@@ -924,6 +1286,9 @@ static void pa_qahw_config_free_sink(pa_qahw_sink_config *sink) {
 
     if (sink->port_conf_string)
         pa_xstrfreev(sink->port_conf_string);
+
+    if (sink->proplist)
+        pa_proplist_free(sink->proplist);
 
     pa_xfree(sink);
 } /* end sink parsing related functions */
@@ -947,6 +1312,9 @@ static void pa_qahw_config_free_source(pa_qahw_source_config *source) {
 
     if (source->port_conf_string)
         pa_xstrfreev(source->port_conf_string);
+
+    if (source->proplist)
+        pa_proplist_free(source->proplist);
 
     pa_xfree(source);
 } /* end source parsing related functions */
@@ -987,11 +1355,53 @@ static int pa_qahw_config_parse_description(pa_config_parser_state *state) {
     return ret;
 }
 
+static int pa_qahw_config_parse_bus(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_card_port_config *port = NULL;
+
+    int ret = 0;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+         port->bus = pa_xstrdup(state->rvalue);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        ret = -1;
+    }
+
+    return ret;
+}
+
+static int pa_qahw_config_parse_port_detection(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_card_port_config *port = NULL;
+
+    int ret = 0;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+         port->detection = pa_xstrdup(state->rvalue);
+         pa_log_debug("%s: adding %s detection mode to %s", __func__, port->detection, port->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        ret = -1;
+    }
+
+    return ret;
+}
+
 /* common between port and profile */
 static int pa_qahw_config_parse_priority(pa_config_parser_state *state) {
     pa_qahw_config_data* config_data = state->userdata;
     pa_qahw_card_profile_config *profile;
     pa_qahw_card_port_config *port;
+    pa_qahw_source_config *source = NULL;
 
     int ret = 0;
 
@@ -1006,6 +1416,10 @@ static int pa_qahw_config_parse_priority(pa_config_parser_state *state) {
     } else if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
         if (pa_atou(state->rvalue, &port->priority) < 0) {
             pa_log("%s: Invalid port priority", __func__);
+        }
+    } else if ((source = pa_qahw_config_get_source(config_data->sources, state->section))) {
+        if (pa_atou(state->rvalue, &source->priority) < 0) {
+            pa_log("%s: Invalid source priority", __func__);
         }
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
@@ -1321,12 +1735,102 @@ static int pa_qahw_config_parse_port_format_detection(pa_config_parser_state *st
     }
 
     if ((k = pa_parse_boolean(state->rvalue)) < 0) {
-        pa_log_error("%s: invalid port format detectin type %s(it should be yes or no)", __func__, state->rvalue);
+        pa_log_error("%s: invalid port format detection type %s(it should be yes or no)", __func__, state->rvalue);
         ret = -1;
         goto exit;
     }
 
     port->format_detection = k;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_port_type(pa_config_parser_state *state) {
+    pa_qahw_config_data *config_data = state->userdata;
+    pa_qahw_card_port_config *port;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        port->port_type = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: adding port type %s to %s", __func__, port->port_type, port->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_port_primary_port_name(pa_config_parser_state *state) {
+    pa_qahw_config_data *config_data = state->userdata;
+    pa_qahw_card_port_config *port;
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        port->primary_port_name = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: adding primary port name %s to %s", __func__, port->primary_port_name, port->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_port_linked_ports_list(pa_config_parser_state *state) {
+    pa_qahw_config_data *config_data = state->userdata;
+    pa_qahw_card_port_config *port;
+    pa_qahw_card_port_config *linked_port;
+    char **items = NULL;
+    char *port_name = NULL;
+    int ret = -1;
+    int i = 0;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((port = pa_qahw_config_get_port(config_data->ports, state->section))) {
+        items = pa_split_spaces_strv(state->rvalue);
+
+        if (!items) {
+            pa_log_error("%s: missing linked port list", __func__);
+            goto exit;
+        }
+
+        /* Validate whether all the ports are valid */
+        while ((port_name = items[i++])) {
+            linked_port = pa_hashmap_get(config_data->ports, port_name);
+            if (!linked_port) {
+                pa_log_error("%s: invalid port %s", __func__, port_name);
+                pa_xstrfreev(items);
+                goto exit;
+            }
+        }
+
+        port->linked_ports = items;
+        pa_log_debug("%s: adding linked port list to %s", __func__, port->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    ret = 0;
 
 exit:
     return ret;
@@ -1341,9 +1845,92 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
 
     pa_xfree(port->description);
 
+    if (port->port_type)
+        pa_xfree(port->port_type);
+
+    if (port->linked_ports)
+        pa_xstrfreev(port->linked_ports);
+
+    if (port->state_node_path)
+        pa_xfree(port->state_node_path);
+
+    if (port->sample_format_node_path)
+        pa_xfree(port->sample_format_node_path);
+
+    if (port->sample_rate_node_path)
+        pa_xfree(port->sample_rate_node_path);
+
+    if (port->sample_layout_node_path)
+        pa_xfree(port->sample_layout_node_path);
+
+    if (port->sample_channel_node_path)
+        pa_xfree(port->sample_channel_node_path);
+
+    if (port->sample_channel_alloc_node_path)
+        pa_xfree(port->sample_channel_alloc_node_path);
+
+    if (port->linkon0_node_path)
+        pa_xfree(port->linkon0_node_path);
+
+    if (port->poweron_node_path)
+        pa_xfree(port->poweron_node_path);
+
+    if (port->audio_path_node_path)
+        pa_xfree(port->audio_path_node_path);
+
+    if (port->arc_enable_node_path)
+        pa_xfree(port->arc_enable_node_path);
+
+    if (port->earc_enable_node_path)
+        pa_xfree(port->earc_enable_node_path);
+
+    if (port->arc_state_node_path)
+        pa_xfree(port->arc_state_node_path);
+
+    if (port->arc_sample_format_node_path)
+        pa_xfree(port->arc_sample_format_node_path);
+
+    if (port->arc_sample_rate_node_path)
+        pa_xfree(port->arc_sample_rate_node_path);
+
+    if (port->audio_preemph_node_path)
+        pa_xfree(port->audio_preemph_node_path);
+
+    if (port->arc_audio_preemph_node_path)
+        pa_xfree(port->arc_audio_preemph_node_path);
+
+    if (port->dsd_rate_node_path)
+        pa_xfree(port->dsd_rate_node_path);
+
+    if (port->hdmi_tx_state_path)
+        pa_xfree(port->hdmi_tx_state_path);
+
+    if (port->channel_status_path)
+        pa_xfree(port->channel_status_path);
+
     pa_idxset_free(port->formats, (pa_free_cb_t) pa_format_info_free);
 
     pa_xfree(port);
+}
+
+char *pa_qahw_read_from_file(const char *fn)
+{
+   FILE *fp;
+   char ln[256] = "";
+
+   if (!(fp = pa_fopen_cloexec(fn, "r")))
+       return NULL;
+
+   while (fgets(ln, sizeof(ln)-1, fp) != NULL) {
+          if (strstr(ln, QAHW_CARD_SND_SUFFIX))
+              break;
+          else
+              continue;
+   }
+   fclose(fp);
+
+  pa_strip_nl(ln);
+  return pa_xstrdup(ln);
 }
 
 static char *pa_qahw_config_get_conf_file_name() {
@@ -1355,7 +1942,7 @@ static char *pa_qahw_config_get_conf_file_name() {
     char *conf_file_name = NULL;
     uint32_t i = 0;
 
-    card_string = pa_read_line_from_file(cards);
+    card_string = pa_qahw_read_from_file(cards);
     if (!card_string) {
         pa_log_error("%s: can't open %s file to get list of sound cards", __func__, cards);
         goto exit;
@@ -1397,14 +1984,17 @@ static char* pa_qahw_config_parser_get_conf_file_name(char *dir, char *conf_name
     if (!dir)
         dir = (char *)QAHW_CARD_DEFAULT_CONF_PATH;
 
-    conf_file_name = pa_qahw_config_get_conf_file_name();
-    if (conf_file_name) {
-        /* add .conf suffix conf_file_name */
-        conf_name = pa_sprintf_malloc("%s%s", conf_file_name, ".conf");
+    if (conf_name == NULL) {
+        conf_file_name = pa_qahw_config_get_conf_file_name();
+        if (conf_file_name) {
+            /* add .conf suffix conf_file_name */
+            conf_name = pa_sprintf_malloc("%s%s", conf_file_name, ".conf");
+            conf_path = pa_maybe_prefix_path(conf_name, dir);
+            pa_xfree(conf_file_name);
+            pa_xfree(conf_name);
+        }
+    } else {
         conf_path = pa_maybe_prefix_path(conf_name, dir);
-
-        pa_xfree(conf_file_name);
-        pa_xfree(conf_name);
     }
 
     if (access(conf_path, F_OK) < 0) {
@@ -1412,9 +2002,14 @@ static char* pa_qahw_config_parser_get_conf_file_name(char *dir, char *conf_name
         conf_name = (char *)QAHW_CARD_DEFAULT_CONF_NAME;
         pa_log_debug("%s:: No config file name %s, Using default conf file", __func__, conf_path);
         conf_path = pa_maybe_prefix_path(conf_name, dir);
+
+        if(access(conf_path, F_OK) < 0) {
+            pa_log_error("%s:: No default conf file, making conf_path NULL", __func__);
+            conf_path = NULL;
+        }
     }
 
-    pa_log_debug("%s:: config file name  %s", __func__, conf_path);
+    pa_log_debug("%s:: config file name  %s", __func__, conf_path == NULL ? "NULL" : conf_path);
 
     return conf_path;
 }
@@ -1428,55 +2023,94 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
 
     pa_config_item items[] = {
         /* [Global] */
-        { "default-profile",      pa_config_parse_string,                                   NULL, "Global" },
-        { "use-dolby-hw-loopback",pa_config_parse_bool,                                     NULL, "Global" },
+        { "default-profile",             pa_config_parse_string,                                   NULL, "Global" },
+        { "use-dolby-hw-loopback",       pa_config_parse_bool,                                     NULL, "Global" },
+        { "dsd-setup",                   pa_config_parse_bool,                                     NULL, "Global" },
+        { "no-primary-sink",             pa_config_parse_bool,                                     NULL, "Global" },
 
         /* [Port... ] */
-        { "direction",            pa_qahw_config_parse_port_direction,                      NULL, NULL },
-        { "device",               pa_qahw_config_parse_port_device,                         NULL, NULL },
-        { "format-detection",     pa_qahw_config_parse_port_format_detection,               NULL, NULL },
+        { "direction",                   pa_qahw_config_parse_port_direction,                      NULL, NULL },
+        { "device",                      pa_qahw_config_parse_port_device,                         NULL, NULL },
+        { "format-detection",            pa_qahw_config_parse_port_format_detection,               NULL, NULL },
+        { "port-type",                   pa_qahw_config_parse_port_type,                           NULL, NULL },
+        { "linked-ports",                pa_qahw_config_parse_port_linked_ports_list,              NULL, NULL },
+        { "primary-port-name",           pa_qahw_config_parse_port_primary_port_name,              NULL, NULL },
+        { "state-node-path",             pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "sample-format-node-path",     pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "sample-rate-node-path",       pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "sample-layout-node-path",     pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "sample-channel-node-path",    pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "sample-ch-alloc-node-path",   pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "linkon0-node-path",           pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "poweron-node-path",           pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "audio-path-node-path",        pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "arc-enable-node-path",        pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "earc-enable-node-path",       pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "arc-state-node-path",         pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "arc-sample-format-node-path", pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "arc-sample-rate-node-path",   pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "bus",                         pa_qahw_config_parse_bus,                                 NULL, NULL },
+        { "audio-preemph-node-path",     pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "arc-audio-preemph-node-path", pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "detection",                   pa_qahw_config_parse_port_detection,                      NULL, NULL },
+        { "dsd-rate-node-path",          pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "hdmi-tx-state",               pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
+        { "channel-status-node-path",    pa_qahw_config_parse_port_sys_path,                       NULL, NULL },
 
         /* [Profile... ] */
-        { "max-sink-channels",    pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },
-        { "max-source-channels",  pa_qahw_config_parse_profile_max_source_channels ,        NULL, NULL },
+        { "max-sink-channels",           pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },
+        { "max-source-channels",         pa_qahw_config_parse_profile_max_source_channels ,        NULL, NULL },
 
         /* [Effect... ] */
-        { "endpoint-names",       pa_qahw_config_parse_effect_endpoint_names,               NULL, NULL },
+        { "endpoint-names",              pa_qahw_config_parse_effect_endpoint_names,               NULL, NULL },
 
-        { "use-hw-volume",        pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
+        /* effect library name */
+        { "lib-name",                    pa_qahw_config_parse_effect_lib_name,                     NULL, NULL },
 
-        /* common between sink and source and effect*/
-        { "type",                 pa_qahw_config_parse_type,                                NULL, NULL },
+        /* effect uuid */
+        { "uuid",                        pa_qahw_config_parse_effect_uuid,                         NULL, NULL },
+
+        { "use-hw-volume",               pa_qahw_config_parse_use_hw_volume,                       NULL, NULL },
+        { "disable-qahw-sink",           pa_qahw_config_parse_disable_qahw_sink,                   NULL, NULL },
 
         /* common between sink and source*/
-        { "flags",                pa_qahw_config_parse_flags,                               NULL, NULL },
-        { "alternate-sample-rate", pa_qahw_config_parse_alternative_sample_rate,            NULL, NULL },
+        { "type",                        pa_qahw_config_parse_type,                                NULL, NULL },
+        { "avoid-processing",            pa_qahw_config_parse_avoid_processing,                    NULL, NULL },
+        { "properties",                  pa_qahw_config_parse_proplist,                            NULL, NULL },
+        { "use-qahw-processing",         pa_qahw_config_parse_use_qahw_processing,                 NULL, NULL },
+
+        /* common between sink and source*/
+        { "flags",                       pa_qahw_config_parse_flags,                               NULL, NULL },
+        { "alternate-sample-rate",       pa_qahw_config_parse_alternative_sample_rate,             NULL, NULL },
 
         /* common between profile, sink and source */
-        { "port-names",           pa_qahw_config_parse_port_names,                          NULL, NULL },
+        { "port-names",                  pa_qahw_config_parse_port_names,                          NULL, NULL },
 
 
         /* common between port and profile section */
-        { "priority",             pa_qahw_config_parse_priority,                            NULL, NULL },
+        { "priority",                    pa_qahw_config_parse_priority,                            NULL, NULL },
 
         /* common between port and profile, sink source port and effect section */
-        { "description",          pa_qahw_config_parse_description,                         NULL, NULL },
+        { "description",                 pa_qahw_config_parse_description,                         NULL, NULL },
 
         /* common between port, sink and source */
-        { "presence",             pa_qahw_config_parse_presence,                            NULL, NULL },
-        { "default-encoding",     pa_qahw_config_parse_default_encoding,                    NULL, NULL },
-        { "default-sample-rate",  pa_qahw_config_parse_default_sample_rate,                 NULL, NULL },
-        { "default-sample-format", pa_qahw_config_parse_default_sample_format,              NULL, NULL },
-        { "default-channel-map",  pa_qahw_config_parse_default_channel_map,                 NULL, NULL },
-        { "encodings",            pa_qahw_config_parse_encodings,                           NULL, NULL },
-        { "sample-rates",         pa_qahw_config_parse_sample_rates,                        NULL, NULL },
-        { "sample-formats",       pa_qahw_config_parse_sample_formats,                      NULL, NULL },
-        { "channel-maps",         pa_qahw_config_parse_channel_maps,                        NULL, NULL },
+        { "presence",                    pa_qahw_config_parse_presence,                            NULL, NULL },
+        { "default-encoding",            pa_qahw_config_parse_default_encoding,                    NULL, NULL },
+        { "default-sample-rate",         pa_qahw_config_parse_default_sample_rate,                 NULL, NULL },
+        { "default-sample-format",       pa_qahw_config_parse_default_sample_format,               NULL, NULL },
+        { "default-channel-map",         pa_qahw_config_parse_default_channel_map,                 NULL, NULL },
+        { "encodings",                   pa_qahw_config_parse_encodings,                           NULL, NULL },
+        { "sample-rates",                pa_qahw_config_parse_sample_rates,                        NULL, NULL },
+        { "sample-formats",              pa_qahw_config_parse_sample_formats,                      NULL, NULL },
+        { "channel-maps",                pa_qahw_config_parse_channel_maps,                        NULL, NULL },
+        { "source-type",                 pa_qahw_config_parse_source_type,                         NULL, NULL },
+        { "buffer-duration",             pa_qahw_config_parse_buffer_duration,                    NULL, NULL },
 
          /* [Loopback...] */
-        { "in-port-names",        pa_qahw_config_parse_port_names,                          NULL, NULL },
+        { "in-port-names",               pa_qahw_config_parse_port_names,                          NULL, NULL },
 
-        { "out-port-names",       pa_qahw_config_parse_port_names,                          NULL, NULL },
+        { "out-port-names",              pa_qahw_config_parse_port_names,                          NULL, NULL },
+        { "max-sink-gain",               pa_qahw_config_parse_max_sink_gain,                       NULL, NULL },
 
         {  NULL, NULL, NULL, NULL }
     };
@@ -1487,6 +2121,8 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
 
     items[0].data = &config_data->default_profile;
     items[1].data = &config_data->use_dolby_hw_loopback;
+    items[2].data = &config_data->dsd_setup;
+    items[3].data = &config_data->no_primary_sink;
 
     config_data->ports = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_port);
 
@@ -1532,7 +2168,7 @@ void pa_qahw_config_parse_free(pa_qahw_config_data *config_data) {
     pa_assert(config_data);
 
     if (config_data->effects) {
-        pa_xfree(config_data->effects);
+        pa_hashmap_free(config_data->effects);
         config_data->effects = NULL;
     }
 

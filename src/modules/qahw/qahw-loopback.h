@@ -25,6 +25,8 @@
 #include <qahw_api.h>
 #include <qahw_defs.h>
 
+#include "qahw-effect.h"
+
 typedef struct {
     char *name;
     char *description;
@@ -36,7 +38,21 @@ typedef struct {
     char **out_port_conf_string;
 } pa_qahw_loopback_config;
 
-void pa_qahw_loopback_init(qahw_module_handle_t *module_handle, pa_core *core, pa_card *card, pa_hashmap *card_port);
+typedef enum {
+    PA_QAHW_LOOPBACK_EVENT_INVALID,
+    PA_QAHW_LOOPBACK_EVENT_STARTED,
+    PA_QAHW_LOOPBACK_EVENT_STOPPED,
+    PA_QAHW_LOOPBACK_EVENT_FORMAT_UPDATE,
+    PA_QAHW_LOOPBACK_EVENT_RECREATED,
+} pa_qahw_loopback_event_t;
+
+typedef void (* pa_qahw_loopback_callback_t)(const char *port_name, pa_qahw_loopback_event_t event, void *prv_data);
+char *pa_qahw_loopback_get_name_from_handle(audio_patch_handle_t handle);
+
+void pa_qahw_loopback_init(qahw_module_handle_t *module_handle, pa_core *core, pa_card *card,
+                           pa_hashmap *loopbacks, pa_qahw_loopback_callback_t callback,
+                           void *prv_data, pa_qahw_effect_handle_t effect_handle, pa_module *m);
+
 void pa_qahw_loopback_deinit(void);
 
 #endif

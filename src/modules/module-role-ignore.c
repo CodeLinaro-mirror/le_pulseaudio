@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018, 2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -82,7 +82,7 @@ static void process_on_sink(struct userdata *u, pa_sink *s, pa_sink_input *i, st
         PA_IDXSET_FOREACH(active_role, g->active_roles, role_idx) {
             if ((ignore = pa_streq(role, active_role))) {
                 /* Check if the stream with active role is playing/unmuted */
-                if ((pa_sink_input_get_state(si) == PA_SINK_INPUT_RUNNING) && !(si->muted)) {
+                if ((si->state == PA_SINK_INPUT_RUNNING) && !(si->muted)) {
                     pa_log_debug("There is a active stream with active role %s and alive", role);
                     /* Set the ignore stream status as mute as there is a active stream */
                     pa_sink_input_set_mute(i, true, false);
@@ -136,7 +136,7 @@ static pa_hook_result_t sink_input_state_changed_cb(pa_core *core, pa_sink_input
     pa_core_assert_ref(core);
     pa_sink_input_assert_ref(i);
 
-    if (PA_SINK_INPUT_IS_LINKED(pa_sink_input_get_state(i)) && !(i->muted))
+    if (PA_SINK_INPUT_IS_LINKED(i->state) && !(i->muted))
         return process(u, i);
 
     return PA_HOOK_OK;
@@ -146,7 +146,7 @@ static pa_hook_result_t sink_input_mute_changed_cb(pa_core *core, pa_sink_input 
     pa_core_assert_ref(core);
     pa_sink_input_assert_ref(i);
 
-    if (PA_SINK_INPUT_IS_LINKED(pa_sink_input_get_state(i)) && !(i->muted))
+    if (PA_SINK_INPUT_IS_LINKED(i->state) && !(i->muted))
         return process(u, i);
 
     return PA_HOOK_OK;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -33,6 +33,22 @@ typedef enum {
     PA_QAHW_CARD_SOURCE_REGULAR_1 = 0x4,
 } pa_qahw_card_source_usecase_id_t;
 
+typedef enum {
+    PA_QAHW_CARD_AVOID_PROCESSING_FOR_NONE = 0x0,
+    PA_QAHW_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE = 0x1,
+    PA_QAHW_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH = 0x2,
+    PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS = 0x4,
+    PA_QAHW_CARD_AVOID_PROCESSING_FOR_ALL = (PA_QAHW_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE |
+                                             PA_QAHW_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH |
+                                             PA_QAHW_CARD_AVOID_PROCESSING_FOR_CHANNELS),
+} pa_qahw_card_avoid_processing_config_id_t;
+
+typedef enum {
+    PA_QAHW_CARD_QAHW_PROCESSING_NONE = 0x0,
+    PA_QAHW_CARD_QAHW_PROCESSING_FLUENCE = 0x1,
+    PA_QAHW_CARD_QAHW_PROCESSING_FFECNS = 0x2,
+} pa_qahw_card_qahw_processing_id_t;
+
 typedef struct {
     char *name;
     char *description;
@@ -60,6 +76,35 @@ typedef struct {
 
     pa_idxset *formats;
     bool format_detection;
+    char *port_type;
+    char **linked_ports;
+    char *primary_port_name;
+
+    char *state_node_path;
+    char *sample_format_node_path;
+    char *sample_rate_node_path;
+    char *sample_layout_node_path;
+    char *sample_channel_node_path;
+    char *sample_channel_alloc_node_path;
+    char *audio_preemph_node_path;
+    char *dsd_rate_node_path;
+
+    char *linkon0_node_path;
+    char *poweron_node_path;
+    char *audio_path_node_path;
+    char *arc_enable_node_path;
+    char *earc_enable_node_path;
+
+    char *arc_state_node_path;
+    char *arc_sample_format_node_path;
+    char *arc_sample_rate_node_path;
+    char *bus;
+    char *arc_audio_preemph_node_path;
+
+    char *hdmi_tx_state_path;
+    char *channel_status_path;
+
+    char *detection;
 } pa_qahw_card_port_config;
 
 typedef union {

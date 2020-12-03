@@ -30,6 +30,7 @@
 
 #include <QalApi.h>
 #include <QalDefs.h>
+#include <agm/agm_api.h>
 
 #include "qal-source.h"
 #include "qal-sink.h"
@@ -138,6 +139,9 @@ static void pa_qal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_h
 
         port_device_data->device = config_port->device;
         port->priority = config_port->priority;
+        port_device_data->default_map = config_port->default_map;
+        port_device_data->default_spec.channels = config_port->default_map.channels;
+        port_device_data->default_spec.rate = config_port->default_spec.rate;
 
         /* Sanity check that we don't have duplicates */
         pa_assert_se(pa_hashmap_put(ports, port->name, port) >= 0);
@@ -411,6 +415,12 @@ int pa__init(pa_module *m) {
         goto fail;
     }
 
+    ret = agm_init();
+    if (ret) {
+        pa_log_error("%s: agm init failed\n", __func__);
+        goto fail;
+    }
+
     ret = qal_init();
     if (ret) {
         pa_log_error("%s: qal init failed\n", __func__);
@@ -455,7 +465,6 @@ void pa__done(pa_module *m) {
     struct userdata *u;
     pa_card_profile *profile;
     void *state;
-    int ret = 0;
 
     pa_assert(m);
 
@@ -478,10 +487,9 @@ void pa__done(pa_module *m) {
         pa_hashmap_free(u->sources);
     }
 
-    ret = qal_deinit();
+    qal_deinit();
 
-    if (ret)
-        pa_log_error("%s: qal deinit failed\n", __func__);
+    agm_deinit();
 
     pa_qal_card_free(u);
 

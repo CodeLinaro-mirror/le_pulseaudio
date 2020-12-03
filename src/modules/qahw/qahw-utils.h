@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -25,9 +25,23 @@
 #include <qahw_defs.h>
 
 #include "qahw-jack.h"
+#include "qahw-card.h"
 
 #define KV_PAIR_MAX_LENGTH 100
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+
+#ifndef memscpy
+#define memscpy(dst, dst_size, src, bytes_to_copy) \
+        (void) memcpy(dst, src, MIN(dst_size, bytes_to_copy))
+#endif
+
+#ifndef QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC2
+#define QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC2 AUDIO_DEVICE_NONE
+#endif
+
+#ifndef QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC3
+#define QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC3 AUDIO_DEVICE_NONE
+#endif
 
 audio_format_t pa_qahw_util_get_qahw_format_from_pa_sample(pa_sample_format_t format);
 const char* pa_qahw_util_get_port_name_from_jack_type(pa_qahw_jack_type_t jack_type);
@@ -40,8 +54,19 @@ const char *pa_qahw_util_audio_device_to_port_name(audio_devices_t audio_device,
 audio_devices_t pa_qahw_util_port_to_qahw_device(const char *port);
 audio_devices_t pa_qahw_util_device_name_to_enum(const char *device);
 pa_sample_format_t pa_qahw_util_get_pa_sample_from_qahw_format(audio_format_t format);
-int pa_qahw_utils_convert_format_to_sample_spec(pa_format_info *format, pa_sample_spec *ss, pa_channel_map *map, pa_sample_spec *default_ss, pa_channel_map *default_map,
-                                                int rate_idx, int sample_format_idx);
+int pa_qahw_utils_format_to_sample_spec(pa_format_info *format, pa_sample_spec *ss, pa_channel_map *map,
+                                                        pa_sample_spec *default_ss, pa_channel_map *default_map);
+
+pa_channel_map pa_map_remove_invalid_channels(pa_channel_map *def_map_with_inval_ch);
+void pa_qahw_channel_map_to_be_qahw(pa_channel_map *pa_map, struct qahw_in_channel_map_param *qahw_be_map);
+pa_channel_map *pa_channel_map_parse_wrapper(pa_channel_map *rmap, const char *s);
 bool pa_qahw_channel_map_to_qahw(pa_channel_map *pa_map, struct qahw_out_channel_map_param *qahw_map);
 bool pa_qahw_channel_map_from_qahw(struct qahw_out_channel_map_param *qahw_map, pa_channel_map *pa_map);
+void pa_qahw_util_channel_allocation_to_pa_channel_map(pa_channel_map *m, uint32_t channel_allocation);
+void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qahw_jack_in_config *jack_in_config);
+pa_channel_map* pa_qahw_util_channel_map_init(pa_channel_map *m, unsigned channels);
+int pa_qahw_util_set_qahw_metadata_from_pa_format(const pa_format_info *format);
+audio_channel_mask_t pa_qahw_util_in_mask_from_count(uint32_t channel_count);
+pa_qahw_card_avoid_processing_config_id_t pa_qahw_utils_get_config_id_from_string(const char *config_str);
+pa_qahw_card_qahw_processing_id_t pa_qahw_utils_get_qahw_processing_id_from_string(const char *config_str);
 #endif

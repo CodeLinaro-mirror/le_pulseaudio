@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -39,12 +39,23 @@ typedef struct {
     pa_sample_spec default_spec;
     pa_encoding_t default_encoding;
     pa_channel_map default_map;
+    pa_channel_map def_map_with_inval_ch;
     uint32_t alternate_sample_rate;
+    pa_qahw_card_avoid_processing_config_id_t avoid_config_processing;
+    pa_qahw_card_qahw_processing_id_t qahw_processing_id;
+    pa_proplist *proplist;
+
     pa_idxset *formats;
     pa_hashmap *ports;
     pa_hashmap *profiles;
     char **port_conf_string;
+    audio_source_t source_type;
     pa_qahw_card_usecase_type_t usecase_type;
+    int32_t buffer_duration;
+    int32_t preemph_status;
+    uint32_t dsd_rate;
+
+    uint32_t priority;
 } pa_qahw_source_config;
 
 /*create qahw session and pa source */
@@ -53,6 +64,8 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
 pa_idxset* pa_qahw_source_get_config(pa_qahw_source_handle_t *handle);
 void pa_qahw_source_close(pa_qahw_source_handle_t *handle);
 bool pa_qahw_source_is_supported_sample_rate(uint32_t sample_rate);
+/* function to get media config */
+int pa_qahw_source_get_media_config(pa_qahw_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding);
 
 static inline bool pa_qahw_source_is_supported_type(char *source_type) {
     pa_assert(source_type);
@@ -80,6 +93,7 @@ static inline bool pa_qahw_source_is_supported_encoding(pa_encoding_t encoding) 
         case PA_ENCODING_UNKNOWN_IEC61937:
         case PA_ENCODING_UNKNOWN_4X_IEC61937:
         case PA_ENCODING_UNKNOWN_HBR_IEC61937:
+        case PA_ENCODING_DSD:
             break;
 
         default :
@@ -111,5 +125,8 @@ static inline audio_input_flags_t pa_qahw_source_get_flags_from_string(const cha
     return flag;
 }
 
+void pa_qahw_source_suspend(pa_qahw_source_handle_t *handle, bool suspend);
+audio_source_t pa_qahw_source_name_to_enum(const char *source_name);
+int pa_qahw_source_set_param(pa_qahw_source_handle_t *handle, const char *param);
 
 #endif

@@ -58,7 +58,7 @@ AM_CPPFLAGS = \
 	-DPA_BUILDDIR=\"$(abs_builddir)\" \
 	-DPULSE_LOCALEDIR=\"$(localedir)\" \
 	-DQAHW_CARD_DEFAULT_CONF_PATH=\"$(qahwconfsetsdir)\" \
-        -DQAL_CARD_DEFAULT_CONF_PATH=\"$(qalconfsetsdir)\"
+	-DQAL_CARD_DEFAULT_CONF_PATH=\"$(qalconfsetsdir)\"
 
 AM_CFLAGS = -std=gnu11 \
 	$(PTHREAD_CFLAGS)
@@ -1036,7 +1036,7 @@ libpulsecore_@PA_MAJORMINOR@_la_SOURCES = \
 		pulsecore/source.c pulsecore/source.h \
 		pulsecore/start-child.c pulsecore/start-child.h \
 		pulsecore/thread-mq.c pulsecore/thread-mq.h \
-		pulsecore/database.h
+		pulsecore/database.h \
 
 libpulsecore_@PA_MAJORMINOR@_la_CFLAGS = $(AM_CFLAGS) $(SERVER_CFLAGS) $(LIBSNDFILE_CFLAGS) $(WINSOCK_CFLAGS)
 libpulsecore_@PA_MAJORMINOR@_la_LDFLAGS = $(AM_LDFLAGS) $(AM_LIBLDFLAGS) -avoid-version
@@ -1265,9 +1265,9 @@ modlibexec_LTLIBRARIES += \
 		module-filter-apply.la \
 		module-filter-heuristics.la \
 		module-role-ducking.la \
+		module-allow-passthrough.la \
 		module-role-exclusive.la \
 		module-role-ignore.la \
-		module-allow-passthrough.la \
 		module-policy-voiceui.la
 
 if HAVE_ESOUND
@@ -1415,12 +1415,7 @@ if HAVE_QAHW
 modlibexec_LTLIBRARIES += module-qahw-card.la
 
 dist_qahwconfsets_DATA = \
-      modules/qahw/configs/msm8998-tasha-snd-card.conf \
-      modules/qahw/configs/qcs405-snd-card.conf \
-      modules/qahw/configs/qcs405-wsa-snd-card.conf \
-      modules/qahw/configs/qcs405-csra1-snd-card.conf \
-      modules/qahw/configs/qcs405-csra6-snd-card.conf \
-      modules/qahw/configs/qcs405-amic-snd-card.conf
+      modules/qahw/configs/kona-iot-snd-card.conf
 endif
 
 if HAVE_QAL
@@ -1428,8 +1423,7 @@ modlibexec_LTLIBRARIES += module-qal-card.la
 modlibexec_LTLIBRARIES += module-qal-voiceui-card.la
 
 dist_qalconfsets_DATA = \
-      modules/qal/module-qal-card/configs/default.conf \
-      modules/qal/module-qal-card/configs/ipq6018-snd-card.conf
+      modules/qal/module-qal-card/configs/default.conf
 endif
 
 if HAVE_QSTHW
@@ -1675,10 +1669,16 @@ module_qahw_card_la_SOURCES = \
         modules/qahw/qahw-effect.c modules/qahw/qahw-effect.h \
         modules/qahw/qahw-format-detection.c modules/qahw/qahw-jack-format.h \
         modules/qahw/qahw-config-parser.c modules/qahw/qahw-config-parser.h \
-        modules/qahw/qahw-jack-external.c
+        modules/qahw/qahw-jack-external.c modules/qahw/qahw-jack-spdif.c \
+        modules/qahw/qahw-jack-hdmi-out.c
 module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(QAHW_API_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
 module_qahw_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qahw_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqahw
+
+if DISABLE_EFFECT_TRUMPET
+module_qahw_card_la_CFLAGS += -D__DISABLE_EFFECT_TRUMPET
+endif
+
 endif
 
 if HAVE_QSTHW
@@ -1695,14 +1695,14 @@ module_qal_card_la_SOURCES = \
         modules/qal/module-qal-card/qal-source.c modules/qal/module-qal-card/qal-source.h \
         modules/qal/module-qal-card/qal-utils.c modules/qal/module-qal-card/qal-utils.h \
         modules/qal/module-qal-card/qal-config-parser.c modules/qal/module-qal-card/qal-config-parser.h
-module_qal_card_la_CFLAGS = $(QAL_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qal_card
+module_qal_card_la_CFLAGS = $(QAL_CFLAGS) $(AGM_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qal_card
 module_qal_card_la_LDFLAGS = $(MODULE_LDFLAGS)
-module_qal_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqal
+module_qal_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqal -lagm
 
 module_qal_voiceui_card_la_SOURCES = modules/qal/module-qal-voiceui-card/module-qal-voiceui-card.c
-module_qal_voiceui_card_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) $(QAL_CFLAGS) -Werror -DPA_MODULE_NAME=module_qal_voiceui_card
+module_qal_voiceui_card_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) $(QAL_CFLAGS) $(AGM_CFLAGS) -Werror -DPA_MODULE_NAME=module_qal_voiceui_card
 module_qal_voiceui_card_la_LDFLAGS = $(MODULE_LDFLAGS)
-module_qal_voiceui_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqal
+module_qal_voiceui_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqal -lagm
 endif
 
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -35,10 +35,18 @@
 #define QSTHW_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qsthw"
 #define QSTHW_DBUS_MODULE_IFACE "org.PulseAudio.Ext.Qsthw"
 #define QSTHW_DBUS_SESSION_IFACE "org.PulseAudio.Ext.Qsthw.Session"
+#define PA_DBUS_QSTHW_MODULE_IFACE_VERSION 0x101
 
 static const char* const valid_modargs[] = {
     "module",
     NULL,
+};
+
+enum {
+    QSTHW_THREAD_IDLE,
+    QSTHW_THREAD_READ_QUEUED,
+    QSTHW_THREAD_EXIT,
+    QSTHW_THREAD_STOP_BUFFERING
 };
 
 struct qsthw_module_data {
@@ -57,11 +65,27 @@ struct qsthw_session_data {
     struct qsthw_module_data *common;
     sound_model_handle_t ses_handle;
     char *obj_path;
+    int thread_state;
+    void *read_buf;
+    unsigned int read_bytes;
+    pa_thread *async_thread;
+    pa_mutex *mutex;
+    pa_cond *cond;
+};
+
+struct dbus_sm_data{
+    DBusConnection *connect;
+    DBusMessage *message;
+    void *userdata;
+    struct qsthw_session_data *ses_data;
+    sound_model_handle_t *sm_handle;
+    dbus_int32_t *status;
 };
 
 static int unload_sm(DBusConnection *conn, struct qsthw_session_data *ses_data);
 static void get_properties(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_version(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void get_interface_version(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void global_set_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -69,6 +93,7 @@ static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *user
 static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void set_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -78,6 +103,7 @@ enum module_handler_index {
     MODULE_HANDLER_GET_VERSION,
     MODULE_HANDLER_SET_PARAMS,
     MODULE_HANDLER_LOAD_SOUND_MODEL,
+    MODULE_HANDLER_GET_INTERFACE_VERSION,
     MODULE_HANDLER_MAX
 };
 
@@ -87,6 +113,7 @@ enum session_handler_index {
     SESSION_HANDLER_STOP_RECOGNITION,
     SESSION_HANDLER_SET_PARAMS,
     SESSION_HANDLER_GET_BUFFER_SIZE,
+    SESSION_HANDLER_REQUEST_READ_BUFFER,
     SESSION_HANDLER_READ_BUFFER,
     SESSION_HANDLER_STOP_BUFFERING,
     SESSION_HANDLER_GET_PARAM_DATA,
@@ -98,6 +125,10 @@ pa_dbus_arg_info get_properties_args[] = {
 };
 
 pa_dbus_arg_info get_version_args[] = {
+    {"version", "i", "out"},
+};
+
+pa_dbus_arg_info get_interface_version_args[] = {
     {"version", "i", "out"},
 };
 
@@ -126,6 +157,10 @@ pa_dbus_arg_info get_buffer_size_args[] = {
     {"buffer_size", "i", "out"},
 };
 
+pa_dbus_arg_info request_read_buffer_args[] = {
+    {"bytes", "u", "in"},
+};
+
 pa_dbus_arg_info read_buffer_args[] = {
     {"bytes", "u", "in"},
     {"buf", "ay", "out"},
@@ -148,6 +183,16 @@ pa_dbus_arg_info detection_event_args[] = {
     {"opaque_data", "ay", NULL}
 };
 
+pa_dbus_arg_info read_buffer_available_event_args[] = {
+    {"read_buffer_sequence", "u", NULL},
+    {"read_status", "i", NULL},
+    {"read_buffer", "ay", NULL}
+};
+
+pa_dbus_arg_info stop_buffering_done_event_args[] = {
+    {"status", "i", NULL},
+};
+
 static pa_dbus_method_handler qsthw_module_handlers[MODULE_HANDLER_MAX] = {
     [MODULE_HANDLER_GET_PROPERTIES] = {
         .method_name = "GetProperties",
@@ -159,6 +204,11 @@ static pa_dbus_method_handler qsthw_module_handlers[MODULE_HANDLER_MAX] = {
         .arguments = get_version_args,
         .n_arguments = sizeof(get_version_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = get_version},
+    [MODULE_HANDLER_GET_INTERFACE_VERSION] = {
+        .method_name = "GetInterfaceVersion",
+        .arguments = get_interface_version_args,
+        .n_arguments = sizeof(get_interface_version_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = get_interface_version},
     [MODULE_HANDLER_SET_PARAMS] = {
         .method_name = "SetParameters",
         .arguments = set_parameters_args,
@@ -197,6 +247,11 @@ static pa_dbus_method_handler qsthw_session_handlers[SESSION_HANDLER_MAX] = {
         .arguments = get_buffer_size_args,
         .n_arguments = sizeof(get_buffer_size_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = get_buffer_size},
+    [SESSION_HANDLER_REQUEST_READ_BUFFER] = {
+        .method_name = "RequestReadBuffer",
+        .arguments = request_read_buffer_args,
+        .n_arguments = sizeof(request_read_buffer_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = request_read_buffer},
     [SESSION_HANDLER_READ_BUFFER] = {
         .method_name = "ReadBuffer",
         .arguments = read_buffer_args,
@@ -216,6 +271,8 @@ static pa_dbus_method_handler qsthw_session_handlers[SESSION_HANDLER_MAX] = {
 
 enum signal_index {
     SIGNAL_DETECTION_EVENT,
+    SIGNAL_READ_BUFFER_AVAILABLE_EVENT,
+    SIGNAL_STOP_BUFFERING_DONE_EVENT,
     SIGNAL_MAX
 };
 
@@ -224,6 +281,14 @@ static pa_dbus_signal_info det_event_signals[SIGNAL_MAX] = {
         .name = "DetectionEvent",
         .arguments = detection_event_args,
         .n_arguments = sizeof(detection_event_args)/sizeof(pa_dbus_arg_info)},
+    [SIGNAL_READ_BUFFER_AVAILABLE_EVENT] = {
+        .name = "ReadBufferAvailableEvent",
+        .arguments = read_buffer_available_event_args,
+        .n_arguments = sizeof(read_buffer_available_event_args)/sizeof(pa_dbus_arg_info)},
+    [SIGNAL_STOP_BUFFERING_DONE_EVENT] = {
+        .name = "StopBufferingDoneEvent",
+        .arguments = stop_buffering_done_event_args,
+        .n_arguments = sizeof(stop_buffering_done_event_args)/sizeof(pa_dbus_arg_info)},
 };
 
 static pa_dbus_interface_info module_interface_info = {
@@ -248,6 +313,114 @@ static pa_dbus_interface_info session_interface_info = {
     .n_signals = SIGNAL_MAX
 };
 
+static void signal_read_buffer_available(struct qsthw_session_data *ses_data,
+                                         unsigned int read_buffer_sequence, int status) {
+    DBusMessage *message = NULL;
+    DBusMessageIter arg_i, array_i;
+
+    pa_log_info("[%d] Posting read buffer available, seq %u, status %d",
+                ses_data->ses_handle, read_buffer_sequence, status);
+
+    pa_assert_se(message = dbus_message_new_signal(ses_data->obj_path,
+            session_interface_info.name,
+            det_event_signals[SIGNAL_READ_BUFFER_AVAILABLE_EVENT].name));
+    dbus_message_iter_init_append(message, &arg_i);
+
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_UINT32, &read_buffer_sequence);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_INT32, &status);
+
+    dbus_message_iter_open_container(&arg_i, DBUS_TYPE_ARRAY, "y", &array_i);
+    dbus_message_iter_append_fixed_array(&array_i, DBUS_TYPE_BYTE,
+                                         &ses_data->read_buf, ses_data->read_bytes);
+    dbus_message_iter_close_container(&arg_i, &array_i);
+
+    pa_dbus_protocol_send_signal(ses_data->common->dbus_protocol, message);
+    dbus_message_unref(message);
+}
+
+static void signal_stop_buffering_done(struct qsthw_session_data *ses_data,
+                                       int status) {
+    DBusMessage *message = NULL;
+    DBusMessageIter arg_i;
+
+    pa_log_info("[%d] Posting stop buffering done status %d",
+                ses_data->ses_handle, status);
+
+    pa_assert_se(message = dbus_message_new_signal(ses_data->obj_path,
+            session_interface_info.name,
+            det_event_signals[SIGNAL_STOP_BUFFERING_DONE_EVENT].name));
+    dbus_message_iter_init_append(message, &arg_i);
+
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_INT32, &status);
+
+    pa_dbus_protocol_send_signal(ses_data->common->dbus_protocol, message);
+    dbus_message_unref(message);
+}
+
+static void async_thread_func(void *userdata) {
+    struct qsthw_session_data *ses_data = (struct qsthw_session_data *)userdata;
+    sound_model_handle_t sm_handle = ses_data->ses_handle;
+    unsigned int bytes = 0, read_buffer_sequence = 0;
+    int ret = 0;
+
+    pa_log_debug("[%d]Starting Async Thread", sm_handle);
+
+    pa_mutex_lock(ses_data->mutex);
+    while (ses_data->thread_state != QSTHW_THREAD_EXIT) {
+        pa_log_debug("[%d]Async Thread wait", sm_handle);
+        pa_cond_wait(ses_data->cond, ses_data->mutex);
+        pa_log_debug("[%d]Async Thread wakeup", sm_handle);
+
+        if (ses_data->thread_state == QSTHW_THREAD_STOP_BUFFERING) {
+            pa_mutex_unlock(ses_data->mutex);
+            pa_log_debug("[%d]Stop buffering", sm_handle);
+            ret = qsthw_stop_buffering(ses_data->common->st_mod_handle, sm_handle);
+            if (ret < 0 )
+                pa_log_debug("[%d]Stop buffering failed with error %d", sm_handle, ret);
+
+            pa_mutex_lock(ses_data->mutex);
+            signal_stop_buffering_done(ses_data, ret);
+        }
+
+        if (ses_data->thread_state != QSTHW_THREAD_READ_QUEUED)
+            continue;
+
+        if (ses_data->read_buf == NULL || ses_data->read_bytes != bytes) {
+            if (ses_data->read_buf)
+                pa_xfree(ses_data->read_buf);
+            ses_data->read_buf = pa_xmalloc0(ses_data->read_bytes);
+            bytes = ses_data->read_bytes;
+        }
+
+        pa_mutex_unlock(ses_data->mutex);
+        ret = qsthw_read_buffer(ses_data->common->st_mod_handle,
+                                sm_handle, ses_data->read_buf, bytes);
+        if (ret < 0)
+            pa_log_debug("[%d]Read failed with error %d", sm_handle, ret);
+        pa_mutex_lock(ses_data->mutex);
+
+        if (ses_data->thread_state == QSTHW_THREAD_READ_QUEUED) {
+            signal_read_buffer_available(ses_data, ++read_buffer_sequence, ret);
+            ses_data->thread_state = QSTHW_THREAD_IDLE;
+        } else if (ses_data->thread_state == QSTHW_THREAD_STOP_BUFFERING) {
+            pa_mutex_unlock(ses_data->mutex);
+            ret = qsthw_stop_buffering(ses_data->common->st_mod_handle, sm_handle);
+            if (ret < 0 )
+                pa_log_debug("[%d]Stop buffering failed with error %d", sm_handle, ret);
+
+            pa_mutex_lock(ses_data->mutex);
+            signal_stop_buffering_done(ses_data, ret);
+        }
+
+    }
+
+    pa_xfree(ses_data->read_buf);
+    ses_data->read_buf = NULL;
+    pa_mutex_unlock(ses_data->mutex);
+
+    pa_log_debug("[%d]Exiting Async Thread", sm_handle);
+}
+
 static void event_callback(struct sound_trigger_recognition_event *event, void *cookie) {
     DBusMessage *message = NULL;
     DBusMessageIter arg_i, struct_i, struct_ii, array_i, array_ii;
@@ -260,6 +433,7 @@ static void event_callback(struct sound_trigger_recognition_event *event, void *
     char *value = NULL;
 
     pa_log_info("[%d] Callback event received: %d", event->model, event->status);
+    ses_data->thread_state = QSTHW_THREAD_IDLE;
     qsthw_event = (struct qsthw_phrase_recognition_event *)event;
     phrase_event = &qsthw_event->phrase_event;
 
@@ -414,6 +588,41 @@ static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userda
     pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &buffer_size);
 }
 
+static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct qsthw_session_data *ses_data = userdata;
+    unsigned int bytes;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    if (!dbus_message_get_args(msg, &error, DBUS_TYPE_UINT32,
+                               &bytes, DBUS_TYPE_INVALID)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_mutex_lock(ses_data->mutex);
+    if (bytes == 0 || ses_data->async_thread == NULL ||
+        ses_data->thread_state != QSTHW_THREAD_IDLE) {
+        pa_mutex_unlock(ses_data->mutex);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "request_read_buffer failed");
+        dbus_error_free(&error);
+        return;
+    }
+
+    ses_data->thread_state = QSTHW_THREAD_READ_QUEUED;
+    ses_data->read_bytes = bytes;
+    pa_cond_signal(ses_data->cond, 0);
+    pa_mutex_unlock(ses_data->mutex);
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
 static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     struct qsthw_session_data *ses_data = userdata;
     int ret = 0;
@@ -461,9 +670,7 @@ static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata) 
 
 static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     struct qsthw_session_data *ses_data = userdata;
-    int status = 0;
     DBusError error;
-    sound_model_handle_t sm_handle;
 
     pa_assert(conn);
     pa_assert(msg);
@@ -472,13 +679,18 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
     dbus_error_init(&error);
 
     pa_log_debug("stop buffering");
-    sm_handle = ses_data->ses_handle;
-    status = qsthw_stop_buffering(ses_data->common->st_mod_handle, sm_handle);
-    if (OK != status) {
+    pa_mutex_lock(ses_data->mutex);
+
+    if (ses_data->async_thread == NULL) {
+        pa_mutex_unlock(ses_data->mutex);
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "stop_buffering failed");
         dbus_error_free(&error);
         return;
     }
+
+    ses_data->thread_state = QSTHW_THREAD_STOP_BUFFERING;
+    pa_cond_signal(ses_data->cond, 0);
+    pa_mutex_unlock(ses_data->mutex);
 
     pa_dbus_send_empty_reply(conn, msg);
 }
@@ -491,7 +703,7 @@ static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdat
     const char *param;
     void *payload;
     unsigned int payload_size = sizeof(qsthw_get_param_payload_t);
-    unsigned int param_data_size = 0;
+    size_t param_data_size = 0;
     DBusMessage *reply = NULL;
     DBusMessageIter arg_i, array_i;
 
@@ -672,6 +884,12 @@ static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *use
 
     dbus_error_init(&error);
 
+    ses_data->thread_state = QSTHW_THREAD_EXIT;
+    pa_cond_signal(ses_data->cond, 0);
+    pa_thread_free(ses_data->async_thread);
+    pa_cond_free(ses_data->cond);
+    pa_mutex_free(ses_data->mutex);
+
     status = unload_sm(conn, ses_data);
     if (OK != status) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "unload_sound_model failed");
@@ -682,10 +900,12 @@ static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *use
     pa_dbus_send_empty_reply(conn, msg);
 }
 
-/* implementations exposed by module global object path */
-static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata) {
-    struct qsthw_module_data *m_data = userdata;
-    struct qsthw_session_data *ses_data = NULL;
+static void load_sm_thread(void *userdata1) {
+    DBusConnection *conn;
+    DBusMessage *msg;
+    void *userdata;
+    struct qsthw_module_data *m_data;
+
     struct sound_trigger_sound_model sound_model;
     struct sound_trigger_phrase_sound_model phrase_sound_model = {0, };
     struct sound_trigger_phrase_sound_model *p_sound_model = NULL;
@@ -693,21 +913,30 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     DBusError error;
     DBusMessageIter arg_i, struct_i, struct_ii, struct_iii, array_i, sub_array_i;
     dbus_int32_t sm_type, sm_data_size, i, j, status = 0;
-    sound_model_handle_t sm_handle;
+
     int n_elements = 0, arg_type;
     char *value = NULL;
     char **addr_value = &value;
 
+    struct dbus_sm_data *unpack = (struct dbus_sm_data *)userdata1;
+    conn = unpack->connect;
+    msg = unpack->message;
+    userdata = unpack->userdata;
+
     pa_assert(conn);
     pa_assert(msg);
     pa_assert(userdata);
+
+    m_data = userdata;
+
+    pa_mutex_lock(unpack->ses_data->mutex);
 
     dbus_error_init(&error);
     if (!dbus_message_iter_init(msg, &arg_i)) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
             "load_sound_model has no arguments");
         dbus_error_free(&error);
-        return;
+        goto errorState;
     }
 
     if (!pa_streq(dbus_message_get_signature(msg),
@@ -715,7 +944,7 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
         pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
             "Invalid signature for load_sound_model");
         dbus_error_free(&error);
-        return;
+        goto errorState;
     }
 
     pa_log_debug("load sound model");
@@ -827,20 +1056,81 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     }
 
     status = qsthw_load_sound_model(m_data->st_mod_handle, common_sound_model,
-                    NULL, NULL, &sm_handle);
+                    NULL, NULL, unpack->sm_handle);
+
+    *(unpack->status) = status;
 
     pa_xfree(common_sound_model);
+
+errorState:
+    pa_cond_signal(unpack->ses_data->cond,0);
+    pa_mutex_unlock(unpack->ses_data->mutex);
+    return;
+}
+
+/* implementations exposed by module global object path */
+static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct qsthw_module_data *m_data = userdata;
+    struct qsthw_session_data *ses_data = NULL;
+    sound_model_handle_t sm_handle;
+    DBusError error;
+    dbus_int32_t status = -1;
+    char *thread_name = NULL;
+    pa_thread *sm_thread = NULL;
+    struct dbus_sm_data sm_pack;
+
+    ses_data = pa_xnew0(struct qsthw_session_data, 1);
+    ses_data->mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
+    ses_data->cond = pa_cond_new();
+
+    sm_pack.connect = conn;
+    sm_pack.message = msg;
+    sm_pack.userdata = userdata;
+    sm_pack.ses_data = ses_data;
+    sm_pack.sm_handle = &sm_handle;
+    sm_pack.status = &status;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    pa_mutex_lock(ses_data->mutex);
+
+    dbus_error_init(&error);
+
+    sm_thread = pa_thread_new("load_sm thread", load_sm_thread, &sm_pack);
+    if (!sm_thread){
+        pa_log_error("%s: load_sm thread creation failed", __func__);
+        status = -1;
+    } else {
+        pa_cond_wait(ses_data->cond, ses_data->mutex);
+    }
     if (OK != status) {
+        pa_log_debug("load sound model failed");
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "load_sound_model failed");
         dbus_error_free(&error);
+        pa_mutex_unlock(ses_data->mutex);
+        pa_cond_free(ses_data->cond);
+        pa_mutex_free(ses_data->mutex);
+        if(sm_thread != NULL)
+            pa_thread_free(sm_thread);
+        pa_xfree(ses_data);
         return;
     }
 
    /* After successful load sound model, allocate session data */
-    ses_data = pa_xnew0(struct qsthw_session_data, 1);
     ses_data->common = (struct qsthw_module_data *)userdata;
     ses_data->ses_handle = sm_handle;
     ses_data->obj_path = pa_sprintf_malloc("%s/ses_%d", m_data->obj_path, sm_handle);
+
+    ses_data->thread_state = QSTHW_THREAD_IDLE;
+    ses_data->read_buf = NULL;
+    pa_mutex_unlock(ses_data->mutex);
+
+    thread_name = pa_sprintf_malloc("qsthw async thread%d", sm_handle);
+    if (!(ses_data->async_thread = pa_thread_new(thread_name, async_thread_func, ses_data)))
+        pa_log_error("%s: qsthw async thread creation failed", __func__);
+    pa_xfree(thread_name);
 
     pa_assert_se(pa_dbus_protocol_add_interface(ses_data->common->dbus_protocol,
             ses_data->obj_path, &session_interface_info, ses_data) >= 0);
@@ -848,6 +1138,8 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     pa_assert_se(dbus_connection_add_filter(conn, disconnection_filter_cb, ses_data, NULL));
 
     pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_OBJECT_PATH, &ses_data->obj_path);
+    pa_thread_free(sm_thread);
+    pa_log_debug("load sound model success");
 }
 
 static void get_properties(DBusConnection *conn, DBusMessage *msg, void *userdata) {
@@ -918,6 +1210,21 @@ static void get_version(DBusConnection *conn, DBusMessage *msg, void *userdata){
 
     pa_log_debug("get_version");
     version = qsthw_get_version();
+    pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &version);
+}
+
+static void get_interface_version(DBusConnection *conn, DBusMessage *msg, void *userdata){
+    int version;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    pa_log_debug("get_interface_version(%d)", PA_DBUS_QSTHW_MODULE_IFACE_VERSION);
+    version = PA_DBUS_QSTHW_MODULE_IFACE_VERSION;
     pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &version);
 }
 
@@ -1034,6 +1341,8 @@ void pa__done(pa_module *m) {
 
     if (m_data->modargs)
         pa_modargs_free(m_data->modargs);
+
+    pa_shared_remove(m->core, "voice-ui-session");
 
     pa_xfree(m_data->qsthw);
     pa_xfree(m_data);

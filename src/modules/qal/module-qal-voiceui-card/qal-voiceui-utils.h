@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -21,11 +21,11 @@
 
 typedef struct pa_qal_voiceui_hooks pa_qal_voiceui_hooks;
 
-typedef enum pa_qsthw_hook {
+typedef enum pa_qal_voiceui_hook {
     PA_HOOK_QAL_VOICEUI_START_DETECTION,
     PA_HOOK_QAL_VOICEUI_STOP_DETECTION,
     PA_HOOK_QAL_VOICEUI_MAX,
-} pa_qsthw_hook_t;
+} pa_qal_voiceui_hook_t;
 
 typedef struct {
     struct qal_st_phrase_recognition_event phrase_event;

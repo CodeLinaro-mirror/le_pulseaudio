@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018,2020, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -35,6 +35,8 @@ typedef struct {
     pa_hashmap *loopbacks;
     char *default_profile;
     bool use_dolby_hw_loopback;
+    bool dsd_setup;
+    bool no_primary_sink;
 } pa_qahw_config_data;
 
 pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name);
