@@ -82,6 +82,7 @@ struct pa_sink {
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     pa_sample_spec default_sample_spec;
+    pa_sample_spec prev_requested_spec;
     uint32_t alternate_sample_rate;
     bool avoid_processing:1;
 
