@@ -34,13 +34,18 @@ struct GroupSinkInterfaces {
 };
 typedef struct GroupSinkInterfaces GroupSinkInterfaces;
 
+struct GroupSinkCallbacks {
+    // Callbacks should avoid calling into GroupSink, there is no guarantee
+    // that GroupSink is reentrant.
+    void (*minimumLatencyUpdated)(void *user_data, pa_usec_t latency);
+};
+typedef struct GroupSinkCallbacks GroupSinkCallbacks;
+
 struct GroupSink;
 typedef struct GroupSink GroupSink;
 struct GroupSink {
     // When disable, a device is acting as a slave and must not send the audio
-    // to other group members. When enabled it should change the target latency
-    // should be to "lead_latency", and otherwise to "slave_latency" (see
-    // group_sink_init_proto function)
+    // to other group members.
     void (*enable)(GroupSink *gs, bool enable);
 
     // List of members in the group (IP addresses)
@@ -58,13 +63,18 @@ struct GroupSink {
     // decrement it once done with the chunk.
     void (*send)(GroupSink *gs, pa_memchunk *chunk);
 
-    // Current target latency. When enabled the target latency should be
-    // "lead_latency", and when not, "slave_latency" (see init function)
-    pa_usec_t (*getTargetLatency)(GroupSink *gs);
+    // Set the network latency the group should use when computing the minimum
+    // latency but it can be ignored/overruled if the group deem the latency
+    // inappropriate (e.g. if it's too low)
+    void (*setNetworkLatency)(GroupSink *gs, pa_usec_t latency);
 
-    // Current latency. When that latency drops below the target latency, send()
-    // will be called with a new chunk.
-    pa_usec_t (*getCurrentLatency)(GroupSink *gs);
+    // Return the minimum latency needed by the group to ensure glitch-free
+    // playback
+    pa_usec_t (*getGroupMinimumLatency)(GroupSink *gs);
+
+    // Set callback that the group will use to notify the PA module, or if it
+    // needs to query something from PA
+    void (*setCallbacks)(GroupSink *gs, const GroupSinkCallbacks *callbacks, void *user_data);
 };
 
 // Prototype for the initialization function.
@@ -73,15 +83,8 @@ struct GroupSink {
 // name is the name of the sink (for logging)
 // spec is the stream format
 // channel_map is the stream channel map
-// lead_latency is the latency to use when the current device is the group lead
-// and need to send the audio to the other group members (slaves)
-// slave_latency is the latency to use when the current device is a slave.
-// Currently this is mostly used to read chunks slightly ahead of the playback
-// allowing them the be buffered nearer to the local output sink instead of
-// pulseaudio core
 typedef GroupSink *(group_sink_init_proto)(const char *name,
-    const pa_sample_spec *spec, const pa_channel_map *channel_map,
-    pa_usec_t lead_latency, pa_usec_t slave_latency);
+    const pa_sample_spec *spec, const pa_channel_map *channel_map);
 
 // Prototype for the release function.
 typedef void(group_sink_done_proto)(GroupSink *gs);

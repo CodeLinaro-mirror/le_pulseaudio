@@ -178,6 +178,19 @@ void pa_deinterleave(const void *src, void *dst[], unsigned channels, size_t ss,
     }
 }
 
+void pa_deinterleave_stream(const void *src, void *dst, unsigned channels, size_t ss, unsigned n) {
+    char *new_dst[channels];
+    pa_assert(dst);
+    pa_assert(channels > 0);
+    pa_assert(ss > 0);
+    pa_assert(n > 0);
+
+    for (unsigned c = 0; c < channels; c++) {
+        new_dst[c] = dst + c * ss * n;
+    }
+    pa_deinterleave(src, new_dst, channels, ss, n);
+}
+
 static pa_memblock *silence_memblock_new(pa_mempool *pool, uint8_t c) {
     pa_memblock *b;
     size_t length;

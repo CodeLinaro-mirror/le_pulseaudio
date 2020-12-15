@@ -45,7 +45,7 @@ class GroupManager {
 
     static std::unique_ptr<GroupManager> create(pa_module *m, pa_sink *master,
         std::set<GroupSinkCtrl *> groups,
-        const pa_sample_spec &sample_spec, const pa_channel_map &channel_map);
+        const pa_sample_spec &sample_spec, const pa_channel_map &channel_map, bool avoid_processing);
 
     void play();
     //    void pause();
@@ -56,11 +56,13 @@ class GroupManager {
     void resetTimestamp(pa_sink_input *new_input = nullptr);
 
     pa_nsec_t getTargetLatency();
+    bool sinkInputCreate(pa_sink *master);
+    void sinkInputRemove();
 
  private:
     bool init(pa_module *m, pa_sink *master,
         std::set<GroupSinkCtrl *> group,
-        const pa_sample_spec &sample_spec, const pa_channel_map &channel_map);
+        const pa_sample_spec &sample_spec, const pa_channel_map &channel_map, bool avoid_processing);
 
  public:  // TODO(jbing): make it private
     pa_module *module_{nullptr};

@@ -1622,7 +1622,8 @@ int pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, b
     } else if (avoid_processing) {
         desired_spec = s->sample_spec;
 
-        if (spec->rate >= default_rate || spec->rate >= alternate_rate)
+        //if (spec->rate >= default_rate || spec->rate >= alternate_rate)
+        if(desired_spec.rate != spec->rate)
             desired_spec.rate = spec->rate;
         if (spec->channels >= default_channels)
             desired_spec.channels = spec->channels;
