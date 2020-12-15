@@ -989,6 +989,8 @@ static int pa_qahw_card_create(struct userdata *u) {
         return -1;
     }
 
+    u->card->active_profile = profile;
+
     pa_card_set_profile(u->card, profile, false);
 
     pa_card_put(u->card);
