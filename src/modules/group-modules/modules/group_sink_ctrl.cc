@@ -254,13 +254,26 @@ static int sink_process_io_msg(pa_msgobject *o, int code, void *data, int64_t of
     return pa_sink_process_msg(o, code, data, offset, chunk);
 }
 
-static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough) {
+static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map * /*map*/, bool /*passthrough*/) {
     pa_sink_assert_ref(s);
+
+    auto u = reinterpret_cast<GroupSinkCtrl *>(s->userdata);
+    if (!u->group_sink->setSampleSpec) {
+        // Reconfiguring is not supported by the group sink
+        return -1;
+    }
+
+    u->group_sink->setSampleSpec(u->group_sink, spec);
+
+    char spec_str[PA_SAMPLE_SPEC_SNPRINT_MAX], map_str[PA_CHANNEL_MAP_SNPRINT_MAX];
+    pa_sample_spec_snprint(spec_str, sizeof(spec_str), &s->sample_spec);
+    pa_channel_map_snprint(map_str, sizeof(map_str), &s->channel_map);
+    pa_log_info("Group \"%s\" format updated to %s,  %s",
+        s->name, spec_str, map_str);
+
     s->sample_spec.rate = spec->rate;
     s->sample_spec.format = spec->format;
-    /*Note:
-    We do not want to reconfigure channels/channel map because it will affect the sink graph settings
-    */
+
     return 0;
 }
 
