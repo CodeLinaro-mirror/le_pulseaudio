@@ -36,7 +36,9 @@
 #include <pulsecore/source.h>
 #include <pulsecore/memchunk.h>
 #include <pulsecore/core-format.h>
+#ifdef HAVE_TRACELOG
 #include <pulsecore/trace_log.h>
+#endif
 #include <pulse/util.h>
 
 #include "qahw-source.h"

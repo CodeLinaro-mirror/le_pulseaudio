@@ -40,7 +40,9 @@
 #include <pulsecore/memchunk.h>
 #include <pulsecore/mutex.h>
 #include <pulse/util.h>
+#ifdef HAVE_TRACELOG
 #include <pulsecore/trace_log.h>
+#endif
 
 #include <sys/time.h>
 #include <time.h>
@@ -887,7 +889,6 @@ static int pa_qahw_sink_flush_cb(pa_sink *s) {
 
 static bool write_chunk(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
     qahw_sink_data *qahw_sdata =  sdata->qahw_sdata;
-    pa_sink_data *pa_sdata = sdata->pa_sdata;
     pa_usec_t timestamp;
     void *data;
     int rc;
@@ -925,7 +926,7 @@ static bool write_chunk(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
         cur_qtimer = ticks * 10/192;
         pa_log_error("write_timestamp %" PRId64 "usec write_cur_qtimer %" PRId64 "usec", timestamp, cur_qtimer);
 #endif
-        trace_ts(&qahw_sdata->ts_log, pa_sdata->sink->name, chunk->timestamp, chunk->duration, chunk->length);
+        trace_ts(&qahw_sdata->ts_log, sdata->pa_sdata->sink->name, chunk->timestamp, chunk->duration, chunk->length);
     }
 
     sink_buffer_size = chunk->length;

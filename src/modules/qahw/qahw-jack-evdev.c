@@ -345,7 +345,7 @@ struct pa_qahw_jack_data* pa_qahw_evdev_jack_device_open(pa_qahw_jack_type_t jac
     dir = opendir(DEVICE_PATH);
     if(dir == NULL)
         return NULL;
-    strlcpy(dev_name, DEVICE_PATH, sizeof(dev_name));
+    pa_strlcpy(dev_name, DEVICE_PATH, sizeof(dev_name));
     filename = dev_name + strlen(dev_name);
     *filename++ = '/';
     while((de = readdir(dir))) {
@@ -353,7 +353,7 @@ struct pa_qahw_jack_data* pa_qahw_evdev_jack_device_open(pa_qahw_jack_type_t jac
                 (de->d_name[1] == '\0' ||
                  (de->d_name[1] == '.' && de->d_name[2] == '\0')))
             continue;
-        strlcpy(filename, de->d_name, sizeof(filename));
+        pa_strlcpy(filename, de->d_name, sizeof(filename));
 
         /* continue till both headset and button device are opened */
         jdata = open_device(jack_type, m, dev_name, hook_slot, callback, client_data);

@@ -63,11 +63,25 @@ typedef enum pa_encoding {
     PA_ENCODING_DTSHD_IEC61937,
     /**< DTS-HD Master Audio encapsulated in IEC 61937 header/padding. \since 13.0 */
 
+    PA_ENCODING_UNKNOWN_IEC61937,
+    /**< Data with an unknown encoding in IEC 61937 header/padding. Required device rate is assumed to be same as the media
+     * sample rate. \since 13.0 */
+
+    PA_ENCODING_UNKNOWN_4X_IEC61937,
+    /**< Data with an unknown encoding in IEC 61937 header/padding. Required device rate is assumed to be four times the media
+     * sample rate. \since 13.0 */
+
+    PA_ENCODING_UNKNOWN_HBR_IEC61937,
+    /**< High bitrate data with an unknown encoding in IEC 61937 header/padding. \since 13.0 */
+
     PA_ENCODING_MPEG,
     /**< MPEG-1 or MPEG-2 (Part 3, not AAC) data. \since: FIXME */
 
     PA_ENCODING_AAC,
     /**< MPEG-2 or MPEG-4 AAC data. \since: FIXME */
+
+    PA_ENCODING_MAT_IEC61937,
+    /**< Dolby MAT data encapsulated in IEC 61937 header/padding. */
 
     PA_ENCODING_DSD,
     /**< DSD data. \since: FIXME */

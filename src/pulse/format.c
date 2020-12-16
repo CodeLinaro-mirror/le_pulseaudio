@@ -50,8 +50,12 @@ static const char* const _encoding_str_table[]= {
     [PA_ENCODING_MPEG2_AAC_IEC61937] = "mpeg2-aac-iec61937",
     [PA_ENCODING_TRUEHD_IEC61937] = "truehd-iec61937",
     [PA_ENCODING_DTSHD_IEC61937] = "dtshd-iec61937",
+    [PA_ENCODING_UNKNOWN_IEC61937] = "unknown-iec61937",
+    [PA_ENCODING_UNKNOWN_4X_IEC61937] = "unknown-4x-iec61937",
+    [PA_ENCODING_UNKNOWN_HBR_IEC61937] = "unknown-hbr-iec61937",
     [PA_ENCODING_MPEG] = "mpeg",
     [PA_ENCODING_AAC] = "aac",
+    [PA_ENCODING_MAT_IEC61937] = "mat-iec61937",
     [PA_ENCODING_DSD] = "dsd",
     [PA_ENCODING_ANY] = "any",
 };

@@ -19,6 +19,30 @@
 #ifndef foomoduleqahwcardfoo
 #define foomoduleqahwcardfoo
 
+#ifndef HAVE_TRACELOG
+struct trace_log {
+    int fd;
+    uint64_t last_checked;
+};
+typedef struct trace_log trace_log;
+
+#define TRACE_LOG_STATIC_INIT    ((trace_log){.fd = -1, .last_checked = 0})
+#define trace_close(...)         (void)(0)
+#define trace_newstream(...)     (void)(0)
+#define trace_ts(...)            (void)(0)
+#define pa_sink_render_one(...)  (bool)(0)
+#define PA_NSEC_INVALID          ((uint64_t) -1)
+#endif //HAVE_TRACELOG
+
+#ifndef HAVE_EXT_CHANNEL
+#define PA_CHANNEL_POSITION_FRONT_LEFT_WIDE   (PA_CHANNEL_POSITION_INVALID)
+#define PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE  (PA_CHANNEL_POSITION_INVALID)
+#define PA_CHANNEL_POSITION_TOP_SIDE_LEFT     (PA_CHANNEL_POSITION_INVALID)
+#define PA_CHANNEL_POSITION_TOP_SIDE_RIGHT    (PA_CHANNEL_POSITION_INVALID)
+#define PA_CHANNEL_POSITION_SURROUND_LEFT     (PA_CHANNEL_POSITION_INVALID)
+#define PA_CHANNEL_POSITION_SURROUND_RIGHT    (PA_CHANNEL_POSITION_INVALID)
+#endif //HAVE_EXT_CHANNEL
+
 typedef enum {
     PA_QAHW_CARD_SINK_NONE= 0x0,
     PA_QAHW_CARD_SINK_LL_0 = 0x1,
