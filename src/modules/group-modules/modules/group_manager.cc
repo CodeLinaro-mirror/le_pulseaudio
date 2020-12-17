@@ -630,6 +630,75 @@ static void handleDbusSetAllocatedLatency(DBusConnection *conn, DBusMessage *msg
     pa_dbus_send_empty_reply(conn, msg);
 }
 
+void GroupManager::sinkInputRemove() {
+    pa_sink_input_cork(sink_->input_to_master, true);
+    pa_sink_input_unlink(sink_->input_to_master);
+    pa_sink_input_unref(sink_->input_to_master);
+    sink_->input_to_master = nullptr;
+}
+
+bool GroupManager::sinkInputCreate(pa_sink *master) {
+    pa_sink_assert_ref(sink_);
+    pa_sink_input_new_data sink_input_data;
+
+    /* Create sink input */
+    pa_sink_input_new_data_init(&sink_input_data);
+    sink_input_data.driver = __FILE__;
+    sink_input_data.module = module_;
+    pa_sink_input_new_data_set_sink(&sink_input_data, master, false, true);
+    sink_input_data.origin_sink = sink_;
+    pa_proplist_setf(sink_input_data.proplist, PA_PROP_MEDIA_NAME, "Sink Input from %s", pa_proplist_gets(sink_->proplist, PA_PROP_DEVICE_DESCRIPTION));
+    pa_proplist_sets(sink_input_data.proplist, PA_PROP_MEDIA_ROLE, "filter");
+    pa_sink_input_new_data_set_sample_spec(&sink_input_data, &sink_->sample_spec);
+    pa_sink_input_new_data_set_channel_map(&sink_input_data, &sink_->channel_map);
+    sink_input_data.flags |= PA_SINK_INPUT_START_CORKED;
+
+    pa_sink_input_new(&sink_input_, module_->core, &sink_input_data);
+    pa_sink_input_new_data_done(&sink_input_data);
+    if (!sink_input_) {
+        pa_log("Failed to create sink_input");
+        return false;
+    }
+
+    // no pop callback, this is not supposed to be used with TS rendering
+    sink_input_->pop_one = sink_input_pop_one_cb;
+    sink_input_->process_rewind = sink_input_process_rewind_cb;
+    sink_input_->update_max_request = sink_input_update_max_request_cb;
+    sink_input_->update_sink_latency_range = sink_input_update_sink_latency_range_cb;
+    sink_input_->update_sink_fixed_latency = sink_input_update_sink_fixed_latency_cb;
+    sink_input_->kill = sink_input_kill_cb;
+    sink_input_->attach = sink_input_attach_cb;
+    sink_input_->detach = sink_input_detach_cb;
+    sink_input_->moving = sink_input_moving_cb;
+    sink_input_->volume_changed = nullptr;
+    sink_input_->mute_changed = nullptr;
+    sink_input_->userdata = this;
+
+    sink_->input_to_master = sink_input_;
+    return true;
+}
+
+static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough)
+{
+    GroupManager *u;
+    pa_sink_assert_ref(s);
+    pa_assert_se(u = reinterpret_cast<GroupManager *>(s->userdata));
+    /*Since the 'master' is asserted during init, assuming that master exists*/
+    pa_sink *master = s->input_to_master->sink;
+    u->sinkInputRemove();
+
+    s->sample_spec.rate = spec->rate;
+    s->sample_spec.format = spec->format;
+    /*Note:
+    We do not want to reconfigure channels/channel map because it will affect the sink graph settings
+    */
+    if(!u->sinkInputCreate(master)) {
+        return -1;
+    }
+    pa_sink_input_put(s->input_to_master);
+    return 0;
+}
+
 GroupManager::~GroupManager() {
     /* See comments in sink_input_kill_cb() above regarding destruction order! */
 
@@ -662,13 +731,13 @@ GroupManager::~GroupManager() {
 std::unique_ptr<GroupManager> GroupManager::create(
     pa_module *m, pa_sink *master,
     std::set<GroupSinkCtrl *> groups,
-    const pa_sample_spec &sample_spec, const pa_channel_map &channel_map) {
+    const pa_sample_spec &sample_spec, const pa_channel_map &channel_map, bool avoid_processing) {
     pa_assert(m);
     pa_assert(master);
 
     auto u = std::unique_ptr<GroupManager>(new GroupManager);
     if (!u->init(m, master, std::move(groups),
-            sample_spec, channel_map)) {
+            sample_spec, channel_map, avoid_processing)) {
         return {};
     }
     return u;
@@ -677,8 +746,8 @@ std::unique_ptr<GroupManager> GroupManager::create(
 bool GroupManager::init(pa_module *m, pa_sink *master,
     std::set<GroupSinkCtrl *> groups,
     const pa_sample_spec &sample_spec,
-    const pa_channel_map &channel_map) {
-    pa_sink_input_new_data sink_input_data;
+    const pa_channel_map &channel_map,
+    bool avoid_processing) {
     pa_sink_new_data sink_data;
 
     pa_assert(m);
@@ -690,7 +759,7 @@ bool GroupManager::init(pa_module *m, pa_sink *master,
     pa_sink_new_data_init(&sink_data);
     sink_data.driver = __FILE__;
     sink_data.module = m;
-
+    sink_data.avoid_processing = avoid_processing;
     sink_data.name = pa_xstrdup("group_manager");
     pa_proplist_sets(sink_data.proplist, PA_PROP_DEVICE_MASTER_DEVICE, master->name);
     pa_proplist_sets(sink_data.proplist, PA_PROP_DEVICE_CLASS, "filter");
@@ -722,48 +791,16 @@ bool GroupManager::init(pa_module *m, pa_sink *master,
     sink_->set_state_in_main_thread = sink_set_state_cb;
     sink_->set_state_in_io_thread = sink_set_state_in_io_thread_cb;
     sink_->update_requested_latency = sink_update_requested_latency;
+    sink_->reconfigure = sink_reconfigure_cb;
     pa_sink_set_set_mute_callback(sink_, sink_set_mute_cb);
     sink_->userdata = this;
 
     pa_sink_set_asyncmsgq(sink_, master->asyncmsgq);
     pa_sink_set_max_rewind(sink_, 0);
-
     /* Create sink input */
-    pa_sink_input_new_data_init(&sink_input_data);
-    sink_input_data.driver = __FILE__;
-    sink_input_data.module = m;
-    pa_sink_input_new_data_set_sink(&sink_input_data, master, false, true);
-    sink_input_data.origin_sink = sink_;
-    pa_proplist_setf(sink_input_data.proplist, PA_PROP_MEDIA_NAME, "Sink Input from %s", pa_proplist_gets(sink_->proplist, PA_PROP_DEVICE_DESCRIPTION));
-    pa_proplist_sets(sink_input_data.proplist, PA_PROP_MEDIA_ROLE, "filter");
-    pa_sink_input_new_data_set_sample_spec(&sink_input_data, &sink_->sample_spec);
-    pa_sink_input_new_data_set_channel_map(&sink_input_data, &sink_->channel_map);
-    sink_input_data.flags |= PA_SINK_INPUT_START_CORKED;
-
-    pa_sink_input_new(&sink_input_, m->core, &sink_input_data);
-    pa_sink_input_new_data_done(&sink_input_data);
-
-    if (!sink_input_) {
-        pa_log("Failed to create sink_input");
+    if (!sinkInputCreate(master)) {
         return false;
     }
-
-    // no pop callback, this is not supposed to be used with TS rendering
-    sink_input_->pop_one = sink_input_pop_one_cb;
-    sink_input_->process_rewind = sink_input_process_rewind_cb;
-    sink_input_->update_max_request = sink_input_update_max_request_cb;
-    sink_input_->update_sink_latency_range = sink_input_update_sink_latency_range_cb;
-    sink_input_->update_sink_fixed_latency = sink_input_update_sink_fixed_latency_cb;
-    sink_input_->kill = sink_input_kill_cb;
-    sink_input_->attach = sink_input_attach_cb;
-    sink_input_->detach = sink_input_detach_cb;
-    sink_input_->moving = sink_input_moving_cb;
-    sink_input_->volume_changed = nullptr;
-    sink_input_->mute_changed = nullptr;
-    sink_input_->userdata = this;
-
-    sink_->input_to_master = sink_input_;
-
     min_chunk_length_ = pa_usec_to_bytes(kMinChunkDuration, &sample_spec);
     max_chunk_length_ = pa_frame_align(pa_mempool_block_size_max(m->core->mempool), &sample_spec);
     pa_assert(min_chunk_length_ <= max_chunk_length_);

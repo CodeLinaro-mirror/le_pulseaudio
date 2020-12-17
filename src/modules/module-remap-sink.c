@@ -2,7 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2009 Lennart Poettering
-  Copyright (c) 2019, The Linux Foundation. All rights reserved.
+  Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -47,14 +47,20 @@ PA_MODULE_USAGE(
         "channel_map=<channel map> "
         "resample_method=<resampler> "
         "remix=<remix channels?> "
-        "remix_override=<remix upstream channels?>");
+        "remix_override=<remix upstream channels?>"
+        "avoid_processing=<use stream original sample spec if possible?> ");
 
 struct userdata {
     pa_module *module;
 
     pa_sink *sink;
+    pa_sink *master;
     pa_sink_input *sink_input;
-
+    pa_modargs *ma;
+    pa_sample_spec ss;
+    pa_channel_map sink_map, stream_map;
+    bool remix;
+    pa_resample_method_t resample_method;
     bool auto_desc;
 };
 
@@ -70,6 +76,7 @@ static const char* const valid_modargs[] = {
     "resample_method",
     "remix",
     "remix_override",
+    "avoid_processing",
     NULL
 };
 
@@ -344,6 +351,83 @@ static void sink_input_moving_cb(pa_sink_input *i, pa_sink *dest) {
     }
 }
 
+
+static void sink_input_remove(struct userdata *u)
+{
+    // Remap sink inputs to master always exists
+    pa_sink_input_cork(u->sink_input, true);
+    pa_sink_input_unlink(u->sink_input);
+    pa_sink_input_unref(u->sink_input);
+    u->sink_input = NULL;
+}
+
+static bool sink_input_create(struct userdata *u)
+{
+    pa_sink_input_new_data sink_input_data;
+    pa_sink *master = u->master;
+    pa_module *m = u->module;
+    pa_sample_spec ss = u->ss;
+    pa_channel_map stream_map = u->stream_map;
+    bool remix = u->remix;
+    pa_resample_method_t resample_method = u->resample_method;
+
+    pa_sink_input_new_data_init(&sink_input_data);
+    sink_input_data.driver = __FILE__;
+    sink_input_data.module = m;
+    pa_sink_input_new_data_set_sink(&sink_input_data, master, false, true);
+    sink_input_data.origin_sink = u->sink;
+    pa_proplist_sets(sink_input_data.proplist, PA_PROP_MEDIA_NAME, "Remapped Stream");
+    pa_proplist_sets(sink_input_data.proplist, PA_PROP_MEDIA_ROLE, "filter");
+    pa_sink_input_new_data_set_sample_spec(&sink_input_data, &ss);
+    pa_sink_input_new_data_set_channel_map(&sink_input_data, &stream_map);
+    sink_input_data.flags = (remix ? 0 : PA_SINK_INPUT_NO_REMIX) | PA_SINK_INPUT_START_CORKED;
+    sink_input_data.resample_method = resample_method;
+
+    pa_sink_input_new(&u->sink_input, m->core, &sink_input_data);
+    pa_sink_input_new_data_done(&sink_input_data);
+
+    if (!u->sink_input)
+    {
+        pa_log("Failed to create sink_input");
+        return false;
+    }
+    u->sink_input->pop = sink_input_pop_cb;
+    u->sink_input->pop_one = sink_input_pop_one_cb;
+    u->sink_input->process_rewind = sink_input_process_rewind_cb;
+    u->sink_input->update_max_rewind = sink_input_update_max_rewind_cb;
+    u->sink_input->update_max_request = sink_input_update_max_request_cb;
+    u->sink_input->update_sink_latency_range = sink_input_update_sink_latency_range_cb;
+    u->sink_input->update_sink_fixed_latency = sink_input_update_sink_fixed_latency_cb;
+    u->sink_input->attach = sink_input_attach_cb;
+    u->sink_input->detach = sink_input_detach_cb;
+    u->sink_input->kill = sink_input_kill_cb;
+    u->sink_input->moving = sink_input_moving_cb;
+    u->sink_input->userdata = u;
+
+    u->sink->input_to_master = u->sink_input;
+
+    return true;
+}
+
+static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough) {
+    /* We don't need to do anything */
+    struct userdata *u;
+    pa_sink_assert_ref(s);
+    pa_assert_se(u = s->userdata);
+    sink_input_remove(u);
+
+    s->sample_spec.rate = spec->rate;
+    s->sample_spec.format = spec->format;
+    /*Note:
+    We do not want to reconfigure channels/channel map because it will affect the sink graph settings
+    */
+    u->ss = s->sample_spec;
+    if (!sink_input_create(u))
+        return -1;
+    pa_sink_input_put(u->sink_input);
+    return 0;
+}
+
 int pa__init(pa_module*m) {
     struct userdata *u;
     pa_sample_spec ss;
@@ -351,10 +435,10 @@ int pa__init(pa_module*m) {
     pa_channel_map sink_map, stream_map;
     pa_modargs *ma;
     pa_sink *master;
-    pa_sink_input_new_data sink_input_data;
     pa_sink_new_data sink_data;
     bool remix = true;
     bool remix_override = true;
+    bool avoid_processing;
 
     pa_assert(m);
 
@@ -404,12 +488,25 @@ int pa__init(pa_module*m) {
         goto fail;
     }
 
+    avoid_processing = m->core->avoid_processing;
+    if (pa_modargs_get_value_boolean(ma, "avoid_processing", &avoid_processing) < 0) {
+        pa_log("Failed to parse avoid_processing argument.");
+        goto fail;
+    }
     u = pa_xnew0(struct userdata, 1);
     u->module = m;
     m->userdata = u;
+    u->master = master;
+    u->ma = ma;
+    u->sink_map = sink_map;
+    u->stream_map = stream_map;
+    u->ss = ss;
+    u->remix = remix;
+    u->resample_method = resample_method;
 
     /* Create sink */
     pa_sink_new_data_init(&sink_data);
+    sink_data.avoid_processing = avoid_processing;
     sink_data.driver = __FILE__;
     sink_data.module = m;
     if (!(sink_data.name = pa_xstrdup(pa_modargs_get_value(ma, "sink_name", NULL))))
@@ -447,43 +544,14 @@ int pa__init(pa_module*m) {
     u->sink->set_state_in_io_thread = sink_set_state_in_io_thread_cb;
     u->sink->update_requested_latency = sink_update_requested_latency;
     u->sink->request_rewind = sink_request_rewind;
+    u->sink->reconfigure = sink_reconfigure_cb;
     u->sink->userdata = u;
 
     pa_sink_set_asyncmsgq(u->sink, master->asyncmsgq);
 
     /* Create sink input */
-    pa_sink_input_new_data_init(&sink_input_data);
-    sink_input_data.driver = __FILE__;
-    sink_input_data.module = m;
-    pa_sink_input_new_data_set_sink(&sink_input_data, master, false, true);
-    sink_input_data.origin_sink = u->sink;
-    pa_proplist_sets(sink_input_data.proplist, PA_PROP_MEDIA_NAME, "Remapped Stream");
-    pa_proplist_sets(sink_input_data.proplist, PA_PROP_MEDIA_ROLE, "filter");
-    pa_sink_input_new_data_set_sample_spec(&sink_input_data, &ss);
-    pa_sink_input_new_data_set_channel_map(&sink_input_data, &stream_map);
-    sink_input_data.flags = (remix ? 0 : PA_SINK_INPUT_NO_REMIX) | PA_SINK_INPUT_START_CORKED;
-    sink_input_data.resample_method = resample_method;
-
-    pa_sink_input_new(&u->sink_input, m->core, &sink_input_data);
-    pa_sink_input_new_data_done(&sink_input_data);
-
-    if (!u->sink_input)
+    if(!sink_input_create(u))
         goto fail;
-
-    u->sink_input->pop = sink_input_pop_cb;
-    u->sink_input->pop_one = sink_input_pop_one_cb;
-    u->sink_input->process_rewind = sink_input_process_rewind_cb;
-    u->sink_input->update_max_rewind = sink_input_update_max_rewind_cb;
-    u->sink_input->update_max_request = sink_input_update_max_request_cb;
-    u->sink_input->update_sink_latency_range = sink_input_update_sink_latency_range_cb;
-    u->sink_input->update_sink_fixed_latency = sink_input_update_sink_fixed_latency_cb;
-    u->sink_input->attach = sink_input_attach_cb;
-    u->sink_input->detach = sink_input_detach_cb;
-    u->sink_input->kill = sink_input_kill_cb;
-    u->sink_input->moving = sink_input_moving_cb;
-    u->sink_input->userdata = u;
-
-    u->sink->input_to_master = u->sink_input;
 
     /* The order here is important. The input must be put first,
      * otherwise streams might attach to the sink before the sink
