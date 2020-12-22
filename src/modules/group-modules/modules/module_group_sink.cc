@@ -2,7 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2008 Lennart Poettering
-  Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+  Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -48,13 +48,12 @@ MOD_EXPORT bool pa__load_once(void);
 
 // Can't use constexpr since we need compile time concatenation
 #define SINK_NAME_PARAM "sink_name"
-#define LEAD_LATENCY_PARAM "lead_latency"
-#define SLAVE_LATENCY_PARAM "slave_latency"
 #define LIB_PARAM "lib"
 #define FORMAT_PARAM "format"
 #define RATE_MAP_PARAM "rate"
 #define CHANNELS_PARAM "channels"
 #define CHANNEL_MAP_PARAM "channel_map"
+#define AVOID_PROCESSING_PARAM "avoid_processing"
 
 PA_MODULE_AUTHOR("Qualcomm Technologies, Inc.");
 PA_MODULE_DESCRIPTION(_("Group sink"));
@@ -64,28 +63,23 @@ PA_MODULE_LOAD_ONCE(false);
 PA_MODULE_USAGE(
     SINK_NAME_PARAM "=<name of sink> "
     LIB_PARAM "=<implementation library> "
-    LEAD_LATENCY_PARAM "=<latency in ms> "
-    SLAVE_LATENCY_PARAM "=<latency in ms> "
     FORMAT_PARAM "=<sample format> "
     RATE_MAP_PARAM "=<sample rate> "
     CHANNELS_PARAM "=<number of channels> "
     CHANNEL_MAP_PARAM "=<channel map> "
+    AVOID_PROCESSING_PARAM "=<use stream original sample spec if possible?>"
 );
 // clang-format on
 
 static const char *const valid_modargs[] = {
     SINK_NAME_PARAM,
     LIB_PARAM,
-    LEAD_LATENCY_PARAM,
-    SLAVE_LATENCY_PARAM,
     FORMAT_PARAM,
     RATE_MAP_PARAM,
     CHANNELS_PARAM,
     CHANNEL_MAP_PARAM,
+    AVOID_PROCESSING_PARAM,
     nullptr};
-
-static constexpr uint32_t kLeadLatency = 500;   // 500ms
-static constexpr uint32_t kSlaveLatency = 200;  // 200ms
 
 namespace std {
 template <>
@@ -118,21 +112,15 @@ int pa__init(pa_module *module) {
         return -1;
     }
 
-    uint32_t lead_latency = kLeadLatency;
-    if (pa_modargs_get_value_u32(ma.get(), LEAD_LATENCY_PARAM, &lead_latency) < 0) {
-        pa_log("Failed to parse " LEAD_LATENCY_PARAM);
-        return -1;
-    }
-
-    uint32_t slave_latency = kSlaveLatency;
-    if (pa_modargs_get_value_u32(ma.get(), SLAVE_LATENCY_PARAM, &slave_latency) < 0) {
-        pa_log("Failed to parse " SLAVE_LATENCY_PARAM);
-        return -1;
-    }
-
     const char *name = pa_modargs_get_value(ma.get(), SINK_NAME_PARAM, nullptr);
     if (name == nullptr) {
         pa_log(SINK_NAME_PARAM " no set");
+        return -1;
+    }
+
+    bool avoid_processing = module->core->avoid_processing;
+    if (pa_modargs_get_value_boolean(ma.get(), AVOID_PROCESSING_PARAM, &avoid_processing) < 0) {
+        pa_log("Failed to parse avoid_processing argument.");
         return -1;
     }
 
@@ -148,8 +136,7 @@ int pa__init(pa_module *module) {
     module->userdata = d;
 
     d->sink = GroupSinkCtrl::create(module, name, library,
-        lead_latency * PA_USEC_PER_MSEC, slave_latency * PA_USEC_PER_MSEC,
-        sample_spec, channel_map);
+        sample_spec, channel_map, avoid_processing);
     if (!d->sink) {
         pa__done(module);
         return -1;

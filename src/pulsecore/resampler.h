@@ -61,6 +61,7 @@ typedef enum pa_resample_method {
     PA_RESAMPLER_SOXR_MQ,
     PA_RESAMPLER_SOXR_HQ,
     PA_RESAMPLER_SOXR_VHQ,
+    PA_RESAMPLER_NEON_PROP,
     PA_RESAMPLER_MAX
 } pa_resample_method_t;
 
@@ -173,8 +174,10 @@ int pa_resampler_peaks_init(pa_resampler *r);
 int pa_resampler_speex_init(pa_resampler *r);
 int pa_resampler_trivial_init(pa_resampler*r);
 int pa_resampler_soxr_init(pa_resampler *r);
+int pa_resampler_neon_prop_init(pa_resampler *r);
 
 /* Resampler-specific quirks */
 bool pa_speex_is_fixed_point(void);
+bool pa_neon_prop_supported(pa_resample_flags_t flags, const uint32_t rate_a, const uint32_t rate_b);
 
 #endif

@@ -24,6 +24,7 @@
 #endif
 
 #include <errno.h>
+#include <string.h>
 
 #include <arpa/inet.h>
 #include <sbc/sbc.h>
@@ -46,10 +47,71 @@
 #include <pulsecore/thread-mq.h>
 #include <pulsecore/time-smoother.h>
 #include <pulsecore/ts_clock.h>
+#include <pulsecore/trace_log.h>
+#include <pulsecore/dbus-util.h>
+#include <pulsecore/protocol-dbus.h>
+
+#include <stdio.h>
 
 #include "a2dp-codecs.h"
 #include "bluez5-util.h"
 #include "rtp.h"
+
+#define BT_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/bt/a2dp/sink"
+#define BT_DBUS_SOURCE_IFACE "org.PulseAudio.Bt.A2dp.Sink"
+
+// When computing timestamps, a naive implementation would just put the packets
+// one after the other, computing the timestamps based on the sample rate and
+// the packet size. However, the A2DP source clock in independent of our own
+// clock, there is a drift. What is 44100Hz for the source might be 44110Hz for
+// us, or 44090Hz. So we need to track the time-of-arrival (TOA) to measure the
+// drift (do we get more than 44100 samples/sec, or less? By how much?...).
+// There is also a lot of jitter in the traffic, so we can't use the TOA
+// directly. Essentially, we need a low-pass filter to ignore the jitter. A
+// naive implementation would use a simple "average". But the jitter is only
+// one-way, a packet can be "late", but it cannot be "early". So an average
+// would add a bias that is have the jitter.
+//
+// So instead we use a window to measure the maximum latency. Since a packet
+// cannot be early, the max latency should reflect a very low jitter, and all
+// the other packets would indicated various degres of lateness.
+// With a non-infinite window, the maximum latency can change over time to
+// reflect the drift.
+// Think of it as a plank (kept horizontal) on a road. By having a plank, we
+// can ignore all the "up and down" caused by gravels, cracks and potholes.
+// And a non-inifinite plank will still go up and down to caused by hills.
+//
+// Also, if all recent packets are late, it may indicate that we lost one.
+// By keeping the window relatively short, the max latency will drop one the
+// last packet from before the loss leaves the window, after wich we can slowly
+// raise the latency back to normal by slowing down the playback.
+//
+//
+// Note that the window does not measure absolute time ("now - oldest_packet_toa")
+// but the sum of the time to receive thepackets ("sum(packet[x].toa - packet[x-1].toa").
+// Most of the time there are the same, but the sum allows us to ignore abnormal
+// packets if we need to.
+
+// Minimum size of the window.
+#define DEFAULT_OFFSET_WINDOW_MIN_DURATION (200 * PA_NSEC_PER_MSEC)
+
+// 5 packets at least
+#define DEFAULT_OFFSET_WINDOW_MIN_SIZE 5
+
+// 0.1% of the current error
+#define DEFAULT_OFFSET_CORRECTION_COEFFICIENT 0.001
+
+// A packet should be "early" by a moderate amount (because of drift or because
+// too many packets were late in a row). But a big amount indicate something
+// wrong (typically, the start of the stream, where the first packet was late,
+// causing the baseline to be off). This defines the threshold between moderate
+// and "too much"
+#define MAX_EXTRA_LATENCY (10 * PA_NSEC_PER_MSEC)
+
+struct bt_dbus_data {
+    char *obj_path;
+    pa_dbus_protocol *dbus_protocol;
+};
 
 PA_MODULE_AUTHOR("João Paulo Rechi Vita");
 PA_MODULE_DESCRIPTION("BlueZ 5 Bluetooth audio sink and source");
@@ -113,6 +175,20 @@ typedef struct sbc_info {
     size_t buffer_size;                  /* Size of the buffer */
 } sbc_info_t;
 
+typedef struct window_info {
+    pa_nsec_t duration;
+    pa_nsec_t latency;
+} window_info_t;
+
+typedef struct window {
+    window_info_t *queue;
+    size_t capacity;
+    size_t first;
+    size_t last;
+    pa_nsec_t duration;
+    pa_nsec_t max_latency;
+} window_t;
+
 struct userdata {
     pa_module *module;
     pa_core *core;
@@ -157,6 +233,72 @@ struct userdata {
 
     bool timestamp_mode;
     pa_memblockq *render_one_queue;
+
+    trace_log ts_log;
+
+    pa_nsec_t fixed_offset;
+    pa_nsec_t offset_window_min_duration;
+    size_t offset_window_min_size;
+    long double offset_correction_coefficient;
+
+    window_t *offset_window;
+
+    pa_nsec_t next_timestamp;
+    pa_nsec_t last_toa;  // Time-Of-Arrival
+
+    struct bt_dbus_data *bt_dbus_sdata;
+};
+
+enum source_method_handler_index {
+    METHOD_HANDLER_A2DP_SINK_SET_TTP_OFFSET,
+    METHOD_HANDLER_A2DP_SINK_LAST = METHOD_HANDLER_A2DP_SINK_SET_TTP_OFFSET,
+    METHOD_HANDLER_A2DP_SINK_MAX
+};
+
+static pa_dbus_arg_info a2dp_sink_ttp_offset_args[] = {
+    {"ttp_offset", "t", "in"},
+};
+
+/* source set params based on key,value */
+static void dbus_set_ttp_offset(DBusConnection *conn, DBusMessage *msg, void *userdata);
+
+static pa_dbus_method_handler source_method_handlers[METHOD_HANDLER_A2DP_SINK_MAX] = {
+[METHOD_HANDLER_A2DP_SINK_SET_TTP_OFFSET] = {
+        .method_name = "SetTTPOffset",
+        .arguments = a2dp_sink_ttp_offset_args,
+        .n_arguments = sizeof(a2dp_sink_ttp_offset_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = dbus_set_ttp_offset},
+};
+
+static void dbus_get_all(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void dbus_get_window_duration(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void dbus_set_window_duration(DBusConnection *conn, DBusMessage *msg, DBusMessageIter *iter, void *userdata);
+static void dbus_get_window_size(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void dbus_set_window_size(DBusConnection *conn, DBusMessage *msg, DBusMessageIter *iter, void *userdata);
+static void dbus_get_correction_coefficient(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void dbus_set_correction_coefficient(DBusConnection *conn, DBusMessage *msg, DBusMessageIter *iter, void *userdata);
+
+enum property_handler_index {
+    PROPERTY_WINDOW_DURATION,
+    PROPERTY_WINDOW_SIZE,
+    PROPERTY_CORRECTION_COEFFICIENT,
+    PROPERTY_HANDLER_MAX
+};
+
+static pa_dbus_property_handler property_handlers[PROPERTY_HANDLER_MAX] = {
+    [PROPERTY_WINDOW_DURATION] = {.property_name = "WindowDuration", .type = "t", .get_cb = dbus_get_window_duration, .set_cb = dbus_set_window_duration},
+    [PROPERTY_WINDOW_SIZE] = {.property_name = "WindowSize", .type = "u", .get_cb = dbus_get_window_size, .set_cb = dbus_set_window_size},
+    [PROPERTY_CORRECTION_COEFFICIENT] = {.property_name = "CorrectionCoefficient", .type = "d", .get_cb = dbus_get_correction_coefficient, .set_cb = dbus_set_correction_coefficient}};
+
+static pa_dbus_interface_info source_interface_info = {
+    .name = BT_DBUS_SOURCE_IFACE,
+    .method_handlers = source_method_handlers,
+    .n_method_handlers = METHOD_HANDLER_A2DP_SINK_MAX,
+    .property_handlers = property_handlers,
+    .n_property_handlers = PROPERTY_HANDLER_MAX,
+    .get_all_properties_cb = dbus_get_all,
+    .signals = NULL,
+    .n_signals = 0
 };
 
 typedef enum pa_bluetooth_form_factor {
@@ -171,6 +313,183 @@ typedef enum pa_bluetooth_form_factor {
     PA_BLUETOOTH_FORM_FACTOR_HIFI,
     PA_BLUETOOTH_FORM_FACTOR_PHONE,
 } pa_bluetooth_form_factor_t;
+
+static window_t *window_new(size_t capacity) {
+    window_t *window;
+
+    pa_assert(capacity > 0);
+
+    window = pa_xnew(window_t, 1);
+    window->queue = pa_xnew(window_info_t, capacity);
+    window->capacity = capacity;
+    window->first = 0;
+    window->last = 0;
+    window->duration = 0;
+    window->max_latency = 0;
+
+    return window;
+}
+
+static void window_free(window_t *window) {
+    pa_xfree(window->queue);
+    pa_xfree(window);
+}
+
+static size_t window_end() {
+    return ((size_t)-1);
+}
+
+static bool window_empty(window_t *window) {
+    return (window->first == window->last);
+}
+
+static bool window_full(window_t *window) {
+    return (window->last == window_end());
+}
+
+static size_t window_begin(window_t *window) {
+    if (window_empty(window)) {
+        return window_end();
+    }
+    return window->first;
+}
+
+static size_t window_next(window_t *window, size_t idx) {
+    if (idx == window_end()) {
+        // Already at the end
+        return window_end();
+    }
+    // Note that we can't support modifying the window while iterating so the
+    // window cannot be empty here (otherwise idx would have set to "end" already
+
+    ++idx;
+    if (idx == window->capacity) {
+        idx = 0;
+    }
+    if (idx == window->last) {
+        // It was the last entry of a non-full queue
+        return window_end();
+    } else if (idx == window->first) {
+        // It was the last entry of a full queue
+        return window_end();
+    } else {
+        return idx;
+    }
+}
+
+static size_t window_size(window_t *window) {
+    if (window->last == window_end()) {
+        return window->capacity;
+    } else if (window->last >= window->first) {
+        return window->last - window->first;
+    } else {
+        return window->last + window->capacity - window->first;
+    }
+}
+
+static pa_nsec_t window_get_duration(window_t *window) {
+    return window->duration;
+}
+
+static pa_nsec_t window_get_max_latency(window_t *window) {
+    return window->max_latency;
+}
+
+static void window_clear(window_t *window) {
+    window->last = window->first;
+    window->duration = 0;
+    window->max_latency = 0;
+}
+
+static void window_resize(window_t *window, size_t new_capacity) {
+    if (new_capacity <= window->capacity) {
+        // Already good enough, ignore (avoid complications)
+        pa_log_debug("Resizing window from %zu to %zu", window->capacity, new_capacity);
+        return;
+    }
+
+    window->queue = pa_xrealloc(window->queue, sizeof(window_info_t) * new_capacity);
+
+    if (window_empty(window)) {
+        // Nothing to do
+    } else {
+        if (window_full(window)) {
+            if (window->first == 0) {
+                window->last = window->capacity;
+            } else {
+                window->last = window->first;
+            }
+        }
+
+        if (window->last <= window->first) {
+            // We need to move the "first half" of the window at the end of the new capacity
+            size_t move_size = window->capacity - window->first;
+            size_t new_first = new_capacity - move_size;
+            memmove(window->queue + new_first,
+                window->queue + window->first,
+                sizeof(window_info_t) * move_size);
+            window->first = new_first;
+        }
+    }
+
+    window->capacity = new_capacity;
+}
+
+static bool window_push_back(window_t *window, pa_nsec_t duration, pa_nsec_t latency) {
+    if (window->last == window_end()) {
+        window_resize(window, window->capacity + window->capacity / 2 + 1);
+    }
+
+    window->queue[window->last].duration = duration;
+    window->duration += duration;
+
+    window->queue[window->last].latency = latency;
+    window->max_latency = PA_MAX(window->max_latency, latency);
+
+    window->last++;
+    if (window->last == window->capacity) {
+        window->last = 0;
+    }
+    if (window->last == window->first) {
+        window->last = window_end();
+    }
+
+    return true;
+}
+
+static bool window_pop_front(window_t *window) {
+    if (window_empty(window)) {
+        return false;
+    }
+    window->duration -= window->queue[window->first].duration;
+    if (window->max_latency == window->queue[window->first].latency) {
+        window->max_latency = 0;
+    }
+
+    if (window->last == window_end()) {
+        // If the queue was full, we need to reset "last"
+        window->last = window->first;
+    }
+    window->first++;
+    if (window->first == window->capacity) {
+        window->first = 0;
+    }
+
+    if (window->max_latency == 0) {
+        for (size_t iter = window_begin(window); iter != window_end(); iter = window_next(window, iter)) {
+            window->max_latency = PA_MAX(window->max_latency, window->queue[iter].latency);
+        }
+    }
+
+    return true;
+}
+
+static void window_shrink(window_t *window, pa_nsec_t max_duration, size_t min_size) {
+    while ((window_size(window) > min_size)
+        && ((window_get_duration(window) - window->queue[window->first].duration) > max_duration)) {
+        window_pop_front(window);
+    }
+}
 
 /* Run from main thread */
 static pa_bluetooth_form_factor_t form_factor_from_class(uint32_t class_of_device) {
@@ -637,6 +956,9 @@ static int a2dp_process_push(struct userdata *u) {
         ssize_t l;
         size_t to_write, to_decode;
         size_t total_written = 0;
+        pa_nsec_t ttp_offset;
+        pa_nsec_t toa;  // Time-Of-Arrival
+        int64_t offset_correction;
 
         a2dp_prepare_buffer(u);
 
@@ -645,6 +967,7 @@ static int a2dp_process_push(struct userdata *u) {
         payload = (struct rtp_payload*) ((uint8_t*) sbc_info->buffer + sizeof(*header));
 
         l = pa_read(u->stream_fd, sbc_info->buffer, sbc_info->buffer_size, &u->stream_write_type);
+        toa = ts_clock_now();
 
         if (l <= 0) {
 
@@ -716,7 +1039,54 @@ static int a2dp_process_push(struct userdata *u) {
 
         pa_memblock_release(memchunk.memblock);
 
+        if (u->next_timestamp == PA_NSEC_INVALID) {
+            memchunk.timestamp = toa + u->fixed_offset;
+        } else {
+            memchunk.timestamp = u->next_timestamp;
+        }
+        memchunk.duration = pa_bytes_to_nsec(memchunk.length, &u->sample_spec);
+
+        ttp_offset = memchunk.timestamp - toa;
+
+        if (((int64_t)ttp_offset) > ((int64_t)(u->fixed_offset + MAX_EXTRA_LATENCY))) {
+            // The packet is too early, the baseline packet was probably late,
+            // so reset that baseline to this packet
+            pa_log_info("Packet too early (%" PRIu64 " >= %" PRIu64 " ms), reseting baseline",
+                (ttp_offset / PA_NSEC_PER_MSEC), ((u->fixed_offset + MAX_EXTRA_LATENCY) / PA_NSEC_PER_MSEC));
+            memchunk.timestamp = toa + u->fixed_offset;
+            ttp_offset = u->fixed_offset;
+        } else if (((int64_t)ttp_offset) < 0) {
+            // Packet is seemingly late, but we don't know if it's because it
+            // is indeed late or because we lost one or more packets.
+            // Since the packet is late enough to glitch already, we might as
+            // well reset the timestamp in case it's the latter. And we'll
+            // revert the reset later if it's the former, once we notice the
+            // latency is too high.
+            // TODO(jbing): Instead of 0, the threshold should be the downstream
+            // latency, i.e. once there isn't enough time for downstream to
+            // handle the packet.
+            pa_log_info("Packet late early (%" PRIu64 " <= 0 ms), reseting baseline",
+                (ttp_offset / PA_NSEC_PER_MSEC));
+            memchunk.timestamp = toa + u->fixed_offset;
+            ttp_offset = u->fixed_offset;
+        }
+
+        // Add extra correction to fix the accumulated errors or other bias
+        if (u->last_toa == PA_NSEC_INVALID) {
+            window_clear(u->offset_window);
+        } else {
+            window_push_back(u->offset_window, toa - u->last_toa, ttp_offset);
+            window_shrink(u->offset_window, u->offset_window_min_duration, u->offset_window_min_size);
+        }
+        offset_correction = ((int64_t)(u->fixed_offset - window_get_max_latency(u->offset_window))) * u->offset_correction_coefficient;
+        memchunk.duration += offset_correction;
+        u->next_timestamp = memchunk.timestamp + memchunk.duration;
+        u->last_toa = toa;
+
         pa_source_post(u->source, &memchunk);
+
+        trace_ts_ltime(&(u->ts_log), "bluez-a2dp-source-capture", toa, memchunk.timestamp, memchunk.duration, memchunk.length);
+        trace_ts(&(u->ts_log), "bluez-a2dp-source-decode", memchunk.timestamp, memchunk.duration, memchunk.length);
 
         ret = l;
         break;
@@ -851,6 +1221,13 @@ static void teardown_stream(struct userdata *u) {
         u->render_one_queue = NULL;
     }
 
+    if (u->offset_window) {
+        window_free(u->offset_window);
+        u->offset_window = NULL;
+    }
+
+    trace_close(&(u->ts_log));
+
     pa_log_debug("Audio stream torn down");
     u->stream_setup_done = false;
 }
@@ -984,6 +1361,11 @@ static void setup_stream(struct userdata *u) {
 
     if (u->sink)
         u->render_one_queue = pa_memblockq_new("bluez5 queue", 0, MEMBLOCKQ_MAXLENGTH, 0, &u->sample_spec, 1, 1, 0, &u->sink->silence);
+
+    u->fixed_offset = 200 * PA_NSEC_PER_MSEC;
+    u->last_toa = PA_NSEC_INVALID;
+    u->next_timestamp = PA_NSEC_INVALID;
+    u->offset_window = window_new(DEFAULT_OFFSET_WINDOW_MIN_SIZE);
 }
 
 /* Called from I/O thread, returns true if the transport was acquired or
@@ -1025,6 +1407,7 @@ static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t off
 
         case PA_SOURCE_MESSAGE_SETUP_STREAM:
             setup_stream(u);
+            trace_newstream(&(u->ts_log), "bluez-a2dp-sink");
             return 0;
 
     }
@@ -1168,6 +1551,8 @@ static int add_source(struct userdata *u) {
     u->source->userdata = u;
     u->source->parent.process_msg = source_process_msg;
     u->source->set_state_in_io_thread = source_set_state_in_io_thread_cb;
+    u->next_timestamp = PA_NSEC_INVALID;
+    u->ts_log = TRACE_LOG_STATIC_INIT;
 
     if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY) {
         pa_source_set_set_volume_callback(u->source, source_set_volume_cb);
@@ -2435,7 +2820,182 @@ static int device_process_msg(pa_msgobject *obj, int code, void *data, int64_t o
     return 0;
 }
 
-int pa__init(pa_module* m) {
+static int dbus_create(struct userdata *u) {
+    struct bt_dbus_data *bt_dbus_sdata;
+    pa_assert(u);
+    pa_assert(u->core);
+
+    bt_dbus_sdata = pa_xnew0(struct bt_dbus_data, 1);
+
+    bt_dbus_sdata->obj_path = pa_sprintf_malloc("%s%d", BT_DBUS_OBJECT_PATH_PREFIX, u->module->index);
+    bt_dbus_sdata->dbus_protocol = pa_dbus_protocol_get(u->core);
+
+    pa_assert_se(pa_dbus_protocol_add_interface(bt_dbus_sdata->dbus_protocol, bt_dbus_sdata->obj_path, &source_interface_info, u) >= 0);
+    u->bt_dbus_sdata = bt_dbus_sdata;
+    return 0;
+}
+
+static int bt_dbus_free(struct bt_dbus_data *handle) {
+    struct bt_dbus_data *bt_dbus_sdata = (struct bt_dbus_data *)handle;
+
+    pa_assert(bt_dbus_sdata);
+
+    pa_assert(bt_dbus_sdata->dbus_protocol);
+    pa_assert(bt_dbus_sdata->obj_path);
+
+    pa_assert_se(pa_dbus_protocol_remove_interface(bt_dbus_sdata->dbus_protocol, bt_dbus_sdata->obj_path, source_interface_info.name) >= 0);
+
+    pa_dbus_protocol_unref(bt_dbus_sdata->dbus_protocol);
+
+    pa_xfree(bt_dbus_sdata->obj_path);
+    pa_xfree(bt_dbus_sdata);
+
+    return 0;
+}
+
+static void dbus_set_ttp_offset(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct userdata *u = userdata;
+    uint64_t payload;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(u);
+
+    dbus_error_init(&error);
+
+    if (!dbus_message_get_args(msg, &error, DBUS_TYPE_UINT64, &payload,
+                               DBUS_TYPE_INVALID)) {
+        pa_log_error("Failed to parse dbus message reply: %s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_log_debug("%s:: offset received %" PRId64 "us", __func__, payload);
+
+    if (u->next_timestamp != PA_NSEC_INVALID) {
+        u->next_timestamp += payload * PA_NSEC_PER_USEC - u->fixed_offset;
+    }
+    u->fixed_offset = payload * PA_NSEC_PER_USEC;
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+void dbus_get_all(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct userdata *u = userdata;
+    DBusMessage *reply = NULL;
+    DBusMessageIter msg_iter;
+    DBusMessageIter dict_iter;
+
+    dbus_uint64_t duration;
+    dbus_uint32_t size;
+    double coefficient;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(u);
+
+    duration = u->offset_window_min_duration;
+    size = u->offset_window_min_size;
+    coefficient = u->offset_correction_coefficient;
+
+    pa_assert_se((reply = dbus_message_new_method_return(msg)));
+    dbus_message_iter_init_append(reply, &msg_iter);
+    pa_assert_se(dbus_message_iter_open_container(&msg_iter, DBUS_TYPE_ARRAY, "{sv}", &dict_iter));
+
+    pa_dbus_append_basic_variant_dict_entry(&dict_iter, property_handlers[PROPERTY_WINDOW_DURATION].property_name, DBUS_TYPE_UINT64, &duration);
+    pa_dbus_append_basic_variant_dict_entry(&dict_iter, property_handlers[PROPERTY_WINDOW_SIZE].property_name, DBUS_TYPE_UINT32, &size);
+    pa_dbus_append_basic_variant_dict_entry(&dict_iter, property_handlers[PROPERTY_CORRECTION_COEFFICIENT].property_name, DBUS_TYPE_DOUBLE, &coefficient);
+
+    pa_assert_se(dbus_message_iter_close_container(&msg_iter, &dict_iter));
+    pa_assert_se(dbus_connection_send(conn, reply, NULL));
+    dbus_message_unref(reply);
+}
+
+static void dbus_get_window_duration(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct userdata *u = userdata;
+    dbus_uint64_t duration;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(u);
+
+    duration = u->offset_window_min_duration;
+
+    pa_dbus_send_basic_variant_reply(conn, msg, DBUS_TYPE_UINT64, &duration);
+}
+
+static void dbus_set_window_duration(DBusConnection *conn, DBusMessage *msg, DBusMessageIter *iter, void *userdata) {
+    struct userdata *u = userdata;
+    dbus_uint64_t duration = 0;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(iter);
+    pa_assert(u);
+
+    dbus_message_iter_get_basic(iter, &duration);
+    u->offset_window_min_duration = duration;
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+static void dbus_get_window_size(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct userdata *u = userdata;
+    dbus_uint32_t size;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(u);
+
+    size = u->offset_window_min_size;
+
+    pa_dbus_send_basic_variant_reply(conn, msg, DBUS_TYPE_UINT32, &size);
+}
+
+static void dbus_set_window_size(DBusConnection *conn, DBusMessage *msg, DBusMessageIter *iter, void *userdata) {
+    struct userdata *u = userdata;
+    dbus_uint32_t size = 0;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(iter);
+    pa_assert(u);
+
+    dbus_message_iter_get_basic(iter, &size);
+    u->offset_window_min_size = size;
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+static void dbus_get_correction_coefficient(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct userdata *u = userdata;
+    double coefficient;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(u);
+
+    coefficient = u->offset_correction_coefficient;
+
+    pa_dbus_send_basic_variant_reply(conn, msg, DBUS_TYPE_DOUBLE, &coefficient);
+}
+
+static void dbus_set_correction_coefficient(DBusConnection *conn, DBusMessage *msg, DBusMessageIter *iter, void *userdata) {
+    struct userdata *u = userdata;
+    double coefficient = 0;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(iter);
+    pa_assert(u);
+
+    dbus_message_iter_get_basic(iter, &coefficient);
+    u->offset_correction_coefficient = coefficient;
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+int pa__init(pa_module *m) {
     struct userdata *u;
     const char *path;
     pa_modargs *ma;
@@ -2485,6 +3045,10 @@ int pa__init(pa_module* m) {
     u->device->autodetect_mtu = autodetect_mtu;
     u->timestamp_mode = timestamp_mode;
 
+    u->offset_window_min_duration = DEFAULT_OFFSET_WINDOW_MIN_DURATION;
+    u->offset_window_min_size = DEFAULT_OFFSET_WINDOW_MIN_SIZE;
+    u->offset_correction_coefficient = DEFAULT_OFFSET_CORRECTION_COEFFICIENT;
+
     pa_modargs_free(ma);
 
     u->device_connection_changed_slot =
@@ -2518,6 +3082,8 @@ int pa__init(pa_module* m) {
     if (u->sink || u->source)
         if (start_thread(u) < 0)
             goto off;
+    // create dbus for offset
+    dbus_create(u);
 
     return 0;
 
@@ -2579,6 +3145,8 @@ void pa__done(pa_module *m) {
 
     pa_xfree(u->output_port_name);
     pa_xfree(u->input_port_name);
+
+    bt_dbus_free(u->bt_dbus_sdata);
 
     pa_xfree(u);
 }

@@ -64,6 +64,7 @@ MOD_EXPORT bool pa__load_once(void);
 #define CHANNELS_PARAM "channels"
 #define CHANNEL_MAP_PARAM "channel_map"
 #define MASTER_PARAM "master"
+#define AVOID_PROCESSING_PARAM "avoid_processing"
 
 PA_MODULE_AUTHOR("Qualcomm Technologies, Inc.");
 PA_MODULE_DESCRIPTION(_("Group Manager sink"));
@@ -76,6 +77,7 @@ PA_MODULE_USAGE(
     CHANNELS_PARAM "=<number of channels> "
     CHANNEL_MAP_PARAM "=<channel map> "
     MASTER_PARAM "=<name of sink to filter> "
+    AVOID_PROCESSING_PARAM "=<use stream original sample spec if possible?>"
 );
 // clang-format on
 
@@ -88,6 +90,7 @@ static const char *const valid_modargs[] = {
     CHANNELS_PARAM,
     CHANNEL_MAP_PARAM,
     MASTER_PARAM,
+    AVOID_PROCESSING_PARAM,
     nullptr};
 
 static constexpr const char kGroupMultiroomSinkName[] = "multiroom";
@@ -144,8 +147,15 @@ static void handle_set_group_peers(DBusConnection *conn, DBusMessage *msg, void 
 
     auto iter = d->group_sinks.find(group);
     if (iter == d->group_sinks.end()) {
-        pa_log("Invalid group %s", group);
-        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "Invalid group %s", group);
+        // The caller can't really know if the group sink is loaded or not when
+        // the group is not created, it's a matter of resource optimization.
+        // So only complain about an invalid group if there are peers in it.
+        if (peers_vec.empty()) {
+            pa_dbus_send_empty_reply(conn, msg);
+        } else {
+            pa_log("Invalid group %s", group);
+            pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "Invalid group %s", group);
+        }
         return;
     }
 
@@ -244,6 +254,11 @@ int pa__init(pa_module *module) {
         return -1;
     }
 
+    bool avoid_processing = module->core->avoid_processing;
+    if (pa_modargs_get_value_boolean(ma.get(), AVOID_PROCESSING_PARAM, &avoid_processing) < 0) {
+        pa_log("Failed to parse avoid_processing argument.");
+        return -1;
+    }
     auto d = new GroupManagerModule;
     module->userdata = d;
 
@@ -272,7 +287,7 @@ int pa__init(pa_module *module) {
     }
 
     d->group_manager = GroupManager::create(module, master, std::move(groups),
-        sample_spec, channel_map);
+        sample_spec, channel_map, avoid_processing);
 
     return 0;
 }

@@ -1088,6 +1088,9 @@ audio_channel_mask_t pa_qahw_util_in_mask_from_count(uint32_t channel_count)
     case 14:
         channel_mask = AUDIO_CHANNEL_INDEX_MASK_14;
         break;
+    case 16:
+        channel_mask = AUDIO_CHANNEL_INDEX_MASK_16;
+        break;
     default:
         pa_log_error("%s: Invalid channel count %d", __func__, channel_count);
         break;
