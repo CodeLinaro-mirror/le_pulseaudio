@@ -238,7 +238,7 @@ static pa_dbus_interface_info sink_interface_info = {
 };
 
 static const uint32_t supported_sink_rates[] =
-                          {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000};
+                          {8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000, 176400, 192000};
 
 #ifdef CLOCK_MONOTONIC
 static int32_t get_clock_id() {
