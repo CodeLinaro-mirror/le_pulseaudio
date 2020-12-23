@@ -58,6 +58,12 @@ struct GroupSink {
     // the other group members
     void (*setState)(GroupSink *gs, enum GroupSinkPlayState state);
 
+    // Change the stream format. Only called when the stream is stopped.
+    // The function should override the content of the spec parameter if some
+    // values are not acceptable and let PulseAudio reformat the next stream
+    // as needed.
+    void (*setSampleSpec)(GroupSink *gs, pa_sample_spec *spec);
+
     // Queue a chunk for sending. The function is the new chunk's owner, i.e.
     // it doesn't need to increment the chunk's ref counter but will need to
     // decrement it once done with the chunk.
