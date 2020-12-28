@@ -1284,7 +1284,8 @@ static void native_connection_send_memblock(pa_native_connection *c) {
         if (pa_memblockq_peek(r->memblockq, &chunk) >= 0) {
             pa_memchunk schunk = chunk;
 
-            if (schunk.length > r->buffer_attr.fragsize)
+            if (schunk.timestamp == PA_NSEC_INVALID &&
+                schunk.length > r->buffer_attr.fragsize)
                 schunk.length = r->buffer_attr.fragsize;
 
             if (schunk.timestamp != PA_NSEC_INVALID) {
