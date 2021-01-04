@@ -259,8 +259,10 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
             pa_format_info_set_prop_int(compr_stream_format, "dsd-actual-channel-count", (int32_t)config->ss.channels);
             /* Update channel count to be compatible with DSP expectation */
             config->ss.channels = config->ss.channels * 2;
-            pa_format_info_set_channels(requested_format, config->ss.channels);
-            pa_format_info_set_sample_format(requested_format, config->ss.format);
+            pa_log_info("changing supported format to U8 Channnel: 1");
+            pa_format_info_set_sample_format(requested_format, PA_SAMPLE_U8);
+            pa_format_info_set_channels(requested_format, 1);
+
             pa_format_info_set_prop_int(compr_stream_format, "dsd-type", (int32_t)config->dsd_rate);
             pa_qahw_card_set_actual_channel_map(compr_stream_format, config);
             /* Publish actual encoding as DSD will be enumerated as PCM */
