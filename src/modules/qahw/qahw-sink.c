@@ -141,6 +141,7 @@ typedef struct {
 
     pa_thread_mq  qahw_thread_mq;
     pa_thread *qahw_thread;
+    pa_mutex *qahw_thread_mutex;
     pa_rtpoll *qahw_thread_rtpoll;
     qahw_msg_obj *qahw_msg;
 
@@ -936,12 +937,16 @@ static int pa_qahw_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t ne
 
         /* Suspend sink asynchronously only on SUSPEND ON IDLE that is when no client is connected */
         if (new_suspend_cause != PA_SUSPEND_IDLE) {
+            pa_mutex_lock(sdata->qahw_sdata->qahw_thread_mutex);
             pa_asyncmsgq_send(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
                                                                        QAHW_SINK_MESSAGE_STANDBY, &r, 0, NULL);
+            pa_mutex_unlock(sdata->qahw_sdata->qahw_thread_mutex);
             pa_log_debug("%s Ack suspend returned: %d", __func__, r);
         } else {
+            pa_mutex_lock(sdata->qahw_sdata->qahw_thread_mutex);
             pa_asyncmsgq_post(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
                                                                   QAHW_SINK_MESSAGE_STANDBY, NULL, 0, NULL, NULL);
+            pa_mutex_unlock(sdata->qahw_sdata->qahw_thread_mutex);
         }
     } else if (PA_SINK_IS_RUNNING(new_state) && (s->thread_info.state == PA_SINK_IDLE) && sdata->qahw_sink_opened) {
         r = pa_qahw_sink_pause(sdata, false);
@@ -1613,9 +1618,13 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
                        otherwise single variable is enough for non-ttp */
                     pa_atomic_store(&qahw_sdata->need_chunk, 0);
                     pa_atomic_store(&qahw_sdata->chunk_available, 1);
-
-                    pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
+                    pa_mutex_lock(sdata->qahw_sdata->qahw_thread_mutex);
+                    if (qahw_sdata->qahw_thread) {
+                        pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
                                         QAHW_SINK_MESSAGE_CHUNK_AVAILABLE, NULL, 0, NULL, NULL);
+                    }
+
+                    pa_mutex_unlock(sdata->qahw_sdata->qahw_thread_mutex);
 
                     goto poll;
                 }
@@ -1656,9 +1665,13 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
 #endif
 
                     pa_atomic_store(&qahw_sdata->chunk_available, 1);
-
-                    pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
+                    pa_mutex_lock(sdata->qahw_sdata->qahw_thread_mutex);
+                    if (qahw_sdata->qahw_thread) {
+                        pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
                                         QAHW_SINK_MESSAGE_CHUNK_AVAILABLE, NULL, 0, NULL, NULL);
+                    }
+
+                    pa_mutex_unlock(sdata->qahw_sdata->qahw_thread_mutex);
                 }
 
                 pa_mutex_lock(qahw_sdata->allocated_latency_mutex);
@@ -1972,7 +1985,9 @@ static int free_qahw_sink(pa_qahw_sink_data *sdata) {
         pa_log_error("close_qahw_sink failed, error %d", rc);
     }
 
+    pa_mutex_lock(sdata->qahw_sdata->qahw_thread_mutex);
     free_qahw_sink_thread_resources(sdata->qahw_sdata);
+    pa_mutex_unlock(sdata->qahw_sdata->qahw_thread_mutex);
 
     pa_mutex_free(sdata->qahw_sdata->allocated_latency_mutex);
 
@@ -1981,8 +1996,11 @@ static int free_qahw_sink(pa_qahw_sink_data *sdata) {
         pa_mutex_free(sdata->qahw_sdata->memblockq_mutex);
     }
 
-    pa_xfree(sdata->qahw_sdata);
-    sdata->qahw_sdata = NULL;
+    pa_assert_se(pa_dbus_protocol_remove_interface(sdata->qahw_sdata->dbus_protocol, sdata->qahw_sdata->obj_path, sink_interface_info.name) >= 0);
+
+    pa_dbus_protocol_unref(sdata->qahw_sdata->dbus_protocol);
+
+    pa_xfree(sdata->qahw_sdata->obj_path);
 
     return rc;
 }
@@ -2085,6 +2103,7 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_log_debug("pa sink opened %p", pa_sdata->sink);
 
     sdata->qahw_sdata->allocated_latency_mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
+    sdata->qahw_sdata->qahw_thread_mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
 
     if (sdata->qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP)
         sdata->qahw_sdata->memblockq_mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
@@ -2317,6 +2336,9 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", sink->name, rc);
         free_qahw_sink(sdata);
+        pa_mutex_free(sdata->qahw_sdata->qahw_thread_mutex);
+        pa_xfree(sdata->qahw_sdata);
+        sdata->qahw_sdata = NULL;
         pa_xfree(sdata);
         sdata = NULL;
         goto exit;
@@ -2327,6 +2349,9 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
         pa_log_error("Could not create qahw sink extn %s, error %d", sink->name, rc);
         free_qahw_sink(sdata);
         free_pa_sink(sdata);
+        pa_mutex_free(sdata->qahw_sdata->qahw_thread_mutex);
+        pa_xfree(sdata->qahw_sdata);
+        sdata->qahw_sdata = NULL;
         pa_xfree(sdata);
         sdata = NULL;
         goto exit;
@@ -2366,16 +2391,15 @@ void pa_qahw_sink_close(pa_qahw_sink_handle_t *handle) {
     pa_assert(sdata);
 
     pa_qahw_sink_extn_free(sdata->sink_extn_handle);
-    free_pa_sink(sdata);
+
     free_qahw_sink(sdata);
+    free_pa_sink(sdata);
+    pa_mutex_free(sdata->qahw_sdata->qahw_thread_mutex);
+    pa_xfree(sdata->qahw_sdata);
+    sdata->qahw_sdata = NULL;
 
     pa_idxset_remove_by_data(mdata->sinks, sdata, NULL);
 
-    pa_assert_se(pa_dbus_protocol_remove_interface(sdata->qahw_sdata->dbus_protocol, sdata->qahw_sdata->obj_path, sink_interface_info.name) >= 0);
-
-    pa_dbus_protocol_unref(sdata->qahw_sdata->dbus_protocol);
-
-    pa_xfree(sdata->qahw_sdata->obj_path);
     pa_xfree(sdata);
 }
 
