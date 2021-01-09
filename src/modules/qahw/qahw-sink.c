@@ -40,8 +40,6 @@
 #include <pulsecore/mutex.h>
 #include <pulse/util.h>
 #include <pulsecore/trace_log.h>
-#include <pulsecore/dbus-util.h>
-#include <pulsecore/protocol-dbus.h>
 
 #include <sys/time.h>
 #include <time.h>
@@ -51,9 +49,6 @@
 #include "qahw-sink.h"
 #include "qahw-sink.h"
 #include "qahw-utils.h"
-
-#define QAHW_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/latency/sink"
-#define QAHW_DBUS_SINK_IFACE "org.PulseAudio.Ext.Latency.Sink"
 
 /* #define SINK_DEBUG */
 
@@ -70,9 +65,6 @@
 #define SET_CONTINUE_FLAG  0x00
 #define PA_SPDIF_OUT_SUPPORTED_MIN_RATE 32000
 #define PA_SPDIF_OUT_SUPPORTED_MAX_RATE 192000
-#define MIN_BUFFERS 2
-
-#define PA_QAHW_SINK_MIN_BUFFER_DURATION_USEC 6000
 
 typedef enum {
     PA_QAHW_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
@@ -91,12 +83,6 @@ typedef enum {
     STATE_PAUSED,
     STATE_DRAIN_READY,
 } pa_qahw_sink_state_t;
-
-enum method_handler_index {
-    METHOD_HANDLER_GET_MINIMUM_LATENCY,
-    METHOD_HANDLER_SET_ALLOCATED_LATENCY,
-    METHOD_HANDLER_MAX = METHOD_HANDLER_SET_ALLOCATED_LATENCY + 1,
-};
 
 typedef struct {
     pa_msgobject parent;
@@ -117,9 +103,6 @@ typedef struct {
     size_t sink_buffer_size;
     uint32_t sink_latency_us;
     uint64_t bytes_written;
-    pa_usec_t min_latency_us;
-    pa_usec_t allocated_latency_us;
-    pa_mutex *allocated_latency_mutex;
 
     pa_atomic_t wait_for_write_ready;
     pa_atomic_t wait_for_drain_ready;
@@ -147,8 +130,6 @@ typedef struct {
     pa_atomic_t set_rt_prio_for_out_cb;
     int32_t dsd_rate;
     trace_log ts_log;
-    pa_dbus_protocol *dbus_protocol;
-    char *obj_path;
 } qahw_sink_data;
 
 typedef struct {
@@ -203,40 +184,6 @@ static int pa_qahw_sink_enable_qahw_sink(qahw_module_handle_t *module_handle, pa
                                     uint32_t devices, audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
 static void pa_qahw_sink_set_pa_sink_cb(pa_qahw_sink_data *sdata);
 
-static void pa_qahw_handle_dbus_get_minimum_latency(DBusConnection *conn, DBusMessage *msg, void *userdata);
-static void pa_qahw_handle_dbus_set_allocated_latency(DBusConnection *conn, DBusMessage *msg, void *userdata);
-
-static pa_dbus_arg_info dbus_get_minimum_latency_args[] = {
-     {"latency", DBUS_TYPE_UINT64_AS_STRING, "out"},
-     {"name", DBUS_TYPE_STRING_AS_STRING, "out"}};
-
-static pa_dbus_arg_info dbus_set_allocated_latency_args[] = {
-     {"latency", DBUS_TYPE_UINT64_AS_STRING, "in"}};
-
-static pa_dbus_method_handler method_handlers[METHOD_HANDLER_MAX] = {
-[METHOD_HANDLER_GET_MINIMUM_LATENCY] = {
-         .method_name = "GetMinimumLatency",
-         .arguments = dbus_get_minimum_latency_args,
-         .n_arguments = sizeof(dbus_get_minimum_latency_args)/sizeof(pa_dbus_arg_info),
-         .receive_cb = pa_qahw_handle_dbus_get_minimum_latency},
-[METHOD_HANDLER_SET_ALLOCATED_LATENCY] = {
-         .method_name = "SetAllocatedLatency",
-         .arguments = dbus_set_allocated_latency_args,
-         .n_arguments = sizeof(dbus_set_allocated_latency_args)/sizeof(pa_dbus_arg_info),
-         .receive_cb = pa_qahw_handle_dbus_set_allocated_latency},
-};
-
-static pa_dbus_interface_info sink_interface_info = {
-     .name = QAHW_DBUS_SINK_IFACE,
-     .method_handlers = method_handlers,
-     .n_method_handlers = METHOD_HANDLER_MAX,
-     .property_handlers = NULL,
-     .n_property_handlers = 0,
-     .get_all_properties_cb = NULL,
-     .signals = NULL,
-     .n_signals = 0
-};
-
 static const uint32_t supported_sink_rates[] =
                           {8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000, 176400, 192000};
 
@@ -249,57 +196,6 @@ static int32_t get_clock_id() {
     return CLOCK_REALTIME;
 }
 #endif
-
-/* Called from Main thread context */
-static void pa_qahw_handle_dbus_get_minimum_latency(DBusConnection *conn, DBusMessage *msg, void *userdata) {
-    pa_qahw_sink_data *sdata;
-    dbus_uint64_t latency;
-    DBusMessage *reply;
-
-    pa_assert(userdata);
-    pa_assert(conn);
-    pa_assert(msg);
-
-    sdata = (pa_qahw_sink_data *)userdata;
-
-    latency = (dbus_uint64_t)(sdata->qahw_sdata->min_latency_us);
-    pa_log_info(" dbus get min latency: latency= %" PRIu64,latency);
-
-    pa_assert_se((reply = dbus_message_new_method_return(msg)));
-    pa_assert_se(dbus_message_append_args(reply, DBUS_TYPE_UINT64, &latency, DBUS_TYPE_STRING, &sdata->pa_sdata->sink->name, DBUS_TYPE_INVALID));
-
-    pa_assert_se(dbus_connection_send(conn, reply, NULL));
-    dbus_message_unref(reply);
-}
-
- /* Called from Main thread context */
-static void pa_qahw_handle_dbus_set_allocated_latency(DBusConnection *conn, DBusMessage *msg,void  *userdata) {
-    pa_qahw_sink_data *sdata;
-    DBusError error;
-    dbus_uint64_t latency;
-
-    pa_assert(userdata);
-    pa_assert(conn);
-    pa_assert(msg);
-
-    sdata = (pa_qahw_sink_data *)userdata;
-    dbus_error_init(&error);
-
-    if ((dbus_message_get_args(msg, &error, DBUS_TYPE_UINT64, &latency, DBUS_TYPE_INVALID)) == 0) {
-        pa_log("SetAllocatedLatency invalid args: %s", error.message);
-        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
-        dbus_error_free(&error);
-        return;
-    }
-
-    pa_log_info("Allocated latency for qahw ttp sink usec: %" PRIu64, latency);
-
-    pa_mutex_lock(sdata->qahw_sdata->allocated_latency_mutex);
-    sdata->qahw_sdata->allocated_latency_us = latency;
-    pa_mutex_unlock(sdata->qahw_sdata->allocated_latency_mutex);
-
-    pa_dbus_send_empty_reply(conn, msg);
-}
 
 static pa_sample_format_t pa_qahw_sink_find_nearest_supported_pa_format(pa_sample_format_t format) {
     pa_sample_format_t format1;
@@ -1767,7 +1663,6 @@ static int free_qahw_sink(pa_qahw_sink_data *sdata) {
 
     free_qahw_sink_thread_resources(sdata->qahw_sdata);
 
-    pa_mutex_free(sdata->qahw_sdata->allocated_latency_mutex);
     pa_xfree(sdata->qahw_sdata);
     sdata->qahw_sdata = NULL;
 
@@ -1777,7 +1672,6 @@ static int free_qahw_sink(pa_qahw_sink_data *sdata) {
 static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                             audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata, int32_t buffer_duration, double max_gain) {
    int rc;
-   pa_usec_t dsp_latency_us;
 
    sdata->qahw_sdata = pa_xnew0(qahw_sink_data, 1);
    sdata->qahw_sdata->compressed = (encoding != PA_ENCODING_PCM ? true : false);
@@ -1787,14 +1681,7 @@ static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t e
        pa_log_error("open_qahw_sink failed, error %d", rc);
        pa_xfree(sdata->qahw_sdata);
        sdata->qahw_sdata = NULL;
-       return rc;
    }
-
-    if (sdata->qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP) {
-        dsp_latency_us = qahw_out_get_latency(sdata->qahw_sdata->out_handle) * PA_USEC_PER_MSEC;
-        sdata->qahw_sdata->min_latency_us = MIN_BUFFERS * PA_QAHW_SINK_MIN_BUFFER_DURATION_USEC + dsp_latency_us;
-        pa_log_debug("dsp latency %" PRIu64 " min latency %" PRIu64 "", dsp_latency_us, sdata->qahw_sdata->min_latency_us);
-    }
 
     return rc;
 }
@@ -1887,8 +1774,6 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     }
 
     pa_log_debug("pa sink opened %p", pa_sdata->sink);
-
-    sdata->qahw_sdata->allocated_latency_mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
 
     /*Creating QAHW sink thread*/
     if (create_qahw_sink_thread(sdata)) {
@@ -2171,10 +2056,6 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     *handle = (pa_qahw_sink_handle_t *)sdata;
     pa_idxset_put(mdata->sinks, sdata, NULL);
 
-    sdata->qahw_sdata->obj_path = pa_sprintf_malloc("%s%d", QAHW_DBUS_OBJECT_PATH_PREFIX, sdata->pa_sdata->sink->index);
-    sdata->qahw_sdata->dbus_protocol = pa_dbus_protocol_get(sdata->pa_sdata->sink->core);
-    pa_assert_se(pa_dbus_protocol_add_interface(sdata->qahw_sdata->dbus_protocol, sdata->qahw_sdata->obj_path, &sink_interface_info, sdata) >= 0);
-
 exit:
     if (ports)
         pa_hashmap_free(ports);
@@ -2193,11 +2074,6 @@ void pa_qahw_sink_close(pa_qahw_sink_handle_t *handle) {
 
     pa_idxset_remove_by_data(mdata->sinks, sdata, NULL);
 
-    pa_assert_se(pa_dbus_protocol_remove_interface(sdata->qahw_sdata->dbus_protocol, sdata->qahw_sdata->obj_path, sink_interface_info.name) >= 0);
-
-    pa_dbus_protocol_unref(sdata->qahw_sdata->dbus_protocol);
-
-    pa_xfree(sdata->qahw_sdata->obj_path);
     pa_xfree(sdata);
 }
 
