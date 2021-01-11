@@ -79,6 +79,7 @@
 #define PA_QAHW_SINK_ALLOCATED_LATENCY_USEC_MAX 1000000
 #define PA_QAHW_SINK_MEMBLOCKQ_MAXLENGTH_USEC_DEFAULT 2000000
 #define PA_QAHW_SINK_MIN_BUFFER_DURATION_USEC 6000
+#define PA_QAHW_SINK_SCHEDULING_LATENCY_USEC 2000
 
 typedef enum {
     PA_QAHW_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
@@ -2024,7 +2025,7 @@ static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t e
     if (sdata->qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP) {
         dsp_latency_us = qahw_out_get_latency(sdata->qahw_sdata->out_handle) * PA_USEC_PER_MSEC;
         sdata->qahw_sdata->min_latency_us = sdata->qahw_sdata->allocated_latency_us =
-                                            MIN_BUFFERS * PA_QAHW_SINK_MIN_BUFFER_DURATION_USEC + dsp_latency_us;
+                                            PA_QAHW_SINK_SCHEDULING_LATENCY_USEC + dsp_latency_us;
         pa_log_debug("dsp latency %" PRIu64 " min latency %" PRIu64 "", dsp_latency_us, sdata->qahw_sdata->min_latency_us);
     }
     return rc;
