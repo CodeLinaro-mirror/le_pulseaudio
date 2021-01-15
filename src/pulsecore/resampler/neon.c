@@ -1,5 +1,5 @@
 /***
-  Copyright (c) 2020, The Linux Foundation. All rights reserved.
+  Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -124,7 +124,9 @@ static unsigned neon_prop_resample(pa_resampler *r, const pa_memchunk *input,
             in_n_frames - processed_in_frames, pending_bytes);
 #endif
     exec_time = pa_timeval_age(&now);
+#if 0
     pa_log("Execution time : %llu", exec_time);
+#endif
 
     *out_n_frames = actual_out_frames;
     return in_n_frames - processed_in_frames;
