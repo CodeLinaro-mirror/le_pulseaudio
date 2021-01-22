@@ -2,7 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2008 Lennart Poettering
-  Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
+  Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -162,6 +162,12 @@ static void sink_update_requested_latency_cb(pa_sink *s) {
     pa_sink_assert_ref(s);
     pa_assert_se(u = s->userdata);
 
+    if (u->timestamp_mode) {
+        /* In timestamp mode, we'll only read one packet at a time to avoid
+         * bursty behavior */
+        return;
+    }
+
     u->block_usec = pa_sink_get_requested_latency_within_thread(s);
 
     if (u->block_usec == (pa_usec_t) -1)
@@ -187,12 +193,14 @@ static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map 
     else
         pa_channel_map_init_auto(&s->channel_map, spec->channels, PA_CHANNEL_MAP_DEFAULT);
 
-    if (u->block_usec == (pa_usec_t) -1)
-        u->block_usec = s->thread_info.max_latency;
+    if (!u->timestamp_mode) {
+        if (u->block_usec == (pa_usec_t)-1)
+            u->block_usec = s->thread_info.max_latency;
 
-    nbytes = pa_usec_to_bytes(u->block_usec, &s->sample_spec);
-    pa_sink_set_max_rewind(s, u->timestamp_mode || u->compressed ? 0 : nbytes);
-    pa_sink_set_max_request(s, nbytes);
+        nbytes = pa_usec_to_bytes(u->block_usec, &s->sample_spec);
+        pa_sink_set_max_rewind(s, u->timestamp_mode || u->compressed ? 0 : nbytes);
+        pa_sink_set_max_request(s, nbytes);
+    }
 
     return 0;
 }
@@ -278,7 +286,7 @@ static void process_render(struct userdata *u, pa_usec_t now) {
     inputs. */
 
     /* Fill the buffer up the latency size */
-    while (u->timestamp < now + u->block_usec) {
+    while (u->timestamp <= now + u->block_usec) {
         pa_memchunk chunk;
 
         if (!u->timestamp_mode && !u->compressed)
@@ -523,7 +531,7 @@ int pa__init(pa_module*m) {
     pa_sink_set_asyncmsgq(u->sink, u->thread_mq.inq);
     pa_sink_set_rtpoll(u->sink, u->rtpoll);
 
-    u->block_usec = BLOCK_USEC;
+    u->block_usec = u->timestamp_mode ? 0 : BLOCK_USEC;
     nbytes = pa_usec_to_bytes(u->block_usec, &u->sink->sample_spec);
     pa_sink_set_max_rewind(u->sink, u->timestamp_mode || u->compressed ? 0 : nbytes);
     pa_sink_set_max_request(u->sink, nbytes);
