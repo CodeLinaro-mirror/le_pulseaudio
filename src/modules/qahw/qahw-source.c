@@ -150,7 +150,6 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
 
 static int close_qahw_source(qahw_source_data *qahw_sdata);
 static int stop_qahw_source(qahw_source_data *qahw_sdata);
-static void free_qahw_source_thread_resources(qahw_source_data *qahw_sdata);
 static void qahw_source_thread_func(void *userdata);
 static int qahw_source_process_msg (pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk);
 
@@ -968,28 +967,16 @@ exit:
     return rc;
 }
 
-static int free_qahw_source(qahw_source_data *qahw_sdata) {
+static void free_qahw_source(qahw_source_data *qahw_sdata) {
     int rc;
-
     pa_assert(qahw_sdata);
+
+    pa_log_debug("Freeing qahw source thread resources");
 
     rc = close_qahw_source(qahw_sdata);
     if (rc) {
         pa_log_error("close_qahw_source failed, error %d", rc);
     }
-
-    free_qahw_source_thread_resources(qahw_sdata);
-
-    pa_xfree(qahw_sdata);
-    qahw_sdata = NULL;
-
-    return rc;
-}
-
-static void free_qahw_source_thread_resources(qahw_source_data *qahw_sdata) {
-    pa_assert(qahw_sdata);
-
-    pa_log_debug("Freeing qahw source thread resources");
 
     if (qahw_sdata->qahw_thread) {
         pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, NULL, PA_MESSAGE_SHUTDOWN, NULL, 0, NULL);
@@ -1002,6 +989,7 @@ static void free_qahw_source_thread_resources(qahw_source_data *qahw_sdata) {
     if (qahw_sdata->qahw_thread_rtpoll)
         pa_rtpoll_free(qahw_sdata->qahw_thread_rtpoll);
 
+    pa_log_debug("Freed qahw source thread resources");
 }
 
 static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
@@ -1282,6 +1270,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", source->name, rc);
         free_qahw_source(sdata->qahw_sdata);
+        pa_xfree(sdata->qahw_sdata);
         pa_xfree(sdata);
         sdata = NULL;
         goto exit;
@@ -1292,6 +1281,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
         pa_log_error("Could not create qahw source extn %s, error %d", source->name, rc);
         free_qahw_source(sdata->qahw_sdata);
         free_pa_source(sdata->pa_sdata);
+        pa_xfree(sdata->qahw_sdata);
         pa_xfree(sdata);
         sdata = NULL;
         goto exit;
@@ -1328,6 +1318,7 @@ void pa_qahw_source_close(pa_qahw_source_handle_t *handle) {
     pa_qahw_source_extn_free(sdata->source_extn_handle);
     free_qahw_source(sdata->qahw_sdata);
     free_pa_source(sdata->pa_sdata);
+    pa_xfree(sdata->qahw_sdata);
     pa_xfree(sdata);
 }
 

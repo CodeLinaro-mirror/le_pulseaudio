@@ -678,8 +678,7 @@ bool GroupManager::sinkInputCreate(pa_sink *master) {
     return true;
 }
 
-static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough)
-{
+static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map * /*map*/, bool /*passthrough*/) {
     GroupManager *u;
     pa_sink_assert_ref(s);
     pa_assert_se(u = reinterpret_cast<GroupManager *>(s->userdata));
@@ -692,7 +691,7 @@ static int sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map 
     /*Note:
     We do not want to reconfigure channels/channel map because it will affect the sink graph settings
     */
-    if(!u->sinkInputCreate(master)) {
+    if (!u->sinkInputCreate(master)) {
         return -1;
     }
     pa_sink_input_put(s->input_to_master);

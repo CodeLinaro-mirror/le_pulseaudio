@@ -61,6 +61,11 @@ static void group_sink_setState(GroupSink *gs PA_GCC_UNUSED, enum GroupSinkPlayS
     // real sink should notify the slaves
 }
 
+static void group_sink_setSampleSpec(GroupSink *gs PA_GCC_UNUSED, pa_sample_spec *spec PA_GCC_UNUSED) {
+    // null sink, we don't care about the new format
+    // real sink should notify the slaves
+}
+
 static void group_sink_send(GroupSink *gs PA_GCC_UNUSED, pa_memchunk *chunk) {
     // real sinks should send data to slaves (must be non-blocking)
     pa_memblock_unref(chunk->memblock);
@@ -96,6 +101,7 @@ GroupSink *group_sink_init(const char *name PA_GCC_UNUSED,
     gs_impl->group_sink.updateInterfaces = &group_sink_updateInterfaces;
 
     gs_impl->group_sink.setState = &group_sink_setState;
+    gs_impl->group_sink.setSampleSpec = &group_sink_setSampleSpec;
     gs_impl->group_sink.send = &group_sink_send;
 
     gs_impl->group_sink.setNetworkLatency = &group_sink_setNetworkLatency;

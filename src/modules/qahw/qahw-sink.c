@@ -40,6 +40,9 @@
 #include <pulsecore/mutex.h>
 #include <pulse/util.h>
 #include <pulsecore/trace_log.h>
+#include <pulsecore/dbus-util.h>
+#include <pulsecore/protocol-dbus.h>
+#include <pulsecore/ts_clock.h>
 
 #include <sys/time.h>
 #include <time.h>
@@ -49,6 +52,9 @@
 #include "qahw-sink.h"
 #include "qahw-sink.h"
 #include "qahw-utils.h"
+
+#define QAHW_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/latency/sink"
+#define QAHW_DBUS_SINK_IFACE "org.PulseAudio.Ext.Latency.Sink"
 
 /* #define SINK_DEBUG */
 
@@ -65,14 +71,23 @@
 #define SET_CONTINUE_FLAG  0x00
 #define PA_SPDIF_OUT_SUPPORTED_MIN_RATE 32000
 #define PA_SPDIF_OUT_SUPPORTED_MAX_RATE 192000
+#define MIN_BUFFERS 2
+
+#define PA_RENDER_INVALID_CHUNK -1
+#define PA_RENDER_UNDERRUN -2
+
+#define PA_QAHW_SINK_ALLOCATED_LATENCY_USEC_MAX 1000000
+#define PA_QAHW_SINK_MEMBLOCKQ_MAXLENGTH_USEC_DEFAULT 2000000
+#define PA_QAHW_SINK_MIN_BUFFER_DURATION_USEC 6000
 
 typedef enum {
     PA_QAHW_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
-    PA_QAHW_SINK_MESSAGE_STANDBY_DONE
+    PA_QAHW_SINK_MESSAGE_STANDBY_DONE,
+    PA_QAHW_SINK_MESSAGE_NEED_CHUNK
 } pa_qahw_sink_msgs_t;
 
 typedef enum {
-    QAHW_SINK_MESSAGE_WRITE_READY,
+    QAHW_SINK_MESSAGE_CHUNK_AVAILABLE,
     QAHW_SINK_MESSAGE_STANDBY,
     QAHW_SINK_MESSAGE_CLOSE_OUTPUT
 } qahw_msgs_t;
@@ -83,6 +98,12 @@ typedef enum {
     STATE_PAUSED,
     STATE_DRAIN_READY,
 } pa_qahw_sink_state_t;
+
+enum method_handler_index {
+    METHOD_HANDLER_GET_MINIMUM_LATENCY,
+    METHOD_HANDLER_SET_ALLOCATED_LATENCY,
+    METHOD_HANDLER_MAX = METHOD_HANDLER_SET_ALLOCATED_LATENCY + 1,
+};
 
 typedef struct {
     pa_msgobject parent;
@@ -103,8 +124,10 @@ typedef struct {
     size_t sink_buffer_size;
     uint32_t sink_latency_us;
     uint64_t bytes_written;
+    pa_usec_t min_latency_us;
+    pa_usec_t allocated_latency_us;
+    pa_mutex *allocated_latency_mutex;
 
-    pa_atomic_t wait_for_write_ready;
     pa_atomic_t wait_for_drain_ready;
     pa_atomic_t restart_in_progress;
     int write_fd;
@@ -114,7 +137,6 @@ typedef struct {
     pa_qahw_sink_state_t state;
     pa_usec_t timestamp;
 
-    pa_atomic_t write_done;
     pa_atomic_t first_write_done;
 
     pa_thread_mq  qahw_thread_mq;
@@ -130,6 +152,15 @@ typedef struct {
     pa_atomic_t set_rt_prio_for_out_cb;
     int32_t dsd_rate;
     trace_log ts_log;
+    pa_dbus_protocol *dbus_protocol;
+    char *obj_path;
+
+    pa_memchunk pending_chunk;
+    pa_memchunk shared_chunk;
+    pa_memblockq *memblockq;
+    pa_mutex *memblockq_mutex;
+    pa_atomic_t chunk_available;
+    pa_atomic_t need_chunk;
 } qahw_sink_data;
 
 typedef struct {
@@ -138,12 +169,9 @@ typedef struct {
     pa_rtpoll *rtpoll;
     pa_thread_mq thread_mq;
     pa_thread *thread;
-    pa_rtpoll_item *rtpoll_item;
     pa_idxset *formats;
 
     pa_qahw_card_avoid_processing_config_id_t avoid_config_processing;
-
-    pa_memchunk pending_chunk;
 } pa_sink_data;
 
 typedef struct {
@@ -152,7 +180,6 @@ typedef struct {
     pa_qahw_sink_extn_handle_t *sink_extn_handle;
     struct userdata *u;
 
-    pa_fdsem *fdsem; /* common resource between pa and qahw sink */
     bool qahw_sink_opened; /* set when HAL session is to enabled */
     bool disable_qahw_sink; /* populated from conf file */
     bool use_hw_volume;
@@ -183,9 +210,46 @@ static int qahw_sink_process_msg (pa_msgobject *o, int code, void *data, int64_t
 static int pa_qahw_sink_enable_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map,
                                     uint32_t devices, audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata);
 static void pa_qahw_sink_set_pa_sink_cb(pa_qahw_sink_data *sdata);
+static int qahw_sink_get_chunk(pa_qahw_sink_data *sdata, pa_sample_spec *ss, pa_memchunk *chunk);
+static bool qahw_sink_write_chunk(pa_qahw_sink_data *sdata, pa_memchunk *chunk);
+static void free_qahw_sink_memblockq(qahw_sink_data *qahw_sdata);
+
+static void pa_qahw_handle_dbus_get_minimum_latency(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void pa_qahw_handle_dbus_set_allocated_latency(DBusConnection *conn, DBusMessage *msg, void *userdata);
+
+static pa_dbus_arg_info dbus_get_minimum_latency_args[] = {
+     {"latency", DBUS_TYPE_UINT64_AS_STRING, "out"},
+     {"name", DBUS_TYPE_STRING_AS_STRING, "out"}};
+
+static pa_dbus_arg_info dbus_set_allocated_latency_args[] = {
+     {"latency", DBUS_TYPE_UINT64_AS_STRING, "in"}};
+
+static pa_dbus_method_handler method_handlers[METHOD_HANDLER_MAX] = {
+[METHOD_HANDLER_GET_MINIMUM_LATENCY] = {
+         .method_name = "GetMinimumLatency",
+         .arguments = dbus_get_minimum_latency_args,
+         .n_arguments = sizeof(dbus_get_minimum_latency_args)/sizeof(pa_dbus_arg_info),
+         .receive_cb = pa_qahw_handle_dbus_get_minimum_latency},
+[METHOD_HANDLER_SET_ALLOCATED_LATENCY] = {
+         .method_name = "SetAllocatedLatency",
+         .arguments = dbus_set_allocated_latency_args,
+         .n_arguments = sizeof(dbus_set_allocated_latency_args)/sizeof(pa_dbus_arg_info),
+         .receive_cb = pa_qahw_handle_dbus_set_allocated_latency},
+};
+
+static pa_dbus_interface_info sink_interface_info = {
+     .name = QAHW_DBUS_SINK_IFACE,
+     .method_handlers = method_handlers,
+     .n_method_handlers = METHOD_HANDLER_MAX,
+     .property_handlers = NULL,
+     .n_property_handlers = 0,
+     .get_all_properties_cb = NULL,
+     .signals = NULL,
+     .n_signals = 0
+};
 
 static const uint32_t supported_sink_rates[] =
-                          {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000};
+                          {8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000, 176400, 192000};
 
 #ifdef CLOCK_MONOTONIC
 static int32_t get_clock_id() {
@@ -196,6 +260,63 @@ static int32_t get_clock_id() {
     return CLOCK_REALTIME;
 }
 #endif
+
+/* Called from Main thread context */
+static void pa_qahw_handle_dbus_get_minimum_latency(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    pa_qahw_sink_data *sdata;
+    dbus_uint64_t latency;
+    DBusMessage *reply;
+
+    pa_assert(userdata);
+    pa_assert(conn);
+    pa_assert(msg);
+
+    sdata = (pa_qahw_sink_data *)userdata;
+
+    latency = (dbus_uint64_t)(sdata->qahw_sdata->min_latency_us);
+    pa_log_info(" dbus get min latency: latency= %" PRIu64,latency);
+
+    pa_assert_se((reply = dbus_message_new_method_return(msg)));
+    pa_assert_se(dbus_message_append_args(reply, DBUS_TYPE_UINT64, &latency, DBUS_TYPE_STRING, &sdata->pa_sdata->sink->name, DBUS_TYPE_INVALID));
+
+    pa_assert_se(dbus_connection_send(conn, reply, NULL));
+    dbus_message_unref(reply);
+}
+
+ /* Called from Main thread context */
+static void pa_qahw_handle_dbus_set_allocated_latency(DBusConnection *conn, DBusMessage *msg,void  *userdata) {
+    pa_qahw_sink_data *sdata;
+    DBusError error;
+    dbus_uint64_t latency;
+
+    pa_assert(userdata);
+    pa_assert(conn);
+    pa_assert(msg);
+
+    sdata = (pa_qahw_sink_data *)userdata;
+    dbus_error_init(&error);
+
+    if ((dbus_message_get_args(msg, &error, DBUS_TYPE_UINT64, &latency, DBUS_TYPE_INVALID)) == 0) {
+        pa_log("SetAllocatedLatency invalid args: %s", error.message);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_log_info("Allocated latency for qahw ttp sink usec: %" PRIu64, latency);
+
+    pa_mutex_lock(sdata->qahw_sdata->allocated_latency_mutex);
+
+    if (latency > PA_QAHW_SINK_ALLOCATED_LATENCY_USEC_MAX) {
+        pa_log_warn("latency (%" PRIu64 ") exceeds limit, setting max value instead", latency);
+        sdata->qahw_sdata->allocated_latency_us = PA_QAHW_SINK_ALLOCATED_LATENCY_USEC_MAX;
+    } else
+        sdata->qahw_sdata->allocated_latency_us = latency;
+
+    pa_mutex_unlock(sdata->qahw_sdata->allocated_latency_mutex);
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
 
 static pa_sample_format_t pa_qahw_sink_find_nearest_supported_pa_format(pa_sample_format_t format) {
     pa_sample_format_t format1;
@@ -269,7 +390,6 @@ static int pa_qahw_out_cb(qahw_stream_callback_event_t event, void *param, void 
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
     pa_assert(sdata->qahw_sdata);
-    pa_assert(sdata->fdsem);
 
     if (pa_atomic_load(&sdata->qahw_sdata->set_rt_prio_for_out_cb) && sdata->pa_sdata->sink->core->realtime_scheduling) {
         pa_make_realtime(sdata->pa_sdata->sink->core->realtime_priority);
@@ -278,8 +398,6 @@ static int pa_qahw_out_cb(qahw_stream_callback_event_t event, void *param, void 
 
     switch (event) {
         case QAHW_STREAM_CBK_EVENT_WRITE_READY:
-
-            pa_atomic_store(&sdata->qahw_sdata->wait_for_write_ready, 0);
 
 #ifdef SINK_DEBUG
             pa_log_debug("Received event QAHW_STREAM_CBK_EVENT_WRITE_READY for handle %p", sdata->qahw_sdata->out_handle);
@@ -432,6 +550,11 @@ static void qahw_sink_thread_func(void *userdata) {
     pa_qahw_sink_data *sink_data = (pa_qahw_sink_data *) userdata;
     pa_sink_data *pa_sdata = sink_data->pa_sdata;
     qahw_sink_data *qahw_sdata = sink_data->qahw_sdata;
+    pa_memchunk chunk;
+    int ret;
+    bool ts_enable = qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP;
+    bool running;
+    bool wait, timer_enabled;
 
     if ((pa_sdata->sink->core->realtime_scheduling)) {
         pa_log_info("%s:: Making write thread for %s as realtime with prio %d", __func__,
@@ -442,16 +565,79 @@ static void qahw_sink_thread_func(void *userdata) {
     pa_log_debug("Sink Write Thread starting up");
 
     pa_thread_mq_install(&qahw_sdata->qahw_thread_mq);
+    pa_memchunk_reset(&qahw_sdata->pending_chunk);
 
     for (;;) {
-        int ret = 0;
+        wait = true;
+        timer_enabled = false;
 
-        /* nothing to do. Let's sleep */
-        if ((ret = pa_rtpoll_run(qahw_sdata->qahw_thread_rtpoll, true)) < 0)
+        /* A compressed sink only renders in RUNNING, not in IDLE */
+        running = (!qahw_sdata->compressed && PA_SINK_IS_OPENED(pa_sdata->sink->thread_info.state)
+                  && !ts_enable) || PA_SINK_IS_RUNNING(pa_sdata->sink->thread_info.state);
+
+        if (running
+            && pa_atomic_load(&qahw_sdata->chunk_available)
+            && !pa_atomic_load(&qahw_sdata->restart_in_progress)) {
+
+            if (qahw_sink_get_chunk(sink_data, &pa_sdata->sink->sample_spec, &chunk) < 0) {
+                goto poll;
+            }
+
+#ifdef SINK_DEBUG
+            if (ts_enable && chunk.timestamp != SET_CONTINUE_FLAG)
+                pa_log_debug("%s: writing chunk with duration %" PRIu64 ", latency %" PRId64 "",
+                                __func__, chunk.duration, (chunk.timestamp - ts_clock_now()));
+            else
+                pa_log_debug("writing chunk with length %u", chunk.length);
+#endif
+            qahw_sink_write_chunk(sink_data, &chunk);
+
+            pa_atomic_store(&qahw_sdata->first_write_done, 1);
+
+            /* for non-ttp stream, notify I/O thread and
+               wait for QAHW_SINK_MESSAGE_CHUNK_AVAILABLE */
+            if (!ts_enable) {
+                pa_atomic_store(&qahw_sdata->chunk_available, 0);
+                pa_atomic_store(&qahw_sdata->need_chunk, 1);
+                pa_asyncmsgq_post(pa_sdata->thread_mq.inq, PA_MSGOBJECT(pa_sdata->sink),
+                                            PA_QAHW_SINK_MESSAGE_NEED_CHUNK, NULL, 0, NULL, NULL);
+
+                goto poll;
+            }
+
+            wait = false;
+        } else if (pa_sdata->sink->thread_info.state == PA_SINK_SUSPENDED) {
+            /* if sink is suspended state, pending chunk and free memblockq
+             * otherwise it might end up sending incorrect buffer to qahw_write */
+#ifdef SINK_DEBUG
+             pa_log_debug("%s: sink is in suspended state, free memblockq", __func__);
+#endif
+
+            if (qahw_sdata->pending_chunk.memblock) {
+                pa_memblock_unref(qahw_sdata->pending_chunk.memblock);
+                pa_memchunk_reset(&qahw_sdata->pending_chunk);
+            }
+
+            if (qahw_sdata->shared_chunk.memblock) {
+                pa_memblock_unref(qahw_sdata->shared_chunk.memblock);
+                pa_memchunk_reset(&qahw_sdata->shared_chunk);
+            }
+
+            if (ts_enable)
+                free_qahw_sink_memblockq(qahw_sdata);
+        }
+
+poll:
+        if ((ret = pa_rtpoll_run(qahw_sdata->qahw_thread_rtpoll, wait)) < 0)
             goto fail;
 
         if (ret == 0)
             goto finish;
+
+        if (timer_enabled) {
+            pa_rtpoll_set_timer_disabled(qahw_sdata->qahw_thread_rtpoll);
+            timer_enabled = false;
+        }
     }
 
 fail:
@@ -472,8 +658,6 @@ static int create_qahw_sink_thread(pa_qahw_sink_data *sdata) {
     pa_assert(sdata);
     pa_assert(pa_sdata);
     pa_assert(qahw_sdata);
-
-    pa_atomic_store(&qahw_sdata->write_done, 1);
 
     qahw_sdata->qahw_thread_rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&qahw_sdata->qahw_thread_mq, pa_sdata->sink->core->mainloop, qahw_sdata->qahw_thread_rtpoll);
@@ -509,6 +693,22 @@ static int create_qahw_sink_thread(pa_qahw_sink_data *sdata) {
     return 0;
 }
 
+static void create_qahw_sink_memblockq(qahw_sink_data *qahw_sdata, pa_sample_spec *ss) {
+    char* memblockq_name = pa_sprintf_malloc("qahw sink buffer queue");
+    uint32_t memblockq_maxlength = pa_usec_to_bytes(PA_QAHW_SINK_MEMBLOCKQ_MAXLENGTH_USEC_DEFAULT, ss);
+
+    qahw_sdata->memblockq = pa_memblockq_new(memblockq_name, 0, memblockq_maxlength,
+                                                    0, ss, 0, 0, 0, NULL);
+}
+
+static void free_qahw_sink_memblockq(qahw_sink_data *qahw_sdata) {
+    pa_mutex_lock(qahw_sdata->memblockq_mutex);
+    if (qahw_sdata->memblockq)
+        pa_memblockq_free(qahw_sdata->memblockq);
+    qahw_sdata->memblockq = NULL;
+    pa_mutex_unlock(qahw_sdata->memblockq_mutex);
+}
+
 static int pa_qahw_sink_start(pa_qahw_sink_data *sdata, pa_sink_state_t new_state) {
     int r = 0;
     pa_sink_data *pa_sdata = sdata->pa_sdata;
@@ -521,11 +721,15 @@ static int pa_qahw_sink_start(pa_qahw_sink_data *sdata, pa_sink_state_t new_stat
     pa_log_debug("%s ", __func__);
 
     pa_atomic_store(&qahw_sdata->first_write_done, 0);
-    pa_atomic_store(&qahw_sdata->write_done, 1);
+    pa_atomic_store(&qahw_sdata->need_chunk, 1);
+    pa_atomic_store(&qahw_sdata->chunk_available, 0);
 
     /* Required to resume paused compressed streams in case new state is RUNNING */
     if (new_state == PA_SINK_RUNNING)
         r = pa_qahw_sink_pause(sdata, false);
+
+    if (qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP)
+        create_qahw_sink_memblockq(qahw_sdata, &pa_sdata->sink->sample_spec);
 
     trace_newstream(&sdata->qahw_sdata->ts_log, sdata->pa_sdata->sink->name);
 
@@ -552,7 +756,6 @@ static int pa_qahw_sink_standby(pa_qahw_sink_data *sdata) {
     }
 
     qahw_out_standby(qahw_sdata->out_handle);
-    pa_atomic_store(&qahw_sdata->wait_for_write_ready, 0);
     qahw_sdata->state = STATE_IDLE;
 
     /* Reset bytes written only for offload playback since AHAL does not reset in standby */
@@ -884,7 +1087,74 @@ static int pa_qahw_sink_flush_cb(pa_sink *s) {
     return qahw_out_flush(qahw_sdata->out_handle);
 }
 
-static bool write_chunk(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
+static int qahw_sink_get_chunk(pa_qahw_sink_data *sdata, pa_sample_spec *ss,
+                                pa_memchunk *chunk) {
+    qahw_sink_data *qahw_sdata = sdata->qahw_sdata;
+    bool ts_enable = qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP;
+    bool new_chunk = false;
+
+    if (!ts_enable) {
+        *chunk = qahw_sdata->shared_chunk;
+        pa_memchunk_reset(&qahw_sdata->shared_chunk);
+    } else if (qahw_sdata->pending_chunk.memblock) {
+        *chunk = qahw_sdata->pending_chunk;
+        pa_memchunk_reset(&qahw_sdata->pending_chunk);
+    } else {
+        pa_mutex_lock(qahw_sdata->memblockq_mutex);
+
+        if (pa_memblockq_peek_one(qahw_sdata->memblockq, chunk) >= 0) {
+            pa_memblockq_drop(qahw_sdata->memblockq, chunk->length);
+
+            /* notify I/O thread if it's waiting for queue to be filled */
+            if (!pa_atomic_load(&qahw_sdata->need_chunk)) {
+                pa_atomic_store(&qahw_sdata->need_chunk, 1);
+                pa_asyncmsgq_post(sdata->pa_sdata->thread_mq.inq, PA_MSGOBJECT(sdata->pa_sdata->sink),
+                                            PA_QAHW_SINK_MESSAGE_NEED_CHUNK, NULL, 0, NULL, NULL);
+            }
+
+            pa_mutex_unlock(qahw_sdata->memblockq_mutex);
+            new_chunk = true;
+        } else {
+            pa_log_error("memblockq is empty");
+            pa_atomic_store(&qahw_sdata->chunk_available, 0);
+
+            pa_mutex_unlock(qahw_sdata->memblockq_mutex);
+            return -1;
+        }
+    }
+
+    /* Split the chunk if it's too big */
+    if (ts_enable
+        && ((new_chunk && chunk->length > pa_usec_to_bytes(PA_QAHW_SINK_MIN_BUFFER_DURATION_USEC, ss))
+        || chunk->length > qahw_sdata->sink_buffer_size)) {
+        size_t split_length;
+        size_t split_count = (chunk->length / qahw_sdata->sink_buffer_size) + 1;
+
+        //we need to split as two parts at least
+        split_count = PA_MAX(split_count, (size_t) 2);
+        split_length = pa_frame_align(chunk->length / split_count, ss);
+
+#ifdef SINK_DEBUG
+        pa_log_debug("Splitting chunk (%zu/%zu)", chunk->length, split_length);
+#endif
+
+        qahw_sdata->pending_chunk = *chunk;
+        pa_memblock_ref(qahw_sdata->pending_chunk.memblock);
+
+        chunk->duration = (chunk->duration / chunk->length) * split_length;
+        chunk->length = split_length;
+
+        qahw_sdata->pending_chunk.timestamp = SET_CONTINUE_FLAG;
+        qahw_sdata->pending_chunk.duration -= chunk->duration;
+
+        qahw_sdata->pending_chunk.index += split_length;
+        qahw_sdata->pending_chunk.length -= split_length;
+    }
+
+    return 0;
+}
+
+static bool qahw_sink_write_chunk(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
     qahw_sink_data *qahw_sdata =  sdata->qahw_sdata;
     pa_sink_data *pa_sdata = sdata->pa_sdata;
     pa_usec_t timestamp;
@@ -896,10 +1166,6 @@ static bool write_chunk(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
     bool ret = true;
 #ifdef SINK_DEBUG
     pa_usec_t cur_qtimer, ticks = 0;
-#endif
-
-#ifdef SINK_DEBUG
-    pa_log_debug("%s: length %lu", __func__, (unsigned long)chunk->length);
 #endif
 
     memset(&out_buf, 0, sizeof(qahw_out_buffer_t));
@@ -936,9 +1202,6 @@ static bool write_chunk(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
     }
 
     while((out_buf.bytes > 0)) {
-        if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
-            pa_atomic_store(&qahw_sdata->wait_for_write_ready, 1);
-
         if ((rc = qahw_out_write(qahw_sdata->out_handle, &out_buf)) < 0) {
             pa_log_error("Could not write data: %d %d", rc, __LINE__);
             break;
@@ -957,10 +1220,6 @@ static bool write_chunk(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
             if (qahw_sdata->state != STATE_PLAYING)
                 qahw_sdata->state = STATE_PLAYING;
         } else {
-            /* reset flag if write was successfull as it will not generate any write callback */
-            if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
-                pa_atomic_store(&qahw_sdata->wait_for_write_ready, 0);
-
             qahw_sdata->bytes_written += rc;
 #ifdef SINK_DEBUG
             pa_log_debug("write data: size %d", rc);
@@ -992,16 +1251,7 @@ static int qahw_sink_process_msg (pa_msgobject *o, int code, void *data, int64_t
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)(QAHW_MSG_OBJ(o)->userdata);
 
     switch (code) {
-        case QAHW_SINK_MESSAGE_WRITE_READY:
-            write_chunk(sdata, chunk);
-            pa_atomic_store(&sdata->qahw_sdata->write_done, 1);
-
-            if (!pa_atomic_load(&sdata->qahw_sdata->first_write_done))
-                pa_atomic_store(&sdata->qahw_sdata->first_write_done, 1);
-
-            /* Wake up sink thread */
-            pa_fdsem_post(sdata->fdsem);
-
+        case QAHW_SINK_MESSAGE_CHUNK_AVAILABLE:
             return 0;
 
         case QAHW_SINK_MESSAGE_STANDBY:
@@ -1009,7 +1259,6 @@ static int qahw_sink_process_msg (pa_msgobject *o, int code, void *data, int64_t
             pa_log_info("%s: Posting message PA_QAHW_SINK_MESSAGE_STANDBY_DONE", __func__);
             pa_asyncmsgq_post(sdata->pa_sdata->thread_mq.inq, PA_MSGOBJECT(sdata->pa_sdata->sink),
                                         PA_QAHW_SINK_MESSAGE_STANDBY_DONE, NULL, 0, NULL, NULL);
-
             return 0;
 
         case QAHW_SINK_MESSAGE_CLOSE_OUTPUT:
@@ -1020,6 +1269,7 @@ static int qahw_sink_process_msg (pa_msgobject *o, int code, void *data, int64_t
             sdata->qahw_sdata->out_handle = NULL;
             *((int*) data) = rc;
             return 0;
+
         default:
             pa_log_info("%s: Unknown code", __func__);
             break;
@@ -1073,8 +1323,9 @@ static int pa_qahw_sink_io_process_msg(pa_msgobject *o, int code, void *data, in
 
         case PA_QAHW_SINK_MESSAGE_STANDBY_DONE:
             pa_log_info("%s PA_QAHW_SINK_MESSAGE_STANDBY_DONE", __func__);
-            pa_atomic_store(&sdata->qahw_sdata->write_done, 1);
+            return 0;
 
+        case PA_QAHW_SINK_MESSAGE_NEED_CHUNK:
             return 0;
 
         default:
@@ -1253,72 +1504,49 @@ static int render(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
     bool ts_enable = qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP;
     int ret;
 
-    /* Compressed path */
-    if (qahw_sdata->compressed) {
-        pa_sink_render(pa_sdata->sink, qahw_sdata->sink_buffer_size, chunk);
-        /* Handle no data scenario for compressed streams */
-        if (pa_memblock_is_silence(chunk->memblock)) {
-            pa_memblock_unref(chunk->memblock);
-            pa_log_debug("Got silence, avoid writing the block");
-            return -1;
-        }
-        return 0;
-    }
-
-    /* Normal PCM rendering path */
-    if (!ts_enable) {
-        pa_sink_render_full(pa_sdata->sink, qahw_sdata->sink_buffer_size, chunk);
-        pa_assert(chunk->length == qahw_sdata->sink_buffer_size);
-        return 0;
-    }
-
     /* TTP path */
     if (ts_enable) {
         /* If we have a pending chunk (chunk was too* big), use
          * that, otherwise request a new one */
-        if (pa_sdata->pending_chunk.memblock) {
-            *chunk = pa_sdata->pending_chunk;
-            pa_memchunk_reset(&pa_sdata->pending_chunk);
-        } else {
-            ret = pa_sink_render_one(pa_sdata->sink, chunk);
-            if (!ret) {
+        ret = pa_sink_render_one(pa_sdata->sink, chunk);
+        if (!ret) {
 #ifdef SINK_DEBUG
-                // pa_log_debug("render one returned empty chunk");
+            pa_log_debug("render one returned empty chunk");
 #endif
-                return -2;
-            }
-            if (chunk->timestamp == PA_NSEC_INVALID) {
-                pa_log_error("invalid timestamp");
+            return PA_RENDER_UNDERRUN;
+        }
+
+        if (chunk->timestamp == PA_NSEC_INVALID) {
+            pa_log_error("invalid timestamp");
+            pa_memblock_unref(chunk->memblock);
+            return PA_RENDER_INVALID_CHUNK;
+        }
+
+        if (chunk->duration == PA_NSEC_INVALID) {
+            /* TODO: remove this handling when actual issue will be fixed in above layers */
+#ifdef SINK_DEBUG
+            pa_log_warn("chunk's duration is invalid, deriving from length");
+#endif
+            chunk->duration = pa_bytes_to_usec(chunk->length, &pa_sdata->sink->sample_spec);
+        }
+    } else {
+        /* Compressed path */
+        if (qahw_sdata->compressed) {
+            pa_sink_render(pa_sdata->sink, qahw_sdata->sink_buffer_size, chunk);
+            /* Handle no data scenario for compressed streams */
+            if (pa_memblock_is_silence(chunk->memblock)) {
                 pa_memblock_unref(chunk->memblock);
-                return -1;
+                pa_log_debug("Got silence, avoid writing the block");
+                return PA_RENDER_INVALID_CHUNK;
             }
+            return 0;
         }
 
-        /* Split the chunk if it's too big */
-        if (chunk->length > sdata->qahw_sdata->sink_buffer_size) {
-            size_t split_count = (chunk->length / sdata->qahw_sdata->sink_buffer_size) + 1;
-            size_t split_length = pa_frame_align(chunk->length / split_count, &pa_sdata->sink->sample_spec);
-
-#ifdef SINK_DEBUG
-            pa_log_debug("Splitting chunk (%zu/%zu)", chunk->length, split_length);
-#endif
-
-            pa_sdata->pending_chunk = *chunk;
-            pa_memblock_ref(pa_sdata->pending_chunk.memblock);
-
-            chunk->duration = (chunk->duration / chunk->length) * split_length;
-            chunk->length = split_length;
-
-            pa_sdata->pending_chunk.timestamp = SET_CONTINUE_FLAG;
-            pa_sdata->pending_chunk.duration -= chunk->duration;
-
-            pa_sdata->pending_chunk.index += split_length;
-            pa_sdata->pending_chunk.length -= split_length;
-        }
-        return 0;
+        pa_sink_render_full(pa_sdata->sink, qahw_sdata->sink_buffer_size, chunk);
+        pa_assert(chunk->length == qahw_sdata->sink_buffer_size);
     }
 
-    return -1;
+    return 0;
 
 }
 
@@ -1331,6 +1559,10 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
     int rc, status;
     bool running;
     bool ts_enable = qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP;
+    pa_usec_t deadline_us, allocated_latency_us;
+    int64_t timeout_ns;
+    bool timer_enabled;
+    bool notify_qahw_thread;
 
     if ((pa_sdata->sink->core->realtime_scheduling)) {
         pa_log_info("%s:: Making io thread for %s as realtime with prio %d", __func__, pa_qahw_sink_get_name_from_flags(qahw_sdata->flags), pa_sdata->sink->core->realtime_priority);
@@ -1339,12 +1571,12 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
 
     pa_log_debug("Sink IO Thread starting up");
 
-    pa_atomic_store(&qahw_sdata->write_done, 1);
     pa_thread_mq_install(&pa_sdata->thread_mq);
-    pa_memchunk_reset(&pa_sdata->pending_chunk);
+    pa_memchunk_reset(&qahw_sdata->shared_chunk);
 
     while (true) {
         wait = true;
+        timer_enabled = false;
 
         /* Render only if qahw sink is enabled */
         if (sdata->qahw_sink_opened) {
@@ -1355,39 +1587,106 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
             running = (!qahw_sdata->compressed && PA_SINK_IS_OPENED(pa_sdata->sink->thread_info.state)
                       && !ts_enable) || PA_SINK_IS_RUNNING(pa_sdata->sink->thread_info.state);
 
-            if (ts_enable)
-                pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
-
-            if (running &&
-                !pa_atomic_load(&qahw_sdata->wait_for_write_ready) &&
-                !pa_atomic_load(&qahw_sdata->restart_in_progress) &&
-                pa_atomic_load(&qahw_sdata->write_done)) {
+            if (running
+                && pa_atomic_load(&qahw_sdata->need_chunk)
+                && !pa_atomic_load(&qahw_sdata->restart_in_progress)) {
 
                 status = render(sdata, &chunk);
-                if (status == -1)
-                    goto poll;
-                if (status == -2) {
-                    wait = true;
-                    /* wait until we get notified */
-                    pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
+
+                if (status < 0) {
+#ifdef SINK_DEBUG
+                    pa_log_error("%s: render_one returned error %d", __func__, status);
+#endif
+                    /*if status is PA_RENDER_UNDERRUN, wait until we get notified
+                      with PA_SINK_MESSAGE_CHUNK_AVAILABLE */
+                    wait = (status == PA_RENDER_UNDERRUN);
+
                     goto poll;
                 }
 
-                pa_atomic_store(&qahw_sdata->write_done, 0);
+                /* for non-ttp stream, notify qahw thread and
+                   wait for PA_QAHW_SINK_MESSAGE_NEED_CHUNK */
+                if (!ts_enable) {
+                    qahw_sdata->shared_chunk = chunk;
+
+                    /* re-using atomic variables used for ttp.
+                       otherwise single variable is enough for non-ttp */
+                    pa_atomic_store(&qahw_sdata->need_chunk, 0);
+                    pa_atomic_store(&qahw_sdata->chunk_available, 1);
+
+                    pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
+                                        QAHW_SINK_MESSAGE_CHUNK_AVAILABLE, NULL, 0, NULL, NULL);
+
+                    goto poll;
+                }
+
+                pa_mutex_lock(qahw_sdata->memblockq_mutex);
+
+                notify_qahw_thread = !pa_memblockq_is_readable(qahw_sdata->memblockq);
+
 #ifdef SINK_DEBUG
-                pa_log_warn("Posted QAHW_SINK_MESSAGE_WRITE_READY");
+                if (ts_enable)
+                    pa_log_debug("%s: pushing chunk with duration %" PRIu64 ", latency %" PRId64 " to memblockq",
+                                    __func__, chunk.duration, (chunk.timestamp - ts_clock_now()));
+                else
+                    pa_log_debug("%s: pushing chunk with length %u to memblockq", __func__, chunk.length);
 #endif
-                pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
-                                                 QAHW_SINK_MESSAGE_WRITE_READY, NULL, 0, &chunk, NULL);
-            } else if (pa_sdata->sink->thread_info.state == PA_SINK_SUSPENDED) {
-                /* if sink is suspended state then reset buffer and pending chunk
-                 * otherwise it might end up sending incorrect buffer to qahw_write */
-                if (pa_sdata->pending_chunk.memblock) {
-                    pa_memblock_unref(pa_sdata->pending_chunk.memblock);
-                    pa_memchunk_reset(&pa_sdata->pending_chunk);
+
+                /* push chunk to memblockq */
+                if (pa_memblockq_push(qahw_sdata->memblockq, &chunk) < 0) {
+                    pa_log_error("%s: failed to push to memblockq", __func__);
+
+                    /* queue doesn't have enough space (overflow), drop the chunk and
+                       wait for PA_QAHW_SINK_MESSAGE_NEED_CHUNK */
+                    pa_atomic_store(&qahw_sdata->need_chunk, 0);
+
+                    pa_mutex_unlock(qahw_sdata->memblockq_mutex);
+                    goto poll;
+                }
+
+                pa_memblock_unref(chunk.memblock);
+
+                pa_mutex_unlock(qahw_sdata->memblockq_mutex);
+
+                if (notify_qahw_thread) {
+                    /* queue was empty, notify qahw thread and
+                       request next chunk immediately to avoid underrun */
+#ifdef SINK_DEBUG
+                    pa_log_debug("%s: queue was empty, notify qahw thread and request for next chunk", __func__);
+#endif
+
+                    pa_atomic_store(&qahw_sdata->chunk_available, 1);
+
+                    pa_asyncmsgq_post(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
+                                        QAHW_SINK_MESSAGE_CHUNK_AVAILABLE, NULL, 0, NULL, NULL);
+                }
+
+                pa_mutex_lock(qahw_sdata->allocated_latency_mutex);
+                allocated_latency_us = qahw_sdata->allocated_latency_us;
+                pa_mutex_unlock(qahw_sdata->allocated_latency_mutex);
+
+                timeout_ns = (chunk.timestamp + chunk.duration) -
+                             (ts_clock_now() + allocated_latency_us * PA_NSEC_PER_USEC);
+
+                if (timeout_ns > 0) {
+#ifdef SINK_DEBUG
+                    pa_log_debug("%s: sleep for %" PRId64 " usec", __func__, timeout_ns / PA_NSEC_PER_USEC);
+#endif
+                    deadline_us = pa_rtclock_now() + timeout_ns / PA_NSEC_PER_USEC;
+
+                    pa_rtpoll_set_timer_absolute(pa_sdata->rtpoll, deadline_us);
+                    timer_enabled = true;
+                } else {
+                    /* if latency < allocated latency (buffer reaches late),
+                       immediately request next chunk to clear any buffering in previous layers */
+#ifdef SINK_DEBUG
+                    pa_log_debug("%s: latency < allocated latency, request next chunk", __func__);
+#endif
+                    wait = false;
                 }
             }
         }
+
 poll:
         rc = pa_rtpoll_run(pa_sdata->rtpoll, wait);
         if (rc < 0) {
@@ -1397,6 +1696,19 @@ poll:
 
         if (rc == 0)
             goto done;
+
+        if (timer_enabled) {
+            /* if I/O thread was woken up by any event, continue to sleep */
+            if (!pa_rtpoll_timer_elapsed(pa_sdata->rtpoll) && (pa_rtclock_now() < deadline_us)) {
+#ifdef SINK_DEBUG
+                pa_log_debug("I/O thread is woken up an event, sleep again");
+#endif
+                goto poll;
+            }
+
+            pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
+            timer_enabled = false;
+        }
     }
 
 fail:
@@ -1495,7 +1807,6 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
     qahw_sdata->sink_latency_us = pa_bytes_to_usec(qahw_sdata->sink_buffer_size, ss);
     pa_log_debug("sink latency %dus", qahw_sdata->sink_latency_us);
 
-    pa_atomic_store(&qahw_sdata->wait_for_write_ready, 0);
     pa_atomic_store(&qahw_sdata->wait_for_drain_ready, 0);
 
     payload.channel_map_params = qahw_sdata->qahw_map;
@@ -1638,7 +1949,7 @@ static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t 
         }
     } else {
         /* Enabling qahw sink */
-        pa_qahw_sink_enable_qahw_sink(module_handle, encoding, ss, map, devices, flags, sink_id, sdata);
+        rc = pa_qahw_sink_enable_qahw_sink(module_handle, encoding, ss, map, devices, flags, sink_id, sdata);
         if (rc) {
             pa_log_error("enabling qahw sink failed, error %d", rc);
             goto exit;
@@ -1663,6 +1974,13 @@ static int free_qahw_sink(pa_qahw_sink_data *sdata) {
 
     free_qahw_sink_thread_resources(sdata->qahw_sdata);
 
+    pa_mutex_free(sdata->qahw_sdata->allocated_latency_mutex);
+
+    if (sdata->qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP) {
+        free_qahw_sink_memblockq(sdata->qahw_sdata);
+        pa_mutex_free(sdata->qahw_sdata->memblockq_mutex);
+    }
+
     pa_xfree(sdata->qahw_sdata);
     sdata->qahw_sdata = NULL;
 
@@ -1672,6 +1990,7 @@ static int free_qahw_sink(pa_qahw_sink_data *sdata) {
 static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                             audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata, int32_t buffer_duration, double max_gain) {
    int rc;
+   pa_usec_t dsp_latency_us;
 
    sdata->qahw_sdata = pa_xnew0(qahw_sink_data, 1);
    sdata->qahw_sdata->compressed = (encoding != PA_ENCODING_PCM ? true : false);
@@ -1681,26 +2000,16 @@ static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t e
        pa_log_error("open_qahw_sink failed, error %d", rc);
        pa_xfree(sdata->qahw_sdata);
        sdata->qahw_sdata = NULL;
+       return rc;
    }
 
+    if (sdata->qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP) {
+        dsp_latency_us = qahw_out_get_latency(sdata->qahw_sdata->out_handle) * PA_USEC_PER_MSEC;
+        sdata->qahw_sdata->min_latency_us = sdata->qahw_sdata->allocated_latency_us =
+                                            MIN_BUFFERS * PA_QAHW_SINK_MIN_BUFFER_DURATION_USEC + dsp_latency_us;
+        pa_log_debug("dsp latency %" PRIu64 " min latency %" PRIu64 "", dsp_latency_us, sdata->qahw_sdata->min_latency_us);
+    }
     return rc;
-}
-
-static int pa_qahw_sink_free_common_resources(pa_qahw_sink_data *sdata) {
-    if (sdata->fdsem)
-        pa_fdsem_free(sdata->fdsem);
-
-    return 0;
-}
-
-static int pa_qahw_sink_alloc_common_resources(pa_qahw_sink_data *sdata) {
-   sdata->fdsem = pa_fdsem_new();
-   if (!sdata->fdsem) {
-       pa_log_error("Could not create fdsem");
-       return -1;
-   }
-
-   return 0;
 }
 
 static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, bool use_hw_volume,
@@ -1775,6 +2084,11 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
 
     pa_log_debug("pa sink opened %p", pa_sdata->sink);
 
+    sdata->qahw_sdata->allocated_latency_mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
+
+    if (sdata->qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP)
+        sdata->qahw_sdata->memblockq_mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
+
     /*Creating QAHW sink thread*/
     if (create_qahw_sink_thread(sdata)) {
         pa_log_error("Could not create QAHW sink thread");
@@ -1818,12 +2132,6 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
         sdata->use_hw_volume = use_hw_volume;
     }
 
-    pa_sdata->rtpoll_item = pa_rtpoll_item_new_fdsem(pa_sdata->rtpoll, PA_RTPOLL_NORMAL, sdata->fdsem);
-    if (!pa_sdata->rtpoll_item) {
-        pa_log_error("Could not create rpoll item");
-        goto fail;
-    }
-
     pa_sdata->thread = pa_thread_new(sink_name, pa_qahw_sink_io_thread_func, sdata);
     if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
         pa_log_error("Could not spawn I/O thread");
@@ -1865,9 +2173,6 @@ static int free_pa_sink(pa_qahw_sink_data *sdata) {
 
     if (pa_sdata->sink)
         pa_sink_unref(pa_sdata->sink);
-
-    if (pa_sdata->rtpoll_item)
-        pa_rtpoll_item_free(pa_sdata->rtpoll_item);
 
     if (pa_sdata->formats)
         pa_idxset_free(pa_sdata->formats, (pa_free_cb_t) pa_format_info_free);
@@ -1998,19 +2303,10 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     sdata->qahw_sink_opened = true;
     sdata->disable_qahw_sink = sink->disable_qahw_sink;
 
-    rc = pa_qahw_sink_alloc_common_resources(sdata);
-    if (PA_UNLIKELY(rc)) {
-        pa_log_error("Could pa_qahw_sink_alloc_common_resources, error %d", rc);
-        pa_xfree(sdata);
-        sdata = NULL;
-        goto exit;
-    }
-
     rc = create_qahw_sink(module_handle, sink->default_encoding, &sink->default_spec, &sink->default_map, port_device_data->device, sink->flags, sink->id, sdata, sink->buffer_duration,
                               sink->max_gain);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could create open qahw sink, error %d", rc);
-        pa_qahw_sink_free_common_resources(sdata);
         pa_xfree(sdata);
         sdata = NULL;
         goto exit;
@@ -2021,7 +2317,6 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", sink->name, rc);
         free_qahw_sink(sdata);
-        pa_qahw_sink_free_common_resources(sdata);
         pa_xfree(sdata);
         sdata = NULL;
         goto exit;
@@ -2031,7 +2326,6 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create qahw sink extn %s, error %d", sink->name, rc);
         free_qahw_sink(sdata);
-        pa_qahw_sink_free_common_resources(sdata);
         free_pa_sink(sdata);
         pa_xfree(sdata);
         sdata = NULL;
@@ -2056,6 +2350,10 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
     *handle = (pa_qahw_sink_handle_t *)sdata;
     pa_idxset_put(mdata->sinks, sdata, NULL);
 
+    sdata->qahw_sdata->obj_path = pa_sprintf_malloc("%s%d", QAHW_DBUS_OBJECT_PATH_PREFIX, sdata->pa_sdata->sink->index);
+    sdata->qahw_sdata->dbus_protocol = pa_dbus_protocol_get(sdata->pa_sdata->sink->core);
+    pa_assert_se(pa_dbus_protocol_add_interface(sdata->qahw_sdata->dbus_protocol, sdata->qahw_sdata->obj_path, &sink_interface_info, sdata) >= 0);
+
 exit:
     if (ports)
         pa_hashmap_free(ports);
@@ -2070,10 +2368,14 @@ void pa_qahw_sink_close(pa_qahw_sink_handle_t *handle) {
     pa_qahw_sink_extn_free(sdata->sink_extn_handle);
     free_pa_sink(sdata);
     free_qahw_sink(sdata);
-    pa_qahw_sink_free_common_resources(sdata);
 
     pa_idxset_remove_by_data(mdata->sinks, sdata, NULL);
 
+    pa_assert_se(pa_dbus_protocol_remove_interface(sdata->qahw_sdata->dbus_protocol, sdata->qahw_sdata->obj_path, sink_interface_info.name) >= 0);
+
+    pa_dbus_protocol_unref(sdata->qahw_sdata->dbus_protocol);
+
+    pa_xfree(sdata->qahw_sdata->obj_path);
     pa_xfree(sdata);
 }
 
