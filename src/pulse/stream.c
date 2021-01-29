@@ -1742,11 +1742,6 @@ static pa_usec_t calc_time(const pa_stream *s, bool ignore_transport) {
     pa_assert(s->direction != PA_STREAM_PLAYBACK || !s->timing_info.read_index_corrupt);
     pa_assert(s->direction != PA_STREAM_RECORD || !s->timing_info.write_index_corrupt);
 
-    /* TODO: Need to get a time value (rather than bytes) for compressed
-     * streams */
-    if (!s->format || !pa_format_info_is_compressed(s->format))
-        return 0;
-
     if (s->direction == PA_STREAM_PLAYBACK) {
         /* The last byte that was written into the output device
          * had this time value associated */
@@ -1948,11 +1943,7 @@ static void stream_get_timing_info_callback(pa_pdispatch *pd, uint32_t command, 
                  * speakers. Since we follow that timing here, we need
                  * to try to fix this up */
 
-                /* Don't use bytes-to-time conversion for compressed streams */
-                if (!o->stream->format || !pa_format_info_is_compressed(o->stream->format))
-                    su = pa_bytes_to_usec((uint64_t) i->since_underrun, &o->stream->sample_spec);
-                else
-                    su = 0;
+                su = pa_bytes_to_usec((uint64_t) i->since_underrun, &o->stream->sample_spec);
 
                 if (su < i->sink_usec)
                     x += i->sink_usec - su;
@@ -2527,11 +2518,6 @@ int pa_stream_get_latency(pa_stream *s, pa_usec_t *r_usec, int *negative) {
     PA_CHECK_VALIDITY(s->context, s->timing_info_valid, PA_ERR_NODATA);
     PA_CHECK_VALIDITY(s->context, s->direction != PA_STREAM_PLAYBACK || !s->timing_info.write_index_corrupt, PA_ERR_NODATA);
     PA_CHECK_VALIDITY(s->context, s->direction != PA_STREAM_RECORD || !s->timing_info.read_index_corrupt, PA_ERR_NODATA);
-
-    /* TODO: Report the sink latency + whatever is queued up in the stream's
-     * memblockq */
-    if (s->format && pa_format_info_is_compressed(s->format))
-        return 0;
 
     if ((r = pa_stream_get_time(s, &t)) < 0)
         return r;
