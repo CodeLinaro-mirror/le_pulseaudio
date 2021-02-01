@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -56,6 +56,8 @@
 #define AUDIO_IN_VALID_CH_COUNT_FOR_CH_MASK 8
 
 #define PA_DEFAULT_STARTUP_LATENCY_USEC (100 * 1000)
+#define PA_A2DP_STARTUP_LATENCY_USEC (500 * 1000)
+#define PA_A2DP_RUNTIME_DELAY_USEC (200 * 1000)
 
 //#define SOURCE_DUMP_ENABLED
 
@@ -771,7 +773,12 @@ static void pa_qahw_source_io_thread_func(void *userdata) {
 
         /* Start timer */
         if (PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
-            timeout = pa_atomic_load(&qahw_sdata->first_read) ? (qahw_sdata->source_latency_us * 2)
+            if (audio_is_a2dp_in_device(qahw_sdata->devices))
+                timeout = pa_atomic_load(&qahw_sdata->first_read) ? PA_A2DP_RUNTIME_DELAY_USEC
+                                                              : ((qahw_sdata->source_latency_us * 2)
+                                                                + PA_A2DP_STARTUP_LATENCY_USEC);
+            else
+                timeout = pa_atomic_load(&qahw_sdata->first_read) ? (qahw_sdata->source_latency_us * 2)
                                                               : ((qahw_sdata->source_latency_us * 2)
                                                                 + PA_DEFAULT_STARTUP_LATENCY_USEC);
 
