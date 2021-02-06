@@ -1537,14 +1537,14 @@ void pa_resampler_run(pa_resampler *r, const pa_memchunk *in, pa_memchunk *out) 
         invalidate_duration = true;
     }
 
-    if (!invalidate_timestamp)
+//    if (!invalidate_timestamp)
         out->timestamp = in->timestamp;
-    if (!invalidate_duration)
+//    if (!invalidate_duration)
         out->duration = in->duration;
-    if (!invalidate_timestamp && !invalidate_duration) {
+//    if (!invalidate_timestamp && !invalidate_duration) {
         /* We know nothing of the semantics of the flags, so only copy if we didn't change the length */
         out->flags = in->flags;
-    }
+//    }
 }
 
 /*** copy (noop) implementation ***/
