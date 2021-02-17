@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018,2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018, 2020-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -33,6 +33,7 @@ typedef struct {
     pa_hashmap *sources;
     pa_hashmap *effects;
     pa_hashmap *loopbacks;
+    pa_hashmap *topologies;
     char *default_profile;
     bool use_dolby_hw_loopback;
     bool dsd_setup;

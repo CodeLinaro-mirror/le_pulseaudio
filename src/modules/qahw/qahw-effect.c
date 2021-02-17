@@ -25,7 +25,6 @@
 #include "qahw-sink.h"
 #include "qahw-utils.h"
 #include "qahw-loopback.h"
-#include <qahw_effect_api.h>
 #include <qahw_effect_bassboost.h>
 #include <qahw_effect_virtualizer.h>
 #include <qahw_effect_equalizer.h>
@@ -283,7 +282,7 @@ static pa_dbus_interface_info session_interface_info = {
     .n_signals = 0
 };
 
-static int pa_qahw_effect_string_to_uuid(char *str, qahw_effect_uuid_t *uuid) {
+int pa_qahw_effect_string_to_uuid(char *str, qahw_effect_uuid_t *uuid) {
     int tmp[10];
 
     if (str == NULL || uuid == NULL) {

@@ -1688,7 +1688,8 @@ module_qahw_card_la_SOURCES = \
         modules/qahw/qahw-format-detection.c modules/qahw/qahw-jack-format.h \
         modules/qahw/qahw-config-parser.c modules/qahw/qahw-config-parser.h \
         modules/qahw/qahw-jack-external.c modules/qahw/qahw-jack-spdif.c \
-        modules/qahw/qahw-jack-hdmi-out.c
+        modules/qahw/qahw-jack-hdmi-out.c \
+        modules/qahw/qahw-adsp-post-proc.c modules/qahw/qahw-adsp-post-proc.h
 module_qahw_card_la_CFLAGS = $(QAHW_CFLAGS) $(QAHW_API_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -Werror -DPA_MODULE_NAME=module_qahw_card
 module_qahw_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qahw_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqahw
