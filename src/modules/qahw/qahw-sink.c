@@ -1546,7 +1546,7 @@ static int render(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
             if (pa_memblock_is_silence(chunk->memblock)) {
                 pa_memblock_unref(chunk->memblock);
                 pa_log_debug("Got silence, avoid writing the block");
-                return PA_RENDER_INVALID_CHUNK;
+                return PA_RENDER_UNDERRUN;
             }
             return 0;
         }
