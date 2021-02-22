@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -190,7 +190,6 @@ typedef struct {
 typedef struct {
     struct pa_idxset *sinks;
 } pa_qahw_sink_module_data;
-
 
 PA_DEFINE_PRIVATE_CLASS(qahw_msg_obj, pa_msgobject);
 #define QAHW_MSG_OBJ(o) (qahw_msg_obj_cast(o))
@@ -1219,6 +1218,10 @@ static bool qahw_sink_write_chunk(pa_qahw_sink_data *sdata, pa_memchunk *chunk) 
 #endif
             pa_fdsem_wait(sdata->qahw_sdata->qahw_fdsem);
 
+            /* if restart is in progress, don't try to write again */
+            if (pa_atomic_load(&qahw_sdata->restart_in_progress))
+                break;
+
             /* Store pending bytes to be written, write done event comes */
             out_buf.bytes = out_buf.bytes - rc;
             /* Update buffer offset and size based on last write size*/
@@ -1543,7 +1546,7 @@ static int render(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
             if (pa_memblock_is_silence(chunk->memblock)) {
                 pa_memblock_unref(chunk->memblock);
                 pa_log_debug("Got silence, avoid writing the block");
-                return PA_RENDER_INVALID_CHUNK;
+                return PA_RENDER_UNDERRUN;
             }
             return 0;
         }
@@ -1945,12 +1948,22 @@ static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t 
     qahw_sink_data *qahw_sdata;
 
     pa_assert(sdata->qahw_sdata);
+    pa_assert(sdata->pa_sdata);
 
     pa_log_info("%s", __func__);
     qahw_sdata = sdata->qahw_sdata;
     pa_atomic_store(&qahw_sdata->restart_in_progress, 1);
 
     if (sdata->qahw_sink_opened) {
+        if (sdata->qahw_sdata->compressed) {
+            /* Flush buffers to avoid any existing write from processing after closing sink */
+            /* stream should be in paused state during flush */
+            if(sdata->qahw_sdata->state != STATE_PAUSED)
+                qahw_out_pause(sdata->qahw_sdata->out_handle);
+
+            qahw_out_flush(sdata->qahw_sdata->out_handle);
+        }
+
         rc = close_qahw_sink(sdata);
         if (rc) {
             pa_log_error("close_qahw_sink failed, error %d", rc);

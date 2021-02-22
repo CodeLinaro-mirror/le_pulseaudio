@@ -3,7 +3,7 @@
 
   Copyright 2008-2013 João Paulo Rechi Vita
   Copyright 2011-2013 BMW Car IT GmbH.
-  Copyright (c) 2020, The Linux Foundation. All rights reserved.
+  Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as
@@ -1728,6 +1728,7 @@ static int add_sink(struct userdata *u) {
     u->sink->userdata = u;
     u->sink->parent.process_msg = sink_process_msg;
     u->sink->set_state_in_io_thread = sink_set_state_in_io_thread_cb;
+    u->ts_log = TRACE_LOG_STATIC_INIT;
 
     if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY) {
         pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);

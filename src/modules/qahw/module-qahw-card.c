@@ -40,6 +40,7 @@
 #include "qahw-effect.h"
 #include "qahw-card.h"
 #include "qahw-config-parser.h"
+#include "qahw-adsp-post-proc.h"
 
 #define CONC(A,B) (A B)
 #define QAHW_MODULE_ID_PREFIX "audio."
@@ -106,6 +107,8 @@ struct userdata {
     pa_hashmap *sources;
 
     pa_qahw_effect_handle_t effect_handle;
+
+    pa_qahw_post_proc_handle_t post_proc_handle;
 
     pa_hashmap *jacks;
 
@@ -1271,6 +1274,8 @@ int pa__init(pa_module *m) {
 
     pa_qahw_loopback_init(u->module_handle, u->core, u->card, u->config_data->loopbacks, pa_qahw_loopback_callback, (void *)u, u->effect_handle, m);
 
+    u->post_proc_handle = pa_qahw_post_proc_module_init(u->core, dbus_protocol, u->config_data->topologies);
+
     return ret;
 
 fail:
@@ -1297,6 +1302,11 @@ void pa__done(pa_module *m) {
     }
 
     pa_qahw_loopback_deinit();
+
+    if(u->post_proc_handle) {
+        pa_qahw_post_proc_module_deinit(u->post_proc_handle);
+        u->post_proc_handle = NULL;
+    }
 
     if (u->sinks) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
