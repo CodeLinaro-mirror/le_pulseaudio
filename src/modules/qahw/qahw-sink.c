@@ -700,6 +700,7 @@ static void create_qahw_sink_memblockq(qahw_sink_data *qahw_sdata, pa_sample_spe
 
     qahw_sdata->memblockq = pa_memblockq_new(memblockq_name, 0, memblockq_maxlength,
                                                     0, ss, 0, 0, 0, NULL);
+    pa_xfree(memblockq_name);
 }
 
 static void free_qahw_sink_memblockq(qahw_sink_data *qahw_sdata) {
@@ -729,8 +730,10 @@ static int pa_qahw_sink_start(pa_qahw_sink_data *sdata, pa_sink_state_t new_stat
     if (new_state == PA_SINK_RUNNING)
         r = pa_qahw_sink_pause(sdata, false);
 
-    if (qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP)
+    if (qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP) {
+        free_qahw_sink_memblockq(qahw_sdata);
         create_qahw_sink_memblockq(qahw_sdata, &pa_sdata->sink->sample_spec);
+    }
 
     trace_newstream(&sdata->qahw_sdata->ts_log, sdata->pa_sdata->sink->name);
 
@@ -1308,6 +1311,8 @@ static void free_qahw_sink_thread_resources(qahw_sink_data *qahw_sdata){
     }
 
     pa_thread_mq_done(&qahw_sdata->qahw_thread_mq);
+
+    pa_xfree(qahw_sdata->qahw_msg);
 }
 
 static int pa_qahw_sink_io_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
