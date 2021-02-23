@@ -1123,7 +1123,9 @@ static int qahw_sink_get_chunk(pa_qahw_sink_data *sdata, pa_sample_spec *ss,
             pa_mutex_unlock(qahw_sdata->memblockq_mutex);
             new_chunk = true;
         } else {
+#ifdef SINK_DEBUG
             pa_log_error("memblockq is empty");
+#endif
             pa_atomic_store(&qahw_sdata->chunk_available, 0);
 
             pa_mutex_unlock(qahw_sdata->memblockq_mutex);
