@@ -686,6 +686,10 @@ static void qahw_source_thread_func(void *userdata) {
                 pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %" PRIu64 "ms",
                         ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 ret = in_buf.bytes;
+
+                pa_memblock_release(chunk.memblock);
+                pa_memblock_unref(chunk.memblock);
+
                 wait = true;
                 pa_rtpoll_set_timer_relative(qahw_sdata->qahw_thread_rtpoll,
                                     pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
@@ -988,6 +992,8 @@ static void free_qahw_source(qahw_source_data *qahw_sdata) {
 
     if (qahw_sdata->qahw_thread_rtpoll)
         pa_rtpoll_free(qahw_sdata->qahw_thread_rtpoll);
+
+    pa_xfree(qahw_sdata->qahw_msg);
 
     pa_log_debug("Freed qahw source thread resources");
 }

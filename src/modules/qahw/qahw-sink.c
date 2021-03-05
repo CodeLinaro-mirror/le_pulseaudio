@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -79,6 +79,7 @@
 #define PA_QAHW_SINK_ALLOCATED_LATENCY_USEC_MAX 1000000
 #define PA_QAHW_SINK_MEMBLOCKQ_MAXLENGTH_USEC_DEFAULT 2000000
 #define PA_QAHW_SINK_MIN_BUFFER_DURATION_USEC 6000
+#define PA_QAHW_SINK_SCHEDULING_LATENCY_USEC 2000
 
 typedef enum {
     PA_QAHW_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
@@ -189,7 +190,6 @@ typedef struct {
 typedef struct {
     struct pa_idxset *sinks;
 } pa_qahw_sink_module_data;
-
 
 PA_DEFINE_PRIVATE_CLASS(qahw_msg_obj, pa_msgobject);
 #define QAHW_MSG_OBJ(o) (qahw_msg_obj_cast(o))
@@ -700,6 +700,7 @@ static void create_qahw_sink_memblockq(qahw_sink_data *qahw_sdata, pa_sample_spe
 
     qahw_sdata->memblockq = pa_memblockq_new(memblockq_name, 0, memblockq_maxlength,
                                                     0, ss, 0, 0, 0, NULL);
+    pa_xfree(memblockq_name);
 }
 
 static void free_qahw_sink_memblockq(qahw_sink_data *qahw_sdata) {
@@ -729,8 +730,10 @@ static int pa_qahw_sink_start(pa_qahw_sink_data *sdata, pa_sink_state_t new_stat
     if (new_state == PA_SINK_RUNNING)
         r = pa_qahw_sink_pause(sdata, false);
 
-    if (qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP)
+    if (qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP) {
+        free_qahw_sink_memblockq(qahw_sdata);
         create_qahw_sink_memblockq(qahw_sdata, &pa_sdata->sink->sample_spec);
+    }
 
     trace_newstream(&sdata->qahw_sdata->ts_log, sdata->pa_sdata->sink->name);
 
@@ -1120,7 +1123,9 @@ static int qahw_sink_get_chunk(pa_qahw_sink_data *sdata, pa_sample_spec *ss,
             pa_mutex_unlock(qahw_sdata->memblockq_mutex);
             new_chunk = true;
         } else {
+#ifdef SINK_DEBUG
             pa_log_error("memblockq is empty");
+#endif
             pa_atomic_store(&qahw_sdata->chunk_available, 0);
 
             pa_mutex_unlock(qahw_sdata->memblockq_mutex);
@@ -1218,6 +1223,10 @@ static bool qahw_sink_write_chunk(pa_qahw_sink_data *sdata, pa_memchunk *chunk) 
 #endif
             pa_fdsem_wait(sdata->qahw_sdata->qahw_fdsem);
 
+            /* if restart is in progress, don't try to write again */
+            if (pa_atomic_load(&qahw_sdata->restart_in_progress))
+                break;
+
             /* Store pending bytes to be written, write done event comes */
             out_buf.bytes = out_buf.bytes - rc;
             /* Update buffer offset and size based on last write size*/
@@ -1304,6 +1313,8 @@ static void free_qahw_sink_thread_resources(qahw_sink_data *qahw_sdata){
     }
 
     pa_thread_mq_done(&qahw_sdata->qahw_thread_mq);
+
+    pa_xfree(qahw_sdata->qahw_msg);
 }
 
 static int pa_qahw_sink_io_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
@@ -1542,7 +1553,7 @@ static int render(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
             if (pa_memblock_is_silence(chunk->memblock)) {
                 pa_memblock_unref(chunk->memblock);
                 pa_log_debug("Got silence, avoid writing the block");
-                return PA_RENDER_INVALID_CHUNK;
+                return PA_RENDER_UNDERRUN;
             }
             return 0;
         }
@@ -1944,12 +1955,22 @@ static int restart_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t 
     qahw_sink_data *qahw_sdata;
 
     pa_assert(sdata->qahw_sdata);
+    pa_assert(sdata->pa_sdata);
 
     pa_log_info("%s", __func__);
     qahw_sdata = sdata->qahw_sdata;
     pa_atomic_store(&qahw_sdata->restart_in_progress, 1);
 
     if (sdata->qahw_sink_opened) {
+        if (sdata->qahw_sdata->compressed) {
+            /* Flush buffers to avoid any existing write from processing after closing sink */
+            /* stream should be in paused state during flush */
+            if(sdata->qahw_sdata->state != STATE_PAUSED)
+                qahw_out_pause(sdata->qahw_sdata->out_handle);
+
+            qahw_out_flush(sdata->qahw_sdata->out_handle);
+        }
+
         rc = close_qahw_sink(sdata);
         if (rc) {
             pa_log_error("close_qahw_sink failed, error %d", rc);
@@ -2024,7 +2045,7 @@ static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t e
     if (sdata->qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP) {
         dsp_latency_us = qahw_out_get_latency(sdata->qahw_sdata->out_handle) * PA_USEC_PER_MSEC;
         sdata->qahw_sdata->min_latency_us = sdata->qahw_sdata->allocated_latency_us =
-                                            MIN_BUFFERS * PA_QAHW_SINK_MIN_BUFFER_DURATION_USEC + dsp_latency_us;
+                                            PA_QAHW_SINK_SCHEDULING_LATENCY_USEC + dsp_latency_us;
         pa_log_debug("dsp latency %" PRIu64 " min latency %" PRIu64 "", dsp_latency_us, sdata->qahw_sdata->min_latency_us);
     }
     return rc;

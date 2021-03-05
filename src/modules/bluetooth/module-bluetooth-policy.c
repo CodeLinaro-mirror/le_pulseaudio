@@ -40,7 +40,8 @@ PA_MODULE_USAGE(
         "a2dp_source=<Handle a2dp_source card profile (sink role)?> "
         "ag=<Handle headset_audio_gateway card profile (headset role)?> "
         "hfgw=<Handle hfgw card profile (headset role)?> DEPRECATED "
-        "loopback_latency=<Latency in ms to use with the loopback module>");
+        "loopback_latency=<Latency in ms to use with the loopback module> "
+        "loopback=<Disable usage of loopback module>");
 
 static const char* const valid_modargs[] = {
     "auto_switch",
@@ -48,6 +49,7 @@ static const char* const valid_modargs[] = {
     "ag",
     "hfgw",
     "loopback_latency",
+    "loopback",
     NULL
 };
 
@@ -56,6 +58,7 @@ struct userdata {
     bool enable_a2dp_source;
     bool enable_ag;
     uint32_t loopback_latency;
+    bool loopback;
     pa_hook_slot *source_put_slot;
     pa_hook_slot *sink_put_slot;
     pa_hook_slot *source_output_put_slot;
@@ -88,6 +91,11 @@ static pa_hook_result_t source_put_hook_callback(pa_core *c, pa_source *source, 
     s = pa_proplist_gets(source->proplist, "bluetooth.protocol");
     if (!s)
         return PA_HOOK_OK;
+
+    if (!u->loopback) {
+        pa_log_debug("Loopback is disabled.  Bypassing");
+        return PA_HOOK_OK;
+    }
 
     if (u->enable_a2dp_source && pa_streq(s, "a2dp_source"))
         role = "music";
@@ -468,6 +476,12 @@ int pa__init(pa_module *m) {
     u->loopback_latency = 0;
     if (pa_modargs_get_value_u32(ma, "loopback_latency", &u->loopback_latency) < 0) {
         pa_log("Failed to parse loopback_latency argument.");
+        goto fail;
+    }
+
+    u->loopback = true;
+    if (pa_modargs_get_value_boolean(ma, "loopback", &u->loopback) < 0) {
+        pa_log("Failed to parse loopback argument.");
         goto fail;
     }
 

@@ -228,8 +228,6 @@ struct pa_qahw_jack_data* pa_qahw_spdif_jack_detection_enable(pa_qahw_jack_type_
         return NULL;
     }
 
-    port_name_underscore = pa_xstrdup(port_name);
-
     /* replace hyphen with underscore as in dbus doesn't allow hyphen in name */
     port_name_underscore = pa_replace(port_name, "-", "_");
 

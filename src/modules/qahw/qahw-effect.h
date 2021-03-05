@@ -23,6 +23,8 @@
 #include <pulsecore/protocol-dbus.h>
 #include <pulsecore/core-util.h>
 
+#include <qahw_effect_api.h>
+
 #include "qahw-sink.h"
 
 #define QAHW_EFFECT_OBJECT_PATH "/org/pulseaudio/core1/effect"
@@ -83,5 +85,7 @@ pa_qahw_effect_handle_t pa_qahw_init_effect(char *dbus_path,
 void pa_qahw_deinit_effect(pa_qahw_effect_handle_t effect_handle);
 
 void pa_qahw_free_sink_effects(pa_qahw_effect_handle_t handle, uint32_t sink_id);
+
+int pa_qahw_effect_string_to_uuid(char *str, qahw_effect_uuid_t *uuid);
 
 #endif

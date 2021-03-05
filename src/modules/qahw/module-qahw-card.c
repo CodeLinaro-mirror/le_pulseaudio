@@ -40,6 +40,7 @@
 #include "qahw-effect.h"
 #include "qahw-card.h"
 #include "qahw-config-parser.h"
+#include "qahw-adsp-post-proc.h"
 
 #define CONC(A,B) (A B)
 #define QAHW_MODULE_ID_PREFIX "audio."
@@ -106,6 +107,8 @@ struct userdata {
     pa_hashmap *sources;
 
     pa_qahw_effect_handle_t effect_handle;
+
+    pa_qahw_post_proc_handle_t post_proc_handle;
 
     pa_hashmap *jacks;
 
@@ -791,6 +794,8 @@ static void pa_qahw_card_disable_jack_detection(struct userdata *u, pa_module *m
             pa_log_info("Jack event callback deregister successful for jack %d\n", jack_info->jack_type);
         else
             pa_log_error("Jack event callback deregister failed for jack %d\n",  jack_info->jack_type);
+
+        pa_xfree(jack_info);
     }
 
     pa_hashmap_free(u->jacks);
@@ -879,6 +884,11 @@ static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
                     secondary_jack_info = pa_hashmap_remove(u->jacks, port_name);
                     pa_xfree(secondary_jack_info);
                 }
+            }
+
+            if (jack_in_config) {
+                pa_xfree(jack_in_config);
+                jack_in_config = NULL;
             }
         } else {
             jack_info->handle = jack_handle;
@@ -1271,6 +1281,8 @@ int pa__init(pa_module *m) {
 
     pa_qahw_loopback_init(u->module_handle, u->core, u->card, u->config_data->loopbacks, pa_qahw_loopback_callback, (void *)u, u->effect_handle, m);
 
+    u->post_proc_handle = pa_qahw_post_proc_module_init(u->core, dbus_protocol, u->config_data->topologies);
+
     return ret;
 
 fail:
@@ -1297,6 +1309,11 @@ void pa__done(pa_module *m) {
     }
 
     pa_qahw_loopback_deinit();
+
+    if(u->post_proc_handle) {
+        pa_qahw_post_proc_module_deinit(u->post_proc_handle);
+        u->post_proc_handle = NULL;
+    }
 
     if (u->sinks) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)

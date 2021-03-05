@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -31,6 +31,7 @@
 #include "qahw-effect.h"
 #include "qahw-utils.h"
 #include "qahw-loopback.h"
+#include "qahw-adsp-post-proc.h"
 
 #define QAHW_CARD_DEFAULT_CONF_NAME "default.conf"
 #define QAHW_CARD_DEFAULT_TARGET_NAME_LENGTH 7
@@ -42,6 +43,7 @@
 #define QAHW_CARD_EFFECT_PREFIX "Effect "
 #define QAHW_CARD_SND_SUFFIX "snd-card"
 #define QAHW_CARD_LOOPBACK_PREFIX "Loopback "
+#define QAHW_CARD_TOPOLOGY_PREFIX "Topology "
 
 static pa_qahw_sink_config* pa_qahw_config_get_sink(pa_hashmap *sinks, char *name);
 static pa_qahw_source_config *pa_qahw_config_get_source(pa_hashmap *sources, char *name);
@@ -104,6 +106,137 @@ static void pa_qahw_config_free_loopback(pa_qahw_loopback_config *loopback) {
     pa_xfree(loopback);
 } /* end loopback parsing related functions */
 
+static pa_qahw_topology_config* pa_qahw_config_get_topology(pa_hashmap *topologies, char *name) {
+    pa_qahw_topology_config *topology = NULL;
+
+    pa_assert(topologies);
+    pa_assert(name);
+
+    if (!pa_startswith(name, QAHW_CARD_TOPOLOGY_PREFIX)) {
+        goto exit;
+    }
+    /* point to Port name */
+    name += strlen(QAHW_CARD_TOPOLOGY_PREFIX);
+
+    topology = pa_hashmap_get(topologies, name);
+    if (topology)
+        goto exit;
+
+    topology = pa_xnew0(pa_qahw_topology_config, 1);
+    topology->name = pa_xstrdup(name);
+
+    topology->effect_configs = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+
+    pa_log_debug("%s::topology name is %s", __func__, topology->name);
+
+    pa_hashmap_put(topologies, topology->name, topology);
+
+exit:
+    return topology;
+}
+
+static void pa_qahw_config_free_topology(pa_qahw_topology_config *topology) {
+    pa_assert(topology);
+
+    pa_log_info("%s: freeing topology %s", __func__, topology->name);
+
+    pa_xfree(topology->name);
+
+    pa_xfree(topology->description);
+
+    pa_hashmap_free(topology->effect_configs);
+
+    pa_xfree(topology);
+}
+
+static int pa_qahw_config_parse_topology_id(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_topology_config *topology = NULL;
+
+    int ret = -1;
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((topology = pa_qahw_config_get_topology(config_data->topologies, state->section))) {
+        pa_atou(state->rvalue, &topology->topology_id);
+        pa_log_debug("%s: topology id %d for topology %s", __func__, topology->topology_id, topology->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+   ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_app_type(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_topology_config *topology = NULL;
+
+    int ret = -1;
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((topology = pa_qahw_config_get_topology(config_data->topologies, state->section))) {
+        pa_atou(state->rvalue, &topology->app_type);
+        pa_log_debug("%s: topology id %d for topology %s", __func__, topology->app_type, topology->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+   ret = 0;
+
+exit:
+    return ret;
+}
+
+static int pa_qahw_config_parse_topology_effect_names(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_topology_config *topology = NULL;
+    pa_qahw_effect_config *effect = NULL;
+
+    int ret = -1;
+    int i = 0;
+    char **items;
+    char *effect_name;
+
+    pa_log_debug("%s", __func__);
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if (!(topology = pa_qahw_config_get_topology(config_data->topologies, state->section))) {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    topology->effect_conf_string =  pa_split_spaces_strv(state->rvalue);
+
+    if (!(items = pa_split_spaces_strv(state->rvalue))) {
+        pa_log_error("%s: [%s:%u] effect name missing", __func__, state->filename, state->lineno);
+        goto exit;
+    }
+
+    while ((effect_name = items[i++])) {
+        if ((effect = pa_hashmap_get(config_data->effects, effect_name))) {
+            pa_hashmap_put(topology->effect_configs, effect_name, effect);
+            pa_log_debug("%s: adding effect %s to topology %s ", __func__, effect->name, topology->name);
+            continue;
+        }
+
+        pa_log_error("%s: invalid effect %s", __func__, effect_name);
+        goto exit;
+    }
+    ret = 0;
+exit:
+    return ret;
+} /* end topology parsing related functions */
+
 static pa_qahw_effect_config* pa_qahw_config_get_effect(pa_hashmap *effects, char *name) {
     pa_qahw_effect_config *effect = NULL;
 
@@ -162,7 +295,7 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
     effect->endpoint_conf_string =  pa_split_spaces_strv(state->rvalue);
     items = effect->endpoint_conf_string;
 
-    if (!(items = pa_split_spaces_strv(state->rvalue))) {
+    if (!items) {
         pa_log_error("%s: [%s:%u] port name missing", __func__, state->filename, state->lineno);
         goto exit;
     }
@@ -189,6 +322,7 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
         pa_log_error("%s: invalid endpoint %s", __func__, endpoint_name);
         goto exit;
     }
+
     ret = 0;
 exit:
     return ret;
@@ -1327,6 +1461,7 @@ static int pa_qahw_config_parse_description(pa_config_parser_state *state) {
     pa_qahw_sink_config *sink;
     pa_qahw_source_config *source;
     pa_qahw_loopback_config *loopback;
+    pa_qahw_topology_config *topology;
     pa_qahw_effect_config *effect;
 
     int ret = 0;
@@ -1345,6 +1480,8 @@ static int pa_qahw_config_parse_description(pa_config_parser_state *state) {
         source->description = pa_xstrdup(state->rvalue);
     } else if ((loopback = pa_qahw_config_get_loopback(config_data->loopbacks, state->section))) {
         loopback->description = pa_xstrdup(state->rvalue);
+    } else if ((topology = pa_qahw_config_get_topology(config_data->topologies, state->section))) {
+        topology->description = pa_xstrdup(state->rvalue);
     } else if ((effect = pa_qahw_config_get_effect(config_data->effects, state->section))) {
         effect->description = pa_xstrdup(state->rvalue);
     } else {
@@ -1845,6 +1982,9 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
 
     pa_xfree(port->description);
 
+    if (port->primary_port_name)
+        pa_xfree(port->primary_port_name);
+
     if (port->port_type)
         pa_xfree(port->port_type);
 
@@ -1907,6 +2047,9 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
 
     if (port->channel_status_path)
         pa_xfree(port->channel_status_path);
+
+    if (port->bus)
+        pa_xfree(port->bus);
 
     pa_idxset_free(port->formats, (pa_free_cb_t) pa_format_info_free);
 
@@ -2061,6 +2204,11 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "max-sink-channels",           pa_qahw_config_parse_profile_max_sink_channels,           NULL, NULL },
         { "max-source-channels",         pa_qahw_config_parse_profile_max_source_channels ,        NULL, NULL },
 
+        /* [Topology... ] */
+        { "topology-id",                 pa_qahw_config_parse_topology_id,                         NULL, NULL },
+        { "app-type",                    pa_qahw_config_parse_app_type,                            NULL, NULL },
+        { "effect-names",                pa_qahw_config_parse_topology_effect_names,               NULL, NULL },
+
         /* [Effect... ] */
         { "endpoint-names",              pa_qahw_config_parse_effect_endpoint_names,               NULL, NULL },
 
@@ -2133,6 +2281,8 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
     config_data->sources = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_source);
 
     config_data->loopbacks = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_loopback);
+
+    config_data->topologies = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_topology);
 
     config_data->effects = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qahw_config_free_effect);
 
