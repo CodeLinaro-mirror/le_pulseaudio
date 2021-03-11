@@ -683,7 +683,7 @@ static void qahw_source_thread_func(void *userdata) {
         if (qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP)
             in_buf.timestamp = (int64_t *)&chunk.timestamp;
 
-        if (!pa_atomic_load(&qahw_sdata->stopped)) {
+        if (!pa_atomic_load(&qahw_sdata->stopped) && PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
             if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) <= 0) {
                 pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %" PRIu64 "ms",
                         ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
