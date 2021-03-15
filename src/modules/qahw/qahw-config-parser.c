@@ -235,6 +235,29 @@ static int pa_qahw_config_parse_topology_effect_names(pa_config_parser_state *st
     ret = 0;
 exit:
     return ret;
+}
+
+static int pa_qahw_config_parse_latency_us(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_topology_config *topology = NULL;
+
+    int ret = -1;
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((topology = pa_qahw_config_get_topology(config_data->topologies, state->section))) {
+        pa_atou(state->rvalue, &topology->latency_us);
+        pa_log_debug("%s: latency_us %d for topology %s", __func__, topology->latency_us, topology->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+   ret = 0;
+
+exit:
+    return ret;
 } /* end topology parsing related functions */
 
 static pa_qahw_effect_config* pa_qahw_config_get_effect(pa_hashmap *effects, char *name) {
@@ -2208,6 +2231,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "topology-id",                 pa_qahw_config_parse_topology_id,                         NULL, NULL },
         { "app-type",                    pa_qahw_config_parse_app_type,                            NULL, NULL },
         { "effect-names",                pa_qahw_config_parse_topology_effect_names,               NULL, NULL },
+        { "latency_us",                  pa_qahw_config_parse_latency_us,                          NULL, NULL },
 
         /* [Effect... ] */
         { "endpoint-names",              pa_qahw_config_parse_effect_endpoint_names,               NULL, NULL },
