@@ -1825,6 +1825,8 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
 
     pa_log_debug("qahw sink opened %p", qahw_sdata->out_handle);
 
+    sdata->qahw_sink_opened = true;
+
     qahw_sdata->sink_buffer_size = qahw_out_get_buffer_size(qahw_sdata->out_handle);
     if (qahw_sdata->sink_buffer_size <= 0) {
         qahw_close_output_stream(qahw_sdata->out_handle);
