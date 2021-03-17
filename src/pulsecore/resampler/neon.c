@@ -101,7 +101,7 @@ static unsigned neon_prop_resample(pa_resampler *r, const pa_memchunk *input,
 
         pa_deinterleave_stream((uint8_t *)in + in_offset,
                                src_data->deinterleave_stream,
-                               r->i_ss.channels,
+                               r->work_channels,
                                pa_sample_size_of_format(r->work_format),
                                src_in_frames);
         (*resample90dB_wrapper)(src_data->state, src_data->deinterleave_stream,
@@ -170,7 +170,7 @@ static int create_neon_src_instance(pa_resampler *r) {
 
     pa_log("NEON SRC: create_neon_src_instance");
     in_bit_depth = (int)pa_sample_size(&r->i_ss) * 8;
-    state_size = (*memalloc_wrapper)(in_bit_depth, r->i_ss.channels, r->i_ss.rate, r->o_ss.rate);
+    state_size = (*memalloc_wrapper)(in_bit_depth, r->work_channels, r->i_ss.rate, r->o_ss.rate);
 
     src_data = pa_xnew0(struct neon_src_data, 1);
 
@@ -180,7 +180,7 @@ static int create_neon_src_instance(pa_resampler *r) {
     // SRC in and out sample spec
     src_data->w_i_ss.format = r->work_format;
     src_data->w_i_ss.rate = r->i_ss.rate;
-    src_data->w_i_ss.channels = r->i_ss.channels;
+    src_data->w_i_ss.channels = r->work_channels;
     src_data->w_o_ss.format = r->work_format;
     src_data->w_o_ss.rate = r->o_ss.rate;
     src_data->w_o_ss.channels = r->work_channels;
@@ -200,7 +200,7 @@ static int create_neon_src_instance(pa_resampler *r) {
     r->impl.free = neon_prop_free;
     r->impl.data = src_data;
 
-    ret = (*neon_init_wrapper)(src_data->state, r->i_ss.channels, r->i_ss.rate, r->o_ss.rate, 0, 0, 0);
+    ret = (*neon_init_wrapper)(src_data->state, r->work_channels, r->i_ss.rate, r->o_ss.rate, 0, 0, 0);
     return ret;
 }
 
