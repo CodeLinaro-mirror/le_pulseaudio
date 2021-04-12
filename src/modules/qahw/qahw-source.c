@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -56,6 +56,8 @@
 #define AUDIO_IN_VALID_CH_COUNT_FOR_CH_MASK 8
 
 #define PA_DEFAULT_STARTUP_LATENCY_USEC (100 * 1000)
+#define PA_A2DP_STARTUP_LATENCY_USEC (500 * 1000)
+#define PA_A2DP_RUNTIME_DELAY_USEC (200 * 1000)
 
 //#define SOURCE_DUMP_ENABLED
 
@@ -681,11 +683,15 @@ static void qahw_source_thread_func(void *userdata) {
         if (qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP)
             in_buf.timestamp = (int64_t *)&chunk.timestamp;
 
-        if (!pa_atomic_load(&qahw_sdata->stopped)) {
+        if (!pa_atomic_load(&qahw_sdata->stopped) && PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
             if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) <= 0) {
                 pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %" PRIu64 "ms",
                         ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 ret = in_buf.bytes;
+
+                pa_memblock_release(chunk.memblock);
+                pa_memblock_unref(chunk.memblock);
+
                 wait = true;
                 pa_rtpoll_set_timer_relative(qahw_sdata->qahw_thread_rtpoll,
                                     pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
@@ -767,7 +773,12 @@ static void pa_qahw_source_io_thread_func(void *userdata) {
 
         /* Start timer */
         if (PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
-            timeout = pa_atomic_load(&qahw_sdata->first_read) ? (qahw_sdata->source_latency_us * 2)
+            if (audio_is_a2dp_in_device(qahw_sdata->devices))
+                timeout = pa_atomic_load(&qahw_sdata->first_read) ? PA_A2DP_RUNTIME_DELAY_USEC
+                                                              : ((qahw_sdata->source_latency_us * 2)
+                                                                + PA_A2DP_STARTUP_LATENCY_USEC);
+            else
+                timeout = pa_atomic_load(&qahw_sdata->first_read) ? (qahw_sdata->source_latency_us * 2)
                                                               : ((qahw_sdata->source_latency_us * 2)
                                                                 + PA_DEFAULT_STARTUP_LATENCY_USEC);
 
@@ -988,6 +999,8 @@ static void free_qahw_source(qahw_source_data *qahw_sdata) {
 
     if (qahw_sdata->qahw_thread_rtpoll)
         pa_rtpoll_free(qahw_sdata->qahw_thread_rtpoll);
+
+    pa_xfree(qahw_sdata->qahw_msg);
 
     pa_log_debug("Freed qahw source thread resources");
 }

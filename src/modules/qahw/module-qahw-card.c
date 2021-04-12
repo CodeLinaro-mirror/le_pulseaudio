@@ -794,6 +794,8 @@ static void pa_qahw_card_disable_jack_detection(struct userdata *u, pa_module *m
             pa_log_info("Jack event callback deregister successful for jack %d\n", jack_info->jack_type);
         else
             pa_log_error("Jack event callback deregister failed for jack %d\n",  jack_info->jack_type);
+
+        pa_xfree(jack_info);
     }
 
     pa_hashmap_free(u->jacks);
@@ -882,6 +884,11 @@ static void pa_qahw_card_enable_jack_detection(struct userdata *u) {
                     secondary_jack_info = pa_hashmap_remove(u->jacks, port_name);
                     pa_xfree(secondary_jack_info);
                 }
+            }
+
+            if (jack_in_config) {
+                pa_xfree(jack_in_config);
+                jack_in_config = NULL;
             }
         } else {
             jack_info->handle = jack_handle;

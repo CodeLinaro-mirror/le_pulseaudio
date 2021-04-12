@@ -235,6 +235,29 @@ static int pa_qahw_config_parse_topology_effect_names(pa_config_parser_state *st
     ret = 0;
 exit:
     return ret;
+}
+
+static int pa_qahw_config_parse_latency_us(pa_config_parser_state *state) {
+    pa_qahw_config_data* config_data = state->userdata;
+    pa_qahw_topology_config *topology = NULL;
+
+    int ret = -1;
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if ((topology = pa_qahw_config_get_topology(config_data->topologies, state->section))) {
+        pa_atou(state->rvalue, &topology->latency_us);
+        pa_log_debug("%s: latency_us %d for topology %s", __func__, topology->latency_us, topology->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+   ret = 0;
+
+exit:
+    return ret;
 } /* end topology parsing related functions */
 
 static pa_qahw_effect_config* pa_qahw_config_get_effect(pa_hashmap *effects, char *name) {
@@ -295,7 +318,7 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
     effect->endpoint_conf_string =  pa_split_spaces_strv(state->rvalue);
     items = effect->endpoint_conf_string;
 
-    if (!(items = pa_split_spaces_strv(state->rvalue))) {
+    if (!items) {
         pa_log_error("%s: [%s:%u] port name missing", __func__, state->filename, state->lineno);
         goto exit;
     }
@@ -322,6 +345,7 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
         pa_log_error("%s: invalid endpoint %s", __func__, endpoint_name);
         goto exit;
     }
+
     ret = 0;
 exit:
     return ret;
@@ -1981,6 +2005,9 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
 
     pa_xfree(port->description);
 
+    if (port->primary_port_name)
+        pa_xfree(port->primary_port_name);
+
     if (port->port_type)
         pa_xfree(port->port_type);
 
@@ -2043,6 +2070,9 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
 
     if (port->channel_status_path)
         pa_xfree(port->channel_status_path);
+
+    if (port->bus)
+        pa_xfree(port->bus);
 
     pa_idxset_free(port->formats, (pa_free_cb_t) pa_format_info_free);
 
@@ -2201,6 +2231,7 @@ pa_qahw_config_data* pa_qahw_config_parse_new(char *dir, char *conf_file_name) {
         { "topology-id",                 pa_qahw_config_parse_topology_id,                         NULL, NULL },
         { "app-type",                    pa_qahw_config_parse_app_type,                            NULL, NULL },
         { "effect-names",                pa_qahw_config_parse_topology_effect_names,               NULL, NULL },
+        { "latency_us",                  pa_qahw_config_parse_latency_us,                          NULL, NULL },
 
         /* [Effect... ] */
         { "endpoint-names",              pa_qahw_config_parse_effect_endpoint_names,               NULL, NULL },

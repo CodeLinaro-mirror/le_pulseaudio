@@ -33,6 +33,7 @@ typedef struct {
     uint32_t app_type;
     char **effect_conf_string;
     pa_hashmap *effect_configs;
+    uint32_t latency_us;
 } pa_qahw_topology_config;
 
 #ifdef QAHW_AUDIO_ADSP_PP_ENABLED
