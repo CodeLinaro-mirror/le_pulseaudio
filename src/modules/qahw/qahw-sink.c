@@ -203,6 +203,7 @@ static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t e
                             audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata, int32_t buffer_duration, double max_gain);
 static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                           audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata, int32_t buffer_duration, double max_gain);
+static int qahw_sink_set_routing(qahw_sink_data *qahw_sdata, audio_devices_t active_device, audio_devices_t new_device);
 static int close_qahw_sink(pa_qahw_sink_data *sdata);
 static void free_qahw_sink_thread_resources(qahw_sink_data *qahw_sdata);
 static int free_pa_sink(pa_qahw_sink_data *sdata);
@@ -840,12 +841,10 @@ static void pa_qahw_sink_set_volume_cb(pa_sink *s) {
 static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     pa_qahw_card_port_device_data *port_device_data;
     pa_qahw_card_port_device_data *active_port_device_data;
-    char *kvpair;
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)s->userdata;
-    int rc = 0;
 
     if (!sdata->qahw_sink_opened)
-        return rc;
+        return 0;
 
     pa_assert(sdata);
     pa_assert(sdata->qahw_sdata);
@@ -857,38 +856,45 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     active_port_device_data = PA_DEVICE_PORT_DATA(s->active_port);
     pa_assert(active_port_device_data);
 
-    if (active_port_device_data->device & AUDIO_DEVICE_OUT_HDMI) {
-        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_DISCONNECT, active_port_device_data->device);
+    return qahw_sink_set_routing(sdata->qahw_sdata, active_port_device_data->device, port_device_data->device);
+}
 
-        rc = qahw_set_parameters(sdata->qahw_sdata->module_handle, kvpair);
+static int qahw_sink_set_routing(qahw_sink_data *qahw_sdata, audio_devices_t active_device, audio_devices_t new_device) {
+    int rc = 0;
+    char *kvpair;
+
+    if (active_device & AUDIO_DEVICE_OUT_HDMI) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_DISCONNECT, active_device);
+
+        rc = qahw_set_parameters(qahw_sdata->module_handle, kvpair);
         if (rc)
             pa_log_error("qahw set parameters failed %d",rc);
 
-        pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, active_port_device_data->device);
+        pa_log_info("%s: kvpair %s device %x", __func__, kvpair, active_device);
 
         pa_xfree(kvpair);
     }
 
-    if ((port_device_data->device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) || (port_device_data->device & AUDIO_DEVICE_OUT_HDMI)) {
-        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_CONNECT, port_device_data->device);
+    if ((new_device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) || (new_device & AUDIO_DEVICE_OUT_HDMI)) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_CONNECT, new_device);
 
-        rc = qahw_set_parameters(sdata->qahw_sdata->module_handle, kvpair);
+        rc = qahw_set_parameters(qahw_sdata->module_handle, kvpair);
         if (rc)
             pa_log_error("qahw set parameters failed %d",rc);
 
-        pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
+        pa_log_info("%s: kvpair %s device %x", __func__, kvpair, new_device);
 
         pa_xfree(kvpair);
     }
 
-    kvpair = pa_sprintf_malloc("%s=%u", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
-    pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
+    kvpair = pa_sprintf_malloc("%s=%u", QAHW_PARAMETER_STREAM_ROUTING, new_device);
+    pa_log_info("%s: kvpair %s device %x", __func__, kvpair, new_device);
 
-    rc = qahw_out_set_parameters(sdata->qahw_sdata->out_handle, kvpair);
+    rc = qahw_out_set_parameters(qahw_sdata->out_handle, kvpair);
     if (rc)
         pa_log_error("qahw routing failed %d",rc);
     else
-        sdata->qahw_sdata->devices = port_device_data->device;
+        qahw_sdata->devices = new_device;
 
     pa_xfree(kvpair);
 
@@ -1808,6 +1814,8 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
         goto exit;
     }
 
+    qahw_sink_set_routing(qahw_sdata, devices, devices);
+
     if (qahw_sdata->config.format == AUDIO_FORMAT_DSD) {
         if (qahw_sdata->dsd_rate == 64)
             dsd_format = "dsd_format=0";
@@ -2193,9 +2201,6 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
         goto fail;
     }
 
-    /* keep pa sink and qahw port in sync, qahw is opened with some default port, update qahw with active port decided by pa sink */
-    pa_qahw_sink_set_port_cb(pa_sdata->sink, pa_sdata->sink->active_port);
-
    pa_sink_put(pa_sdata->sink);
 
    return 0;
@@ -2347,8 +2352,8 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
             pa_hashmap_put(ports, card_port->name, card_port);
     }
 
-    /* first entry is default device */
-    card_port = pa_hashmap_first(ports);
+    /* find the port with highest priority */
+    card_port = pa_device_port_find_best(ports);
     port_device_data = PA_DEVICE_PORT_DATA(card_port);
     pa_assert(port_device_data);
 
