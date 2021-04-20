@@ -55,7 +55,7 @@
 #define PA_DEFAULT_SOURCE_CHANNELS 2
 #define AUDIO_IN_VALID_CH_COUNT_FOR_CH_MASK 8
 
-#define PA_DEFAULT_STARTUP_LATENCY_USEC (100 * 1000)
+#define PA_DEFAULT_STARTUP_LATENCY_USEC (200 * 1000)
 #define PA_A2DP_STARTUP_LATENCY_USEC (500 * 1000)
 #define PA_A2DP_RUNTIME_DELAY_USEC (200 * 1000)
 
@@ -683,7 +683,7 @@ static void qahw_source_thread_func(void *userdata) {
         if (qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP)
             in_buf.timestamp = (int64_t *)&chunk.timestamp;
 
-        if (!pa_atomic_load(&qahw_sdata->stopped) && PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
+        if (!pa_atomic_load(&qahw_sdata->stopped)) {
             if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) <= 0) {
                 pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %" PRIu64 "ms",
                         ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
@@ -772,7 +772,7 @@ static void pa_qahw_source_io_thread_func(void *userdata) {
         int ret = 0;
 
         /* Start timer */
-        if (PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
+        if (!pa_atomic_load(&qahw_sdata->stopped)) {
             if (audio_is_a2dp_in_device(qahw_sdata->devices))
                 timeout = pa_atomic_load(&qahw_sdata->first_read) ? PA_A2DP_RUNTIME_DELAY_USEC
                                                               : ((qahw_sdata->source_latency_us * 2)
@@ -1014,6 +1014,7 @@ static int create_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t
    sdata->qahw_sdata->preemph_status = preemph_status;
    sdata->qahw_sdata->dsd_rate = dsd_rate;
    sdata->qahw_sdata->ts_log = TRACE_LOG_STATIC_INIT;
+   pa_atomic_store(&sdata->qahw_sdata->stopped, 1);
 
    rc = open_qahw_source(module_handle, encoding, ss, map, devices, flags, source_id, sdata->qahw_sdata, source_type, buffer_duration, qahw_processing_id);
    if (rc) {
