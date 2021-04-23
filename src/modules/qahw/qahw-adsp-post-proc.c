@@ -67,6 +67,7 @@ typedef struct {
     char *topology_id_str;
     uint32_t app_type;
     pa_hashmap *effect_infos;
+    uint32_t latency_us;
 } pa_qahw_post_proc_topology_info_t;
 
 typedef struct {
@@ -103,6 +104,8 @@ typedef struct {
 
     uint32_t topology_id;
     uint32_t app_type;
+
+    uint32_t latency_us;
 
     qahw_post_proc_stream_handle_t *stream_handle;
     uint32_t popp_id;
@@ -176,7 +179,8 @@ pa_dbus_arg_info create_session_args[] = {
     {"out_config", "uus", "in"},
     {"in_file", "s", "out"},
     {"out_file", "s", "out"},
-    {"session_object_path", "o", "out"}
+    {"session_object_path", "o", "out"},
+    {"latency_us", "u", "out"}
 };
 
 pa_dbus_arg_info get_supported_topologies_args[] = {
@@ -360,6 +364,7 @@ static void pa_qahw_fill_topology_infos (pa_qahw_post_proc_module_data_t *mdata,
             topology_info->name = pa_xstrdup(topology_config->name);
             topology_info->topology_id = topology_config->topology_id;
             topology_info->app_type = topology_config->app_type;
+            topology_info->latency_us = topology_config->latency_us;
             topology_info->effect_infos = NULL;
 
             if (!pa_hashmap_isempty(topology_config->effect_configs)) {
@@ -620,6 +625,9 @@ static void pa_qahw_create_post_proc_session (DBusConnection *conn, DBusMessage 
     DBusMessage *reply = NULL;
 
     char *format_str = NULL;
+    char *topology_id_str;
+
+    pa_qahw_post_proc_topology_info_t *topology_info;
 
     uint32_t topology_id;
     uint32_t app_type;
@@ -654,6 +662,16 @@ static void pa_qahw_create_post_proc_session (DBusConnection *conn, DBusMessage 
     dbus_message_iter_get_basic(&iter, &topology_id);
     dbus_message_iter_next(&iter);
     dbus_message_iter_get_basic(&iter, &app_type);
+
+    topology_id_str = pa_sprintf_malloc("%u", topology_id);
+    topology_info = pa_hashmap_get(mdata->topology_infos, topology_id_str);
+    pa_xfree(topology_id_str);
+
+    if (topology_info == NULL) {
+        pa_log_error("%s: Topology with id %s not found", __func__, topology_id_str);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Topology info not found");
+        return;
+    }
 
     dbus_message_iter_next(&iter);
     dbus_message_iter_get_basic(&iter, &input_buf_config.sampling_rate);
@@ -701,11 +719,14 @@ static void pa_qahw_create_post_proc_session (DBusConnection *conn, DBusMessage 
         pa_assert_se(pa_dbus_protocol_add_interface(mdata->dbus_protocol,
                      sdata->session_object_path, &session_interface_info, sdata) >= 0);
 
+        sdata->latency_us = topology_info->latency_us;
+
         pa_assert_se((reply = dbus_message_new_method_return(msg)));
         dbus_message_iter_init_append(reply, &iter);
         dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &sdata->input_file_name);
         dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &sdata->output_file_name);
         dbus_message_iter_append_basic(&iter, DBUS_TYPE_OBJECT_PATH, &sdata->session_object_path);
+        dbus_message_iter_append_basic(&iter, DBUS_TYPE_UINT32, &sdata->latency_us);
 
         pa_assert_se(dbus_connection_send(conn, reply, NULL));
         dbus_error_free(&error);
@@ -965,6 +986,10 @@ static int pa_qahw_write_output (pa_qahw_post_proc_session_data_t *sdata, pa_mem
         l = pa_write(sdata->output_fd, (uint8_t*) data + out_chunk->index, out_chunk->length, write_type);
         pa_memblock_release(out_chunk->memblock);
 
+#ifdef POST_PROC_DEBUG
+        pa_log_debug("%s: wrote %u bytes", __func__, l);
+#endif
+
         pa_assert(l != 0);
 
         if (l < 0) {
@@ -1065,6 +1090,8 @@ static void pa_qahw_post_proc_effect_command (DBusConnection *conn, DBusMessage 
     void *command_data = NULL, *reply_data = NULL;
     qahw_effect_offload_v2_param_t *offload_command_data = NULL;
 
+    bool persist;
+
     int rc;
 
     pa_assert(conn);
@@ -1078,15 +1105,16 @@ static void pa_qahw_post_proc_effect_command (DBusConnection *conn, DBusMessage 
     dbus_error_init(&error);
 
     if (!dbus_message_iter_init(msg, &iter)) {
-        pa_log_error("%s: GetParam has no arguments", __func__);
-        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "GetParam has no arguments.");
+        pa_log_error("%s: No arguments", __func__);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "No arguments.");
         dbus_error_free(&error);
         return;
     }
 
-    if (!pa_streq(dbus_message_get_signature(msg), "(uqqqay)uuay")) {
-        pa_log_error("%s: Invalid signature for GetParam", __func__);
-        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Invalid signature for GetParam");
+    if ((command_code == QAHW_EFFECT_CMD_SET_PERSIST && !pa_streq(dbus_message_get_signature(msg), "(uqqqay)b")) ||
+        (command_code != QAHW_EFFECT_CMD_SET_PERSIST && !pa_streq(dbus_message_get_signature(msg), "(uqqqay)uuay"))) {
+        pa_log_error("%s: Invalid signature", __func__);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Invalid signature");
         dbus_error_free(&error);
         return;
     }
@@ -1193,7 +1221,8 @@ static void pa_qahw_post_proc_effect_command (DBusConnection *conn, DBusMessage 
             break;
         case QAHW_EFFECT_CMD_SET_PERSIST:
             dbus_message_iter_next(&iter);
-            dbus_message_iter_get_basic(&iter, &command_data);
+            dbus_message_iter_get_basic(&iter, &persist);
+            command_data = (void *) (&persist);
             reply_size = 0;
             break;
         default:

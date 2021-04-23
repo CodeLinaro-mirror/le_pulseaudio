@@ -90,7 +90,8 @@ typedef enum {
 typedef enum {
     QAHW_SINK_MESSAGE_CHUNK_AVAILABLE,
     QAHW_SINK_MESSAGE_STANDBY,
-    QAHW_SINK_MESSAGE_CLOSE_OUTPUT
+    QAHW_SINK_MESSAGE_CLOSE_OUTPUT,
+    QAHW_SINK_MESSAGE_PAUSE
 } qahw_msgs_t;
 
 typedef enum {
@@ -954,7 +955,13 @@ static int pa_qahw_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t ne
     } else if (PA_SINK_IS_RUNNING(new_state) && (s->thread_info.state == PA_SINK_IDLE) && sdata->qahw_sink_opened) {
         r = pa_qahw_sink_pause(sdata, false);
     } else if (PA_SINK_IS_RUNNING(s->thread_info.state) && (new_state == PA_SINK_IDLE) && sdata->qahw_sink_opened) {
-        r = pa_qahw_sink_pause(sdata, true);
+        pa_mutex_lock(sdata->qahw_sdata->qahw_thread_mutex);
+        if (qahw_sdata->qahw_thread) {
+            pa_asyncmsgq_send(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
+                                                                       QAHW_SINK_MESSAGE_PAUSE, &r, 0, NULL);
+        }
+        pa_mutex_unlock(sdata->qahw_sdata->qahw_thread_mutex);
+        pa_log_debug("%s Ack pause returned: %d", __func__, r);
     }
 
 exit:
@@ -1282,6 +1289,11 @@ static int qahw_sink_process_msg (pa_msgobject *o, int code, void *data, int64_t
                 pa_log_error(" could not close sink sink handle %p, error  %d", sdata->qahw_sdata->out_handle, rc);
             sdata->qahw_sdata->out_handle = NULL;
             *((int*) data) = rc;
+            return 0;
+
+        case QAHW_SINK_MESSAGE_PAUSE:
+            pa_qahw_sink_pause(sdata, true);
+            pa_log_info("%s: Executed message PA_QAHW_SINK_MESSAGE_PAUSE", __func__);
             return 0;
 
         default:
@@ -1813,6 +1825,8 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
 
     pa_log_debug("qahw sink opened %p", qahw_sdata->out_handle);
 
+    sdata->qahw_sink_opened = true;
+
     qahw_sdata->sink_buffer_size = qahw_out_get_buffer_size(qahw_sdata->out_handle);
     if (qahw_sdata->sink_buffer_size <= 0) {
         qahw_close_output_stream(qahw_sdata->out_handle);
@@ -1924,6 +1938,7 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
         pa_asyncmsgq_send(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
                                       QAHW_SINK_MESSAGE_CLOSE_OUTPUT, &rc, 0, NULL);
         pa_log_debug("%s Ack closing qahw sink rc: %d", __func__, rc);
+        sdata->qahw_sink_opened = false;
     }
 
 #ifdef SINK_DUMP_ENABLED

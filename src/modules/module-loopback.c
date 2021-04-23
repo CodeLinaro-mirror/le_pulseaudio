@@ -3,6 +3,7 @@
 
     Copyright 2009 Intel Corporation
     Contributor: Pierre-Louis Bossart <pierre-louis.bossart@intel.com>
+    Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
 
     PulseAudio is free software; you can redistribute it and/or modify
     it under the terms of the GNU Lesser General Public License as published
@@ -65,6 +66,13 @@ PA_MODULE_USAGE(
 
 typedef struct loopback_msg loopback_msg;
 
+enum timestamped_t {
+    TIMESTAMPED_NONE = 0,
+    TIMESTAMPED_INPUT = 1,
+    TIMESTAMPED_OUTPUT = 2,
+    TIMESTAMPED_BOTH = TIMESTAMPED_INPUT | TIMESTAMPED_OUTPUT
+};
+
 struct userdata {
     pa_core *core;
     pa_module *module;
@@ -123,6 +131,8 @@ struct userdata {
         size_t loopback_memblockq_length;
         int64_t sink_latency;
         pa_usec_t sink_timestamp;
+
+        enum timestamped_t timestamped;
     } latency_snapshot;
 
     /* Input thread variable */
@@ -142,6 +152,9 @@ struct userdata {
         bool pop_adjust;
         bool first_pop_done;
         bool push_called;
+
+        enum timestamped_t timestamped;
+        bool needs_chunk;
     } output_thread_info;
 };
 
@@ -403,6 +416,13 @@ static void time_callback(pa_mainloop_api *a, pa_time_event *e, const struct tim
     pa_asyncmsgq_send(u->sink_input->sink->asyncmsgq, PA_MSGOBJECT(u->sink_input), SINK_INPUT_MESSAGE_LATENCY_SNAPSHOT, NULL, 0, NULL);
     pa_asyncmsgq_send(u->source_output->source->asyncmsgq, PA_MSGOBJECT(u->source_output), SOURCE_OUTPUT_MESSAGE_LATENCY_SNAPSHOT, NULL, 0, NULL);
 
+    if (u->latency_snapshot.timestamped == TIMESTAMPED_BOTH) {
+        /* Both input and output supports timestamps, they will take care of
+         * rate adjustments themselves */
+        enable_adjust_timer(u, false);
+        return;
+    }
+
     adjust_rates(u);
 }
 
@@ -488,6 +508,11 @@ static void memblockq_adjust(struct userdata *u, int64_t latency_offset_usec, bo
     size_t current_memblockq_length, requested_memblockq_length, buffer_correction;
     int64_t requested_buffer_latency;
     pa_usec_t final_latency, requested_sink_latency;
+
+    /* If both input and output handles timestamps, there is no need to adjust
+     * the queue, the output will do it based on the timestamps */
+    if (u->output_thread_info.timestamped == TIMESTAMPED_BOTH)
+        return;
 
     final_latency = PA_MAX(u->latency, u->output_thread_info.minimum_latency);
 
@@ -714,6 +739,8 @@ static void source_output_moving_cb(pa_source_output *o, pa_source *dest) {
 
     u->source_sink_changed = true;
 
+    u->output_thread_info.timestamped = TIMESTAMPED_NONE;
+
     /* Send a mesage to the output thread that the source has changed.
      * If the sink is invalid here during a profile switching situation
      * we can safely set push_called to false directly. */
@@ -799,8 +826,14 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
         }
         chunk->length = PA_MIN(chunk->length, nbytes);
     } else {
+        if ((u->output_thread_info.timestamped & TIMESTAMPED_OUTPUT) == 0) {
+            u->output_thread_info.timestamped |= TIMESTAMPED_OUTPUT;
+            if (u->output_thread_info.timestamped == TIMESTAMPED_BOTH) {
+                pa_memblockq_set_prebuf(u->memblockq, 0);
+            }
+        }
         if (pa_memblockq_peek_one(u->memblockq, chunk) <0) {
-            pa_log_info("Could not peek_one into queue");
+            u->output_thread_info.needs_chunk = true;
             return -1;
         }
     }
@@ -850,6 +883,13 @@ static int sink_input_process_msg_cb(pa_msgobject *obj, int code, void *data, in
         case SINK_INPUT_MESSAGE_POST:
 
             pa_memblockq_push_align(u->memblockq, chunk);
+
+            if ((chunk->timestamp != PA_NSEC_INVALID) && ((u->output_thread_info.timestamped & TIMESTAMPED_INPUT) == 0)) {
+                u->output_thread_info.timestamped |= TIMESTAMPED_INPUT;
+                if (u->output_thread_info.timestamped == TIMESTAMPED_BOTH) {
+                    pa_memblockq_set_prebuf(u->memblockq, 0);
+                }
+            }
 
             /* If push has not been called yet, latency adjustments in sink_input_pop_cb()
              * are enabled. Disable them on first push and correct the memblockq. If pop
@@ -907,7 +947,7 @@ static int sink_input_process_msg_cb(pa_msgobject *obj, int code, void *data, in
 
                 pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(u->msg), LOOPBACK_MESSAGE_UNDERRUN, NULL, 0, NULL, NULL);
                 /* If called from within the pop callback skip the rewind */
-                if (!u->output_thread_info.in_pop) {
+                if ((!u->output_thread_info.in_pop) && (u->output_thread_info.timestamped != TIMESTAMPED_BOTH)) {
                     pa_log_debug("Requesting rewind due to end of underrun.");
                     pa_sink_input_request_rewind(u->sink_input,
                                                  (size_t) (u->sink_input->thread_info.underrun_for == (size_t) -1 ? 0 : u->sink_input->thread_info.underrun_for),
@@ -916,6 +956,11 @@ static int sink_input_process_msg_cb(pa_msgobject *obj, int code, void *data, in
             }
 
             u->output_thread_info.recv_counter += (int64_t) chunk->length;
+            if (u->output_thread_info.needs_chunk) {
+                pa_sink *root_sink = pa_sink_get_root(u->sink_input->sink);
+                pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(root_sink), PA_SINK_MESSAGE_CHUNK_AVAILABLE, NULL, 0, NULL, NULL);
+                u->output_thread_info.needs_chunk = false;
+            }
 
             return 0;
 
@@ -940,6 +985,7 @@ static int sink_input_process_msg_cb(pa_msgobject *obj, int code, void *data, in
             u->latency_snapshot.sink_latency = pa_sink_get_latency_within_thread(u->sink_input->sink, true) +
                                                pa_bytes_to_usec(length, &u->sink_input->sink->sample_spec);
             u->latency_snapshot.sink_timestamp = pa_rtclock_now();
+            u->latency_snapshot.timestamped = u->output_thread_info.timestamped;
 
             return 0;
         }
@@ -1039,8 +1085,12 @@ static void sink_input_update_max_request_cb(pa_sink_input *i, size_t nbytes) {
     pa_sink_input_assert_io_context(i);
     pa_assert_se(u = i->userdata);
 
-    pa_memblockq_set_prebuf(u->memblockq, nbytes*2);
-    pa_log_info("Max request changed");
+    if (u->output_thread_info.timestamped != TIMESTAMPED_BOTH) {
+        pa_memblockq_set_prebuf(u->memblockq, nbytes * 2);
+        pa_log_info("Max request changed");
+    } else {
+        pa_log_info("Timestamped output, ignoring max request changed");
+    }
 }
 
 /* Called from main thread */
@@ -1110,6 +1160,9 @@ static void sink_input_moving_cb(pa_sink_input *i, pa_sink *dest) {
 
     u->output_thread_info.pop_called = false;
     u->output_thread_info.first_pop_done = false;
+
+    u->output_thread_info.timestamped = TIMESTAMPED_NONE;
+    u->output_thread_info.needs_chunk = false;
 
     /* Sample rate may be far away from the default rate if we are still
      * recovering from a previous source or sink change, so reset rate to
