@@ -788,9 +788,9 @@ static void pa_qahw_source_io_thread_func(void *userdata) {
                                                               : ((qahw_sdata->source_latency_us * 2)
                                                                 + PA_A2DP_STARTUP_LATENCY_USEC);
             else
-                timeout = pa_atomic_load(&qahw_sdata->first_read) ? (qahw_sdata->source_latency_us * 2)
+                timeout = pa_atomic_load(&qahw_sdata->first_read) ? (qahw_sdata->source_latency_us * 8)    // timeout after first read done.
                                                               : ((qahw_sdata->source_latency_us * 2)
-                                                                + PA_DEFAULT_STARTUP_LATENCY_USEC);
+                                                                + PA_DEFAULT_STARTUP_LATENCY_USEC);        // timeout for first read.
 
             pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, timeout);
             timer_enabled = true;
