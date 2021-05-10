@@ -1415,13 +1415,19 @@ static int sink_input_process_msg(pa_msgobject *o, int code, void *userdata, int
                         break;
 
                     case SINK_INPUT_MESSAGE_DRAIN:
-                        if (pa_sink_drain(i->sink) < 0) {
-                            pa_log_warn("Unable to drain sink");
-                            /* We're not going to get an ack, tell the client
-                             * to not wait */
-                            pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, userdata, 0, NULL, NULL);
-                        }
                         s->drain_tag = PA_PTR_TO_UINT(userdata);
+
+                        if (!pa_memblockq_is_readable(s->memblockq)) {
+                            if (pa_sink_drain(i->sink) < 0) {
+                                pa_log_warn("Unable to drain sink");
+                                /* We're not going to get an ack from the sink,
+                                 * tell the clientto not wait */
+                                pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, userdata, 0, NULL, NULL);
+                            }
+                        } else {
+                            /* Schedule the drain for when the buffer runs empty */
+                            s->drain_request = true;
+                        }
 
                     default:
                         break;
@@ -1499,12 +1505,26 @@ static bool handle_input_underrun(playback_stream *s, bool force) {
         pa_log_debug("%s %s of '%s'", force ? "Actual" : "Implicit",
             s->drain_request ? "drain" : "underrun", pa_strnull(pa_proplist_gets(s->sink_input->proplist, PA_PROP_MEDIA_NAME)));
 
-    send_drain = s->drain_request && (force || pa_sink_input_safe_to_remove(s->sink_input));
+    send_drain = s->drain_request && (force || pa_sink_input_safe_to_remove(s->sink_input) || pa_sink_input_is_compressed(s->sink_input));
 
     if (send_drain) {
-         s->drain_request = false;
-         pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
-         pa_log_debug("Drain acknowledged of '%s'", pa_strnull(pa_proplist_gets(s->sink_input->proplist, PA_PROP_MEDIA_NAME)));
+         if (!pa_sink_input_is_compressed(s->sink_input)) {
+             s->drain_request = false;
+             pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
+             pa_log_debug("Drain acknowledged of '%s'", pa_strnull(pa_proplist_gets(s->sink_input->proplist, PA_PROP_MEDIA_NAME)));
+         } else {
+             /* Now trigger a drain on the (compressed) sink as well */
+             if (pa_sink_drain(s->sink_input->sink) < 0) {
+                 s->drain_request = false;
+                 pa_log_warn("Unable to drain sink");
+                 /* We're not going to get an ack from the sink, tell the
+                  * client to not wait */
+                 pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
+             } else {
+                 /* s->drain_request is still true, and will get cleared on
+                  * completion of the drain */
+             }
+         }
     } else if (!s->is_underrun) {
          pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_UNDERFLOW, NULL, pa_memblockq_get_read_index(s->memblockq), NULL, NULL);
     }
@@ -1715,6 +1735,11 @@ static void sink_input_drain_complete_cb(pa_sink_input *i)
     pa_sink_input_assert_ref(i);
     s = PLAYBACK_STREAM(i->userdata);
     playback_stream_assert_ref(s);
+
+    /* This can happen if a sink was in the middle of a drain, a sink-input
+     * went away, and a new one came in */
+    if (!s->drain_request)
+        return;
 
     pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
     pa_log_debug("Drain acknowledged of '%s'", pa_strnull(pa_proplist_gets(s->sink_input->proplist, PA_PROP_MEDIA_NAME)));
