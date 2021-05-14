@@ -4056,7 +4056,10 @@ void pa_sink_drain_complete(pa_sink *s) {
     /* There should be only one stream in compressed mode */
     i = pa_idxset_first(s->inputs, &idx);
 
-    pa_assert(i);
+    /* See if the sink input is still there */
+    if (!i)
+        return;
+
     pa_assert(pa_sink_input_is_compressed(i));
 
     pa_sink_input_drain_complete(i);
