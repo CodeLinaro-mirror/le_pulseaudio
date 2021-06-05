@@ -3,7 +3,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
-  Copyright (c) 2019, The Linux Foundation. All rights reserved.
+  Copyright (c) 2019,2021, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -1147,6 +1147,11 @@ bool pa_sink_input_peek_one(pa_sink_input *i, pa_memchunk *chunk, pa_cvolume *vo
                 // are too small for lower layers, like a DSP).
                 size_t split_count = wchunk.length / block_size_max_sink_input + 1;
                 wchunk.length = pa_frame_align(wchunk.length / split_count, &i->sample_spec);
+                //update the wchunk.duration so that the correct duration will be sent to the resampler
+                if(tchunk.duration != PA_NSEC_INVALID)
+                    wchunk.duration = tchunk.duration * wchunk.length / tchunk.length;
+                else
+                    wchunk.duration = pa_bytes_to_nsec(wchunk.length, &i->sink->sample_spec);
             }
 
             /* It might be necessary to adjust the volume here */
@@ -1204,7 +1209,14 @@ bool pa_sink_input_peek_one(pa_sink_input *i, pa_memchunk *chunk, pa_cvolume *vo
             }
 
             pa_memblock_unref(wchunk.memblock);
-
+            //updated timestamp will be useful in the next iteration if the tchunk was split
+            if(tchunk.timestamp != PA_NSEC_INVALID &&
+                wchunk.duration != PA_NSEC_INVALID) {
+                tchunk.timestamp += wchunk.duration;
+            }
+            if (tchunk.duration != PA_NSEC_INVALID) {
+                tchunk.duration -= wchunk.duration;
+            }
             tchunk.index += wchunk.length;
             tchunk.length -= wchunk.length;
         }
