@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -35,7 +35,7 @@
 #define QSTHW_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qsthw"
 #define QSTHW_DBUS_MODULE_IFACE "org.PulseAudio.Ext.Qsthw"
 #define QSTHW_DBUS_SESSION_IFACE "org.PulseAudio.Ext.Qsthw.Session"
-#define PA_DBUS_QSTHW_MODULE_IFACE_VERSION 0x101
+#define PA_DBUS_QSTHW_MODULE_IFACE_VERSION 0x102
 
 static const char* const valid_modargs[] = {
     "module",
@@ -46,7 +46,9 @@ enum {
     QSTHW_THREAD_IDLE,
     QSTHW_THREAD_READ_QUEUED,
     QSTHW_THREAD_EXIT,
-    QSTHW_THREAD_STOP_BUFFERING
+    QSTHW_THREAD_STOP_BUFFERING,
+    QSTHW_THREAD_STOP_RECOGNITION,
+    QSTHW_THREAD_START_RECOGNITION
 };
 
 struct qsthw_module_data {
@@ -71,6 +73,7 @@ struct qsthw_session_data {
     pa_thread *async_thread;
     pa_mutex *mutex;
     pa_cond *cond;
+    struct sound_trigger_recognition_config *rc_config;
 };
 
 struct dbus_sm_data{
@@ -193,6 +196,14 @@ pa_dbus_arg_info stop_buffering_done_event_args[] = {
     {"status", "i", NULL},
 };
 
+pa_dbus_arg_info stop_recognition_done_event_args[] = {
+    {"status", "i", NULL},
+};
+
+pa_dbus_arg_info start_recognition_done_event_args[] = {
+    {"status", "i", NULL},
+};
+
 static pa_dbus_method_handler qsthw_module_handlers[MODULE_HANDLER_MAX] = {
     [MODULE_HANDLER_GET_PROPERTIES] = {
         .method_name = "GetProperties",
@@ -273,6 +284,8 @@ enum signal_index {
     SIGNAL_DETECTION_EVENT,
     SIGNAL_READ_BUFFER_AVAILABLE_EVENT,
     SIGNAL_STOP_BUFFERING_DONE_EVENT,
+    SIGNAL_STOP_RECOGNITION_DONE_EVENT,
+    SIGNAL_START_RECOGNITION_DONE_EVENT,
     SIGNAL_MAX
 };
 
@@ -289,6 +302,14 @@ static pa_dbus_signal_info det_event_signals[SIGNAL_MAX] = {
         .name = "StopBufferingDoneEvent",
         .arguments = stop_buffering_done_event_args,
         .n_arguments = sizeof(stop_buffering_done_event_args)/sizeof(pa_dbus_arg_info)},
+    [SIGNAL_START_RECOGNITION_DONE_EVENT] = {
+        .name = "StartRecognitionDoneEvent",
+        .arguments = start_recognition_done_event_args,
+        .n_arguments = sizeof(start_recognition_done_event_args)/sizeof(pa_dbus_arg_info)},
+    [SIGNAL_STOP_RECOGNITION_DONE_EVENT] = {
+        .name = "StopRecognitionDoneEvent",
+        .arguments = stop_recognition_done_event_args,
+        .n_arguments = sizeof(stop_recognition_done_event_args)/sizeof(pa_dbus_arg_info)},
 };
 
 static pa_dbus_interface_info module_interface_info = {
@@ -357,68 +378,42 @@ static void signal_stop_buffering_done(struct qsthw_session_data *ses_data,
     dbus_message_unref(message);
 }
 
-static void async_thread_func(void *userdata) {
-    struct qsthw_session_data *ses_data = (struct qsthw_session_data *)userdata;
-    sound_model_handle_t sm_handle = ses_data->ses_handle;
-    unsigned int bytes = 0, read_buffer_sequence = 0;
-    int ret = 0;
+static void signal_start_recognition_done(struct qsthw_session_data *ses_data,
+                                       int status) {
+    DBusMessage *message = NULL;
+    DBusMessageIter arg_i;
 
-    pa_log_debug("[%d]Starting Async Thread", sm_handle);
+    pa_log_info("[%d] Posting start recognition done status %d",
+                ses_data->ses_handle, status);
 
-    pa_mutex_lock(ses_data->mutex);
-    while (ses_data->thread_state != QSTHW_THREAD_EXIT) {
-        pa_log_debug("[%d]Async Thread wait", sm_handle);
-        pa_cond_wait(ses_data->cond, ses_data->mutex);
-        pa_log_debug("[%d]Async Thread wakeup", sm_handle);
+    pa_assert_se(message = dbus_message_new_signal(ses_data->obj_path,
+            session_interface_info.name,
+            det_event_signals[SIGNAL_START_RECOGNITION_DONE_EVENT].name));
+    dbus_message_iter_init_append(message, &arg_i);
 
-        if (ses_data->thread_state == QSTHW_THREAD_STOP_BUFFERING) {
-            pa_mutex_unlock(ses_data->mutex);
-            pa_log_debug("[%d]Stop buffering", sm_handle);
-            ret = qsthw_stop_buffering(ses_data->common->st_mod_handle, sm_handle);
-            if (ret < 0 )
-                pa_log_debug("[%d]Stop buffering failed with error %d", sm_handle, ret);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_INT32, &status);
 
-            pa_mutex_lock(ses_data->mutex);
-            signal_stop_buffering_done(ses_data, ret);
-        }
+    pa_dbus_protocol_send_signal(ses_data->common->dbus_protocol, message);
+    dbus_message_unref(message);
+}
 
-        if (ses_data->thread_state != QSTHW_THREAD_READ_QUEUED)
-            continue;
+static void signal_stop_recognition_done(struct qsthw_session_data *ses_data,
+                                       int status) {
+    DBusMessage *message = NULL;
+    DBusMessageIter arg_i;
 
-        if (ses_data->read_buf == NULL || ses_data->read_bytes != bytes) {
-            if (ses_data->read_buf)
-                pa_xfree(ses_data->read_buf);
-            ses_data->read_buf = pa_xmalloc0(ses_data->read_bytes);
-            bytes = ses_data->read_bytes;
-        }
+    pa_log_info("[%d] Posting stop recognition done status %d",
+                ses_data->ses_handle, status);
 
-        pa_mutex_unlock(ses_data->mutex);
-        ret = qsthw_read_buffer(ses_data->common->st_mod_handle,
-                                sm_handle, ses_data->read_buf, bytes);
-        if (ret < 0)
-            pa_log_debug("[%d]Read failed with error %d", sm_handle, ret);
-        pa_mutex_lock(ses_data->mutex);
+    pa_assert_se(message = dbus_message_new_signal(ses_data->obj_path,
+            session_interface_info.name,
+            det_event_signals[SIGNAL_STOP_RECOGNITION_DONE_EVENT].name));
+    dbus_message_iter_init_append(message, &arg_i);
 
-        if (ses_data->thread_state == QSTHW_THREAD_READ_QUEUED) {
-            signal_read_buffer_available(ses_data, ++read_buffer_sequence, ret);
-            ses_data->thread_state = QSTHW_THREAD_IDLE;
-        } else if (ses_data->thread_state == QSTHW_THREAD_STOP_BUFFERING) {
-            pa_mutex_unlock(ses_data->mutex);
-            ret = qsthw_stop_buffering(ses_data->common->st_mod_handle, sm_handle);
-            if (ret < 0 )
-                pa_log_debug("[%d]Stop buffering failed with error %d", sm_handle, ret);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_INT32, &status);
 
-            pa_mutex_lock(ses_data->mutex);
-            signal_stop_buffering_done(ses_data, ret);
-        }
-
-    }
-
-    pa_xfree(ses_data->read_buf);
-    ses_data->read_buf = NULL;
-    pa_mutex_unlock(ses_data->mutex);
-
-    pa_log_debug("[%d]Exiting Async Thread", sm_handle);
+    pa_dbus_protocol_send_signal(ses_data->common->dbus_protocol, message);
+    dbus_message_unref(message);
 }
 
 static void event_callback(struct sound_trigger_recognition_event *event, void *cookie) {
@@ -499,6 +494,93 @@ static void event_callback(struct sound_trigger_recognition_event *event, void *
     }
 
     dbus_message_unref(message);
+}
+
+static void async_thread_func(void *userdata) {
+    struct qsthw_session_data *ses_data = (struct qsthw_session_data *)userdata;
+    sound_model_handle_t sm_handle = ses_data->ses_handle;
+    unsigned int bytes = 0, read_buffer_sequence = 0;
+    int ret = 0;
+
+    pa_log_debug("[%d]Starting Async Thread", sm_handle);
+
+    pa_mutex_lock(ses_data->mutex);
+    while (ses_data->thread_state != QSTHW_THREAD_EXIT) {
+        pa_log_debug("[%d]Async Thread wait", sm_handle);
+        pa_cond_wait(ses_data->cond, ses_data->mutex);
+        pa_log_debug("[%d]Async Thread wakeup", sm_handle);
+
+        if (ses_data->thread_state == QSTHW_THREAD_STOP_BUFFERING) {
+            pa_mutex_unlock(ses_data->mutex);
+            pa_log_debug("[%d]Stop buffering", sm_handle);
+            ret = qsthw_stop_buffering(ses_data->common->st_mod_handle, sm_handle);
+            if (ret < 0 )
+                pa_log_debug("[%d]Stop buffering failed with error %d", sm_handle, ret);
+
+            pa_mutex_lock(ses_data->mutex);
+            signal_stop_buffering_done(ses_data, ret);
+        }
+
+        if (ses_data->thread_state == QSTHW_THREAD_STOP_RECOGNITION) {
+            pa_mutex_unlock(ses_data->mutex);
+            pa_log_debug("[%d]Stop recognition", sm_handle);
+            ret = qsthw_stop_recognition(ses_data->common->st_mod_handle, sm_handle);
+            if (ret < 0 )
+                pa_log_debug("[%d]Stop recognition failed with error %d", sm_handle, ret);
+
+            pa_mutex_lock(ses_data->mutex);
+            signal_stop_recognition_done(ses_data, ret);
+        }
+
+        if (ses_data->thread_state == QSTHW_THREAD_START_RECOGNITION) {
+            pa_mutex_unlock(ses_data->mutex);
+            pa_log_debug("[%d]Start recognition", sm_handle);
+            ret = qsthw_start_recognition(ses_data->common->st_mod_handle, sm_handle,
+                                    ses_data->rc_config, event_callback, (void *)ses_data);
+            if (ret < 0 )
+                pa_log_debug("[%d]Start recognition failed with error %d", sm_handle, ret);
+
+            pa_mutex_lock(ses_data->mutex);
+            signal_start_recognition_done(ses_data, ret);
+        }
+
+        if (ses_data->thread_state != QSTHW_THREAD_READ_QUEUED)
+            continue;
+
+        if (ses_data->read_buf == NULL || ses_data->read_bytes != bytes) {
+            if (ses_data->read_buf)
+                pa_xfree(ses_data->read_buf);
+            ses_data->read_buf = pa_xmalloc0(ses_data->read_bytes);
+            bytes = ses_data->read_bytes;
+        }
+
+        pa_mutex_unlock(ses_data->mutex);
+        ret = qsthw_read_buffer(ses_data->common->st_mod_handle,
+                                sm_handle, ses_data->read_buf, bytes);
+        if (ret < 0)
+            pa_log_debug("[%d]Read failed with error %d", sm_handle, ret);
+        pa_mutex_lock(ses_data->mutex);
+
+        if (ses_data->thread_state == QSTHW_THREAD_READ_QUEUED) {
+            signal_read_buffer_available(ses_data, ++read_buffer_sequence, ret);
+            ses_data->thread_state = QSTHW_THREAD_IDLE;
+        } else if (ses_data->thread_state == QSTHW_THREAD_STOP_BUFFERING) {
+            pa_mutex_unlock(ses_data->mutex);
+            ret = qsthw_stop_buffering(ses_data->common->st_mod_handle, sm_handle);
+            if (ret < 0 )
+                pa_log_debug("[%d]Stop buffering failed with error %d", sm_handle, ret);
+
+            pa_mutex_lock(ses_data->mutex);
+            signal_stop_buffering_done(ses_data, ret);
+        }
+
+    }
+
+    pa_xfree(ses_data->read_buf);
+    ses_data->read_buf = NULL;
+    pa_mutex_unlock(ses_data->mutex);
+
+    pa_log_debug("[%d]Exiting Async Thread", sm_handle);
 }
 
 static DBusHandlerResult disconnection_filter_cb(DBusConnection *conn,
@@ -746,9 +828,7 @@ static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdat
 
 static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     struct qsthw_session_data *ses_data = userdata;
-    int status = 0;
     DBusError error;
-    sound_model_handle_t sm_handle;
 
     pa_assert(conn);
     pa_assert(msg);
@@ -757,26 +837,29 @@ static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userd
     dbus_error_init(&error);
 
     pa_log_debug("stop recognition");
-    sm_handle = ses_data->ses_handle;
-    status = qsthw_stop_recognition(ses_data->common->st_mod_handle, sm_handle);
-    if (OK != status) {
+    pa_mutex_lock(ses_data->mutex);
+
+    if (ses_data->async_thread == NULL) {
+        pa_mutex_unlock(ses_data->mutex);
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "stop_recognition failed");
         dbus_error_free(&error);
         return;
     }
 
+    ses_data->thread_state = QSTHW_THREAD_STOP_RECOGNITION;
+    pa_cond_signal(ses_data->cond, 0);
+    pa_mutex_unlock(ses_data->mutex);
+    pa_log_debug("stop recognition pa_dbus_send_empty_reply");
     pa_dbus_send_empty_reply(conn, msg);
 }
 
 static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     struct qsthw_session_data *ses_data = (struct qsthw_session_data *)userdata;
     struct sound_trigger_recognition_config config = {0, };
-    struct sound_trigger_recognition_config *rc_config = NULL;
     dbus_int32_t rc_config_size;
     DBusError error;
     DBusMessageIter arg_i, struct_i, struct_ii, struct_iii, array_i, sub_array_i;
-    dbus_int32_t i, j, status = 0;
-    sound_model_handle_t sm_handle;
+    dbus_int32_t i, j;
     int n_elements = 0, arg_type;
     char *value = NULL;
     char **addr_value = &value;
@@ -855,21 +938,24 @@ static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *user
     config.data_offset = sizeof(config);
 
     rc_config_size = sizeof(struct sound_trigger_recognition_config) + config.data_size;
-    rc_config = (struct sound_trigger_recognition_config *)pa_xmalloc0(rc_config_size);
-    memcpy(rc_config, &config, sizeof(struct sound_trigger_recognition_config));
-    memcpy((char *)rc_config + rc_config->data_offset,
+    ses_data->rc_config = (struct sound_trigger_recognition_config *) pa_xrealloc(ses_data->rc_config, rc_config_size);
+    memcpy(ses_data->rc_config, &config, sizeof(struct sound_trigger_recognition_config));
+    memcpy((char *)ses_data->rc_config + ses_data->rc_config->data_offset,
            value, n_elements);
 
-    sm_handle = ses_data->ses_handle;
-    status = qsthw_start_recognition(ses_data->common->st_mod_handle, sm_handle,
-                                    rc_config, event_callback, (void *)ses_data);
-    pa_xfree(rc_config);
+    pa_mutex_lock(ses_data->mutex);
 
-    if (OK != status) {
+    if (ses_data->async_thread == NULL) {
+        pa_mutex_unlock(ses_data->mutex);
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "start_recognition failed");
         dbus_error_free(&error);
         return;
     }
+
+    ses_data->thread_state = QSTHW_THREAD_START_RECOGNITION;
+    pa_cond_signal(ses_data->cond, 0);
+    pa_mutex_unlock(ses_data->mutex);
+    pa_log_debug("start recognition pa_dbus_send_empty_reply");
     pa_dbus_send_empty_reply(conn, msg);
 }
 
@@ -888,6 +974,7 @@ static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *use
     pa_cond_signal(ses_data->cond, 0);
     pa_thread_free(ses_data->async_thread);
     pa_cond_free(ses_data->cond);
+    pa_xfree(ses_data->rc_config);
     pa_mutex_free(ses_data->mutex);
 
     status = unload_sm(conn, ses_data);
@@ -1122,11 +1209,9 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     ses_data->common = (struct qsthw_module_data *)userdata;
     ses_data->ses_handle = sm_handle;
     ses_data->obj_path = pa_sprintf_malloc("%s/ses_%d", m_data->obj_path, sm_handle);
-
     ses_data->thread_state = QSTHW_THREAD_IDLE;
     ses_data->read_buf = NULL;
     pa_mutex_unlock(ses_data->mutex);
-
     thread_name = pa_sprintf_malloc("qsthw async thread%d", sm_handle);
     if (!(ses_data->async_thread = pa_thread_new(thread_name, async_thread_func, ses_data)))
         pa_log_error("%s: qsthw async thread creation failed", __func__);

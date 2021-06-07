@@ -77,6 +77,7 @@
 #define PA_RENDER_UNDERRUN -2
 
 #define PA_QAHW_SINK_ALLOCATED_LATENCY_USEC_MAX 1000000
+#define PA_QAHW_SINK_ALLOCATED_LATENCY_USEC_DEFAULT 100000
 #define PA_QAHW_SINK_MEMBLOCKQ_MAXLENGTH_USEC_DEFAULT 2000000
 #define PA_QAHW_SINK_MIN_BUFFER_DURATION_USEC 6000
 #define PA_QAHW_SINK_SCHEDULING_LATENCY_USEC 2000
@@ -105,6 +106,11 @@ enum method_handler_index {
     METHOD_HANDLER_GET_MINIMUM_LATENCY,
     METHOD_HANDLER_SET_ALLOCATED_LATENCY,
     METHOD_HANDLER_MAX = METHOD_HANDLER_SET_ALLOCATED_LATENCY + 1,
+};
+
+enum signal_index {
+    PA_QAHW_SINK_SIG_MIN_LATENCY_UPDATE,
+    PA_QAHW_SINK_SIG_MAX
 };
 
 typedef struct {
@@ -203,6 +209,7 @@ static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t e
                             audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata, int32_t buffer_duration, double max_gain);
 static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, uint32_t devices,
                           audio_output_flags_t flags, int sink_id, pa_qahw_sink_data *sdata, int32_t buffer_duration, double max_gain);
+static int qahw_sink_set_routing(qahw_sink_data *qahw_sdata, audio_devices_t active_device, audio_devices_t new_device);
 static int close_qahw_sink(pa_qahw_sink_data *sdata);
 static void free_qahw_sink_thread_resources(qahw_sink_data *qahw_sdata);
 static int free_pa_sink(pa_qahw_sink_data *sdata);
@@ -219,12 +226,18 @@ static void free_qahw_sink_memblockq(qahw_sink_data *qahw_sdata);
 static void pa_qahw_handle_dbus_get_minimum_latency(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_handle_dbus_set_allocated_latency(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
+static void pa_qahw_update_minimum_latency(pa_qahw_sink_data *sdata);
+
 static pa_dbus_arg_info dbus_get_minimum_latency_args[] = {
      {"latency", DBUS_TYPE_UINT64_AS_STRING, "out"},
      {"name", DBUS_TYPE_STRING_AS_STRING, "out"}};
 
 static pa_dbus_arg_info dbus_set_allocated_latency_args[] = {
      {"latency", DBUS_TYPE_UINT64_AS_STRING, "in"}};
+
+static pa_dbus_arg_info dbus_minimum_latency_update_args[] = {
+     {"latency", DBUS_TYPE_UINT64_AS_STRING, NULL},
+     {"name", DBUS_TYPE_STRING_AS_STRING, NULL}};
 
 static pa_dbus_method_handler method_handlers[METHOD_HANDLER_MAX] = {
 [METHOD_HANDLER_GET_MINIMUM_LATENCY] = {
@@ -239,6 +252,13 @@ static pa_dbus_method_handler method_handlers[METHOD_HANDLER_MAX] = {
          .receive_cb = pa_qahw_handle_dbus_set_allocated_latency},
 };
 
+static pa_dbus_signal_info min_latency_update_signal[PA_QAHW_SINK_SIG_MAX] = {
+    [PA_QAHW_SINK_SIG_MIN_LATENCY_UPDATE] = {
+         .name = "MinimumLatencyUpdate",
+         .arguments = dbus_minimum_latency_update_args,
+         .n_arguments = sizeof(dbus_minimum_latency_update_args)/sizeof(pa_dbus_arg_info)},
+};
+
 static pa_dbus_interface_info sink_interface_info = {
      .name = QAHW_DBUS_SINK_IFACE,
      .method_handlers = method_handlers,
@@ -246,8 +266,8 @@ static pa_dbus_interface_info sink_interface_info = {
      .property_handlers = NULL,
      .n_property_handlers = 0,
      .get_all_properties_cb = NULL,
-     .signals = NULL,
-     .n_signals = 0
+     .signals = min_latency_update_signal,
+     .n_signals = PA_QAHW_SINK_SIG_MAX
 };
 
 static const uint32_t supported_sink_rates[] =
@@ -318,6 +338,36 @@ static void pa_qahw_handle_dbus_set_allocated_latency(DBusConnection *conn, DBus
     pa_mutex_unlock(sdata->qahw_sdata->allocated_latency_mutex);
 
     pa_dbus_send_empty_reply(conn, msg);
+}
+
+static void pa_qahw_update_minimum_latency(pa_qahw_sink_data *sdata) {
+    pa_usec_t dsp_latency_us;
+    DBusMessage *message = NULL;
+    DBusError error;
+    dbus_uint64_t dbus_min_latency;
+
+    assert(sdata);
+    assert(sdata->pa_sdata);
+    assert(sdata->qahw_sdata);
+
+    dbus_error_init(&error);
+
+    dsp_latency_us = qahw_out_get_latency(sdata->qahw_sdata->out_handle) * PA_USEC_PER_MSEC;
+    sdata->qahw_sdata->min_latency_us = PA_QAHW_SINK_SCHEDULING_LATENCY_USEC + dsp_latency_us;
+    pa_log_debug("dsp latency %" PRIu64 " min latency %" PRIu64 "", dsp_latency_us, sdata->qahw_sdata->min_latency_us);
+
+    pa_assert_se(message = dbus_message_new_signal(sdata->qahw_sdata->obj_path,
+            sink_interface_info.name,
+            min_latency_update_signal[PA_QAHW_SINK_SIG_MIN_LATENCY_UPDATE].name));
+
+    dbus_min_latency = (dbus_uint64_t)(sdata->qahw_sdata->min_latency_us);
+    pa_assert_se(dbus_message_append_args(message,
+        DBUS_TYPE_UINT64, &dbus_min_latency,
+        DBUS_TYPE_STRING, &sdata->pa_sdata->sink->name,
+        DBUS_TYPE_INVALID));
+
+    pa_dbus_protocol_send_signal(sdata->qahw_sdata->dbus_protocol, message);
+    dbus_message_unref(message);
 }
 
 static pa_sample_format_t pa_qahw_sink_find_nearest_supported_pa_format(pa_sample_format_t format) {
@@ -838,14 +888,13 @@ static void pa_qahw_sink_set_volume_cb(pa_sink *s) {
 }
 
 static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
+    int rc = 0;
     pa_qahw_card_port_device_data *port_device_data;
     pa_qahw_card_port_device_data *active_port_device_data;
-    char *kvpair;
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)s->userdata;
-    int rc = 0;
 
     if (!sdata->qahw_sink_opened)
-        return rc;
+        return 0;
 
     pa_assert(sdata);
     pa_assert(sdata->qahw_sdata);
@@ -857,38 +906,49 @@ static int pa_qahw_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     active_port_device_data = PA_DEVICE_PORT_DATA(s->active_port);
     pa_assert(active_port_device_data);
 
-    if (active_port_device_data->device & AUDIO_DEVICE_OUT_HDMI) {
-        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_DISCONNECT, active_port_device_data->device);
+    rc = qahw_sink_set_routing(sdata->qahw_sdata, active_port_device_data->device, port_device_data->device);
 
-        rc = qahw_set_parameters(sdata->qahw_sdata->module_handle, kvpair);
+    pa_qahw_update_minimum_latency(sdata);
+
+    return rc;
+}
+
+static int qahw_sink_set_routing(qahw_sink_data *qahw_sdata, audio_devices_t active_device, audio_devices_t new_device) {
+    int rc = 0;
+    char *kvpair;
+
+    if (active_device & AUDIO_DEVICE_OUT_HDMI) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_DISCONNECT, active_device);
+
+        rc = qahw_set_parameters(qahw_sdata->module_handle, kvpair);
         if (rc)
             pa_log_error("qahw set parameters failed %d",rc);
 
-        pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, active_port_device_data->device);
+        pa_log_info("%s: kvpair %s device %x", __func__, kvpair, active_device);
 
         pa_xfree(kvpair);
     }
 
-    if ((port_device_data->device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) || (port_device_data->device & AUDIO_DEVICE_OUT_HDMI)) {
-        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_CONNECT, port_device_data->device);
+    if ((new_device & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP) || (new_device & AUDIO_DEVICE_OUT_HDMI)) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_CONNECT, new_device);
 
-        rc = qahw_set_parameters(sdata->qahw_sdata->module_handle, kvpair);
+        rc = qahw_set_parameters(qahw_sdata->module_handle, kvpair);
         if (rc)
             pa_log_error("qahw set parameters failed %d",rc);
 
-        pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
+        pa_log_info("%s: kvpair %s device %x", __func__, kvpair, new_device);
 
         pa_xfree(kvpair);
     }
 
-    kvpair = pa_sprintf_malloc("%s=%u", QAHW_PARAMETER_STREAM_ROUTING, port_device_data->device);
-    pa_log_info("%s: port name: %s kvpair %s device %x", __func__, p->name, kvpair, port_device_data->device);
+    kvpair = pa_sprintf_malloc("%s=%u", QAHW_PARAMETER_STREAM_ROUTING, new_device);
+    pa_log_info("%s: kvpair %s device %x", __func__, kvpair, new_device);
 
-    rc = qahw_out_set_parameters(sdata->qahw_sdata->out_handle, kvpair);
+    rc = qahw_out_set_parameters(qahw_sdata->out_handle, kvpair);
     if (rc)
         pa_log_error("qahw routing failed %d",rc);
     else
-        sdata->qahw_sdata->devices = port_device_data->device;
+        qahw_sdata->devices = new_device;
 
     pa_xfree(kvpair);
 
@@ -1808,6 +1868,8 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
         goto exit;
     }
 
+    qahw_sink_set_routing(qahw_sdata, devices, devices);
+
     if (qahw_sdata->config.format == AUDIO_FORMAT_DSD) {
         if (qahw_sdata->dsd_rate == 64)
             dsd_format = "dsd_format=0";
@@ -2059,9 +2121,10 @@ static int create_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t e
 
     if (sdata->qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP) {
         dsp_latency_us = qahw_out_get_latency(sdata->qahw_sdata->out_handle) * PA_USEC_PER_MSEC;
-        sdata->qahw_sdata->min_latency_us = sdata->qahw_sdata->allocated_latency_us =
-                                            PA_QAHW_SINK_SCHEDULING_LATENCY_USEC + dsp_latency_us;
+        sdata->qahw_sdata->min_latency_us = PA_QAHW_SINK_SCHEDULING_LATENCY_USEC + dsp_latency_us;
         pa_log_debug("dsp latency %" PRIu64 " min latency %" PRIu64 "", dsp_latency_us, sdata->qahw_sdata->min_latency_us);
+        sdata->qahw_sdata->allocated_latency_us = PA_QAHW_SINK_ALLOCATED_LATENCY_USEC_DEFAULT;
+        pa_log_debug("allocated latency %" PRIu64 "", sdata->qahw_sdata->allocated_latency_us);
     }
     return rc;
 }
@@ -2193,9 +2256,6 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
         goto fail;
     }
 
-    /* keep pa sink and qahw port in sync, qahw is opened with some default port, update qahw with active port decided by pa sink */
-    pa_qahw_sink_set_port_cb(pa_sdata->sink, pa_sdata->sink->active_port);
-
    pa_sink_put(pa_sdata->sink);
 
    return 0;
@@ -2308,7 +2368,6 @@ audio_io_handle_t pa_qahw_sink_get_io_handle(uint32_t sink_id) {
     return -1;
 }
 
-
 int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_module_handle_t *module_handle, const char *module_name, pa_qahw_sink_config *sink,
                         pa_qahw_sink_handle_t **handle) {
     int rc = -1;
@@ -2347,8 +2406,8 @@ int pa_qahw_sink_create(pa_module *m, pa_card *card, const char *driver, qahw_mo
             pa_hashmap_put(ports, card_port->name, card_port);
     }
 
-    /* first entry is default device */
-    card_port = pa_hashmap_first(ports);
+    /* find the port with highest priority */
+    card_port = pa_device_port_find_best(ports);
     port_device_data = PA_DEVICE_PORT_DATA(card_port);
     pa_assert(port_device_data);
 
