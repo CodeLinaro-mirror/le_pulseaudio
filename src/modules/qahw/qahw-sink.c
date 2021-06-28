@@ -144,6 +144,8 @@ typedef struct {
     bool compressed;
     pa_qahw_sink_state_t state;
     pa_usec_t timestamp;
+    pa_usec_t last_chunk_timestamp;
+    pa_usec_t last_chunk_duration;
 
     pa_atomic_t first_write_done;
 
@@ -1391,7 +1393,12 @@ static void free_qahw_sink_thread_resources(qahw_sink_data *qahw_sdata){
 
 static int pa_qahw_sink_io_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
 
+    pa_usec_t cur_qtimer;
+    pa_usec_t latency;
+
     pa_qahw_sink_data *sdata = (pa_qahw_sink_data *)(PA_SINK(o)->userdata);
+
+    bool ts_enable = sdata->qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP;
 
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
@@ -1400,9 +1407,16 @@ static int pa_qahw_sink_io_process_msg(pa_msgobject *o, int code, void *data, in
 
     switch (code) {
         case PA_SINK_MESSAGE_GET_LATENCY:
-            if (pa_atomic_load(&sdata->qahw_sdata->first_write_done) && sdata->qahw_sink_opened)
-                *((int64_t*) data) = pa_qahw_sink_get_latency(sdata);
-
+            if (pa_atomic_load(&sdata->qahw_sdata->first_write_done) && sdata->qahw_sink_opened) {
+                if (ts_enable) {
+                    cur_qtimer = ts_clock_now();
+                    latency = sdata->qahw_sdata->last_chunk_timestamp + sdata->qahw_sdata->last_chunk_duration - cur_qtimer;
+                    *((int64_t *)data) = latency / PA_NSEC_PER_USEC;
+                    pa_log_debug("%s: TTP path latency  %" PRId64 "usec ", __func__ , latency);
+                } else {
+                    *((int64_t*) data) = pa_qahw_sink_get_latency(sdata);
+                }
+            }
             return 0;
 
         case PA_QAHW_SINK_MESSAGE_DRAIN_READY:
@@ -1723,6 +1737,10 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
                 else
                     pa_log_debug("%s: pushing chunk with length %u to memblockq", __func__, chunk.length);
 #endif
+                if (ts_enable) {
+                   qahw_sdata->last_chunk_timestamp = chunk.timestamp;
+                   qahw_sdata->last_chunk_duration = chunk.duration;
+                }
 
                 /* push chunk to memblockq */
                 if (pa_memblockq_push(qahw_sdata->memblockq, &chunk) < 0) {
