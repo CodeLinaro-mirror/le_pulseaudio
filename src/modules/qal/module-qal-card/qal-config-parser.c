@@ -30,38 +30,38 @@
 #include "qal-source.h"
 #include "qal-utils.h"
 
-#define QAL_CARD_DEFAULT_CONF_NAME "default.conf"
-#define QAL_CARD_DEFAULT_TARGET_NAME_LENGTH 7
+#define PAL_CARD_DEFAULT_CONF_NAME "default.conf"
+#define PAL_CARD_DEFAULT_TARGET_NAME_LENGTH 7
 
-#define QAL_CARD_PORT_PREFIX "Port "
-#define QAL_CARD_PROFILE_PREFIX "Profile "
-#define QAL_CARD_SINK_PREFIX "Sink "
-#define QAL_CARD_SOURCE_PREFIX "Source "
-#define QAL_CARD_SND_SUFFIX "snd-card"
+#define PAL_CARD_PORT_PREFIX "Port "
+#define PAL_CARD_PROFILE_PREFIX "Profile "
+#define PAL_CARD_SINK_PREFIX "Sink "
+#define PAL_CARD_SOURCE_PREFIX "Source "
+#define PAL_CARD_SND_SUFFIX "snd-card"
 
-static pa_qal_sink_config* pa_qal_config_get_sink(pa_hashmap *sinks, char *name);
-static pa_qal_source_config *pa_qal_config_get_source(pa_hashmap *sources, char *name);
-static pa_qal_card_profile_config* pa_qal_config_get_profile(pa_hashmap *profiles, char *name);
-static pa_qal_card_port_config* pa_qal_config_get_port(pa_hashmap *ports, char *name);
+static pa_pal_sink_config* pa_pal_config_get_sink(pa_hashmap *sinks, char *name);
+static pa_pal_source_config *pa_pal_config_get_source(pa_hashmap *sources, char *name);
+static pa_pal_card_profile_config* pa_pal_config_get_profile(pa_hashmap *profiles, char *name);
+static pa_pal_card_port_config* pa_pal_config_get_port(pa_hashmap *ports, char *name);
 
-static pa_qal_source_config* pa_qal_config_get_source(pa_hashmap *sources, char *name) {
-    pa_qal_source_config *source = NULL;
+static pa_pal_source_config* pa_pal_config_get_source(pa_hashmap *sources, char *name) {
+    pa_pal_source_config *source = NULL;
 
     pa_assert(sources);
     pa_assert(name);
 
-    if (!pa_startswith(name, QAL_CARD_SOURCE_PREFIX)) {
+    if (!pa_startswith(name, PAL_CARD_SOURCE_PREFIX)) {
         goto exit;
     }
     /* point to Port name */
-    name += strlen(QAL_CARD_SOURCE_PREFIX);
+    name += strlen(PAL_CARD_SOURCE_PREFIX);
 
     source = pa_hashmap_get(sources, name);
     if (source) {
         goto exit;
     }
 
-    source = pa_xnew0(pa_qal_source_config, 1);
+    source = pa_xnew0(pa_pal_source_config, 1);
 
     source->ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
@@ -81,24 +81,24 @@ exit:
     return source;
 }
 
-static pa_qal_sink_config* pa_qal_config_get_sink(pa_hashmap *sinks, char *name) {
-    pa_qal_sink_config *sink = NULL;
+static pa_pal_sink_config* pa_pal_config_get_sink(pa_hashmap *sinks, char *name) {
+    pa_pal_sink_config *sink = NULL;
 
     pa_assert(sinks);
     pa_assert(name);
 
-    if (!pa_startswith(name, QAL_CARD_SINK_PREFIX)) {
+    if (!pa_startswith(name, PAL_CARD_SINK_PREFIX)) {
         goto exit;
     }
     /* point to Port name */
-    name += strlen(QAL_CARD_SINK_PREFIX);
+    name += strlen(PAL_CARD_SINK_PREFIX);
 
     sink = pa_hashmap_get(sinks, name);
     if (sink) {
         goto exit;
     }
 
-    sink = pa_xnew0(pa_qal_sink_config, 1);
+    sink = pa_xnew0(pa_pal_sink_config, 1);
 
 
     sink->ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
@@ -119,12 +119,12 @@ exit:
     return sink;
 }
 
-static int pa_qal_config_parse_encodings(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
+static int pa_pal_config_parse_encodings(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
     pa_encoding_t encoding;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
-    pa_qal_card_port_config *port = NULL;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
+    pa_pal_card_port_config *port = NULL;
 
     pa_format_info *format;
     pa_idxset *formats = NULL;
@@ -139,13 +139,13 @@ static int pa_qal_config_parse_encodings(pa_config_parser_state *state) {
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         name = sink->name;
         formats = sink->formats;
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         name = source->name;
         formats = source->formats;
-    } else if ((port = pa_qal_config_get_port(config_data->ports, state->section))) {
+    } else if ((port = pa_pal_config_get_port(config_data->ports, state->section))) {
         name = port->name;
         formats = port->formats;
      } else {
@@ -163,10 +163,10 @@ static int pa_qal_config_parse_encodings(pa_config_parser_state *state) {
     while ((item = items[i++])) {
         encoding = pa_encoding_from_string(item);
 
-        if (sink && !pa_qal_sink_is_supported_encoding(encoding)) {
+        if (sink && !pa_pal_sink_is_supported_encoding(encoding)) {
             pa_log_error("%s: unsupported sink encoding %s sink %s", __func__, item, name);
             goto exit;
-        } else if (source && !pa_qal_source_is_supported_encoding(encoding)) {
+        } else if (source && !pa_pal_source_is_supported_encoding(encoding)) {
             pa_log_error("%s: unsupported source encoding %s source %s", __func__, item, name);
             goto exit;
         }
@@ -187,10 +187,10 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_type(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
+static int pa_pal_config_parse_type(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
 
     int ret = -1;
     int i = 0;
@@ -202,10 +202,10 @@ static int pa_qal_config_parse_type(pa_config_parser_state *state) {
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         name = sink->name;
         items = pa_split_spaces_strv(state->rvalue);
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         name = source->name;
         items = pa_split_spaces_strv(state->rvalue);
     } else {
@@ -221,10 +221,10 @@ static int pa_qal_config_parse_type(pa_config_parser_state *state) {
     /* add port profile port hashmap */
     while ((item = items[i++])) {
         if (sink) {
-            sink->stream_type = pa_qal_sink_get_type_from_string(item);
+            sink->stream_type = pa_pal_sink_get_type_from_string(item);
             pa_log_debug("%s: adding flag %s to sink %s", __func__, item, name);
         } else {
-            source->stream_type = pa_qal_source_get_type_from_string(item);
+            source->stream_type = pa_pal_source_get_type_from_string(item);
             pa_log_debug("%s: adding flag %s to source %s", __func__, item, name);
         }
     }
@@ -237,10 +237,10 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_default_encoding(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
+static int pa_pal_config_parse_default_encoding(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
     pa_encoding_t encoding;
 
     int ret = -1;
@@ -254,14 +254,14 @@ static int pa_qal_config_parse_default_encoding(pa_config_parser_state *state) {
         goto exit;
     }
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
-        if (!pa_qal_sink_is_supported_encoding(encoding)) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
+        if (!pa_pal_sink_is_supported_encoding(encoding)) {
             pa_log_error("%s: unsupported sink encoding %s sink %s", __func__, state->rvalue, sink->name);
             goto exit;
         }
         sink->default_encoding = encoding;
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
-        if (!pa_qal_source_is_supported_encoding(encoding)) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
+        if (!pa_pal_source_is_supported_encoding(encoding)) {
             pa_log_error("%s: unsupported source encoding %s source %s", __func__, state->rvalue, source->name);
             goto exit;
         }
@@ -276,32 +276,32 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_default_sample_rate(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
-    pa_qal_card_port_config *port = NULL;
+static int pa_pal_config_parse_default_sample_rate(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
+    pa_pal_card_port_config *port = NULL;
 
     int ret = -1;
     pa_assert(config_data);
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         pa_atou(state->rvalue, &sink->default_spec.rate);
-        if (!pa_qal_sink_is_supported_sample_rate(sink->default_spec.rate)) {
+        if (!pa_pal_sink_is_supported_sample_rate(sink->default_spec.rate)) {
             pa_log_error("%s: unsupported  sample rate %d by sink %s", __func__, sink->default_spec.rate, sink->name);
             goto exit;
         }
         pa_log_debug("%s: default sample rate %d for sink %s", __func__, sink->default_spec.rate, sink->name);
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         pa_atou(state->rvalue, &source->default_spec.rate);
-        if (!pa_qal_source_is_supported_sample_rate(source->default_spec.rate)) {
+        if (!pa_pal_source_is_supported_sample_rate(source->default_spec.rate)) {
             pa_log_error("%s: unsupported  sample rate %d by source %s", __func__, source->default_spec.rate, source->name);
             goto exit;
         }
         pa_log_debug("%s: default sample rate %d for source %s", __func__, source->default_spec.rate, source->name);
-    } else if ((port = pa_qal_config_get_port(config_data->ports, state->section))) {
+    } else if ((port = pa_pal_config_get_port(config_data->ports, state->section))) {
         pa_atou(state->rvalue, &port->default_spec.rate);
         pa_log_debug("%s: default sample rate %d for port %s", __func__, port->default_spec.rate, port->name);
     } else {
@@ -315,20 +315,20 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_default_sample_format(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
+static int pa_pal_config_parse_default_sample_format(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
 
     int ret = -1;
     pa_assert(config_data);
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         sink->default_spec.format = pa_parse_sample_format(state->rvalue);
         pa_log_debug("%s: default sample format %s to usecase %s", __func__, state->rvalue, sink->name);
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         source->default_spec.format = pa_parse_sample_format(state->rvalue);
         pa_log_debug("%s: default sample format %s to usecase %s", __func__, state->rvalue, source->name);
     } else {
@@ -342,11 +342,11 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_default_channel_map(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
-    pa_qal_card_port_config *port = NULL;
+static int pa_pal_config_parse_default_channel_map(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
+    pa_pal_card_port_config *port = NULL;
 
     pa_channel_map map;
     char cm[PA_CHANNEL_MAP_SNPRINT_MAX];
@@ -362,15 +362,15 @@ static int pa_qal_config_parse_default_channel_map(pa_config_parser_state *state
         goto exit;
     }
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         sink->default_map = map;
         sink->default_spec.channels = map.channels;
         pa_log_debug("%s adding default channel map %s to sink %s", __func__, pa_channel_map_snprint(cm, sizeof(cm), &map), sink->name);
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         source->default_map = map;
         source->default_spec.channels = map.channels;
         pa_log_debug("%s adding default channel map %s to source %s", __func__, pa_channel_map_snprint(cm, sizeof(cm), &map), source->name);
-    } else if ((port = pa_qal_config_get_port(config_data->ports, state->section))) {
+    } else if ((port = pa_pal_config_get_port(config_data->ports, state->section))) {
         port->default_map = map;
         port->default_spec.channels = map.channels;
         pa_log_debug("%s adding default channel map %s to port %s", __func__, pa_channel_map_snprint(cm, sizeof(cm), &map), port->name);
@@ -384,10 +384,10 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_default_buffer_size(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
+static int pa_pal_config_parse_default_buffer_size(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
 
     int ret = -1;
 
@@ -395,10 +395,10 @@ static int pa_qal_config_parse_default_buffer_size(pa_config_parser_state *state
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         pa_atou(state->rvalue, &sink->buffer_size);
         pa_log_debug("%s adding default buffer size %d to sink %s", __func__, sink->buffer_size, sink->name);
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         pa_atou(state->rvalue, &source->buffer_size);
         pa_log_debug("%s adding default buffer size %d to source %s", __func__, source->buffer_size, source->name);
     } else {
@@ -411,10 +411,10 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_default_buffer_count(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
+static int pa_pal_config_parse_default_buffer_count(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
 
     int ret = -1;
 
@@ -422,10 +422,10 @@ static int pa_qal_config_parse_default_buffer_count(pa_config_parser_state *stat
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         pa_atou(state->rvalue, &sink->buffer_count);
         pa_log_debug("%s adding default buffer count %d to sink %s", __func__, sink->buffer_count, sink->name);
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         pa_atou(state->rvalue, &source->buffer_count);
         pa_log_debug("%s adding default buffer count %d to source %s", __func__, source->buffer_count, source->name);
     } else {
@@ -438,11 +438,11 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_sample_rates(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
-    pa_qal_card_port_config *port = NULL;
+static int pa_pal_config_parse_sample_rates(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
+    pa_pal_card_port_config *port = NULL;
 
     pa_format_info *format;
     pa_idxset *formats = NULL;
@@ -459,13 +459,13 @@ static int pa_qal_config_parse_sample_rates(pa_config_parser_state *state) {
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         formats = sink->formats;
         name = sink->name;
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         formats = source->formats;
         name = source->name;
-    } else if ((port = pa_qal_config_get_port(config_data->ports, state->section))) {
+    } else if ((port = pa_pal_config_get_port(config_data->ports, state->section))) {
         formats = port->formats;
         name = port->name;
     } else {
@@ -500,10 +500,10 @@ static int pa_qal_config_parse_sample_rates(pa_config_parser_state *state) {
             goto exit;
         }
 
-        if (sink && !pa_qal_sink_is_supported_sample_rate(sample_rates[i])) {
+        if (sink && !pa_pal_sink_is_supported_sample_rate(sample_rates[i])) {
             pa_log_error("%s: unsupported  sample rate %d by sink %s", __func__, sample_rates[i], sink->name);
             goto exit;
-        } else if (source && !pa_qal_source_is_supported_sample_rate(sample_rates[i])) {
+        } else if (source && !pa_pal_source_is_supported_sample_rate(sample_rates[i])) {
             pa_log_error("%s: unsupported sample rate %d by source %s", __func__, sample_rates[i], source->name);
             goto exit;
         }
@@ -527,11 +527,11 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_sample_formats(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
-    pa_qal_card_port_config *port = NULL;
+static int pa_pal_config_parse_sample_formats(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
+    pa_pal_card_port_config *port = NULL;
 
     pa_format_info *format;
     pa_idxset *formats = NULL;
@@ -548,13 +548,13 @@ static int pa_qal_config_parse_sample_formats(pa_config_parser_state *state) {
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         formats = sink->formats;
         name = sink->name;
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         formats = source->formats;
         name = source->name;
-    } else if ((port = pa_qal_config_get_port(config_data->ports, state->section))) {
+    } else if ((port = pa_pal_config_get_port(config_data->ports, state->section))) {
         formats = port->formats;
         name = port->name;
      } else {
@@ -605,11 +605,11 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_channel_maps(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
-    pa_qal_card_port_config *port = NULL;
+static int pa_pal_config_parse_channel_maps(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
+    pa_pal_card_port_config *port = NULL;
 
     pa_format_info *format;
     pa_idxset *formats = NULL;
@@ -622,11 +622,11 @@ static int pa_qal_config_parse_channel_maps(pa_config_parser_state *state) {
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         formats = sink->formats;
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         formats = source->formats;
-    } else if ((port = pa_qal_config_get_port(config_data->ports, state->section))) {
+    } else if ((port = pa_pal_config_get_port(config_data->ports, state->section))) {
         formats = port->formats;
     } else {
         goto exit;
@@ -649,21 +649,21 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_alternative_sample_rate(pa_config_parser_state *state) {
+static int pa_pal_config_parse_alternative_sample_rate(pa_config_parser_state *state) {
 
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
 
     int ret = -1;
     pa_assert(config_data);
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         pa_atou(state->rvalue, &sink->alternate_sample_rate);
         pa_log_debug("%s: alternate sample rate %d for sink %s", __func__, sink->alternate_sample_rate, sink->name);
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         pa_atou(state->rvalue, &source->alternate_sample_rate);
         pa_log_debug("%s: alternate sample rate %d for source %s", __func__, source->alternate_sample_rate, source->name);
     } else {
@@ -677,13 +677,13 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_presence(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_card_port_config *port;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
+static int pa_pal_config_parse_presence(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_card_port_config *port;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
 
-    pa_qal_card_usecase_type_t *usecase_type = NULL;
+    pa_pal_card_usecase_type_t *usecase_type = NULL;
 
     int ret = -1;
 
@@ -691,7 +691,7 @@ static int pa_qal_config_parse_presence(pa_config_parser_state *state) {
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((port = pa_qal_config_get_port(config_data->ports, state->section))) {
+    if ((port = pa_pal_config_get_port(config_data->ports, state->section))) {
         if (pa_streq(state->rvalue, "always")) {
             port->available = PA_AVAILABLE_YES;
         } else if (pa_streq(state->rvalue, "dynamic")) {
@@ -702,9 +702,9 @@ static int pa_qal_config_parse_presence(pa_config_parser_state *state) {
             pa_log_error("%s: invalid port state %s(it should be always, dynamic or static)", __func__, state->rvalue);
             goto exit;
         }
-    } else if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    } else if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         usecase_type = &sink->usecase_type;
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         usecase_type = &source->usecase_type;
    } else  {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
@@ -713,9 +713,9 @@ static int pa_qal_config_parse_presence(pa_config_parser_state *state) {
 
     if (sink || source) {
         if (pa_streq(state->rvalue, "always")) {
-            *usecase_type = PA_QAL_CARD_USECASE_TYPE_STATIC;
+            *usecase_type = PA_PAL_CARD_USECASE_TYPE_STATIC;
         } else if (pa_streq(state->rvalue, "dynamic")) {
-            *usecase_type = PA_QAL_CARD_USECASE_TYPE_DYNAMIC;
+            *usecase_type = PA_PAL_CARD_USECASE_TYPE_DYNAMIC;
         } else {
             pa_log_error("%s: invalid sink state %s(it should be always or dynamic)", __func__, state->rvalue);
             goto exit;
@@ -728,9 +728,9 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_use_hw_volume(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_sink_config *sink = NULL;
+static int pa_pal_config_parse_use_hw_volume(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
 
     int ret = -1;
 
@@ -738,7 +738,7 @@ static int pa_qal_config_parse_use_hw_volume(pa_config_parser_state *state) {
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if (!(sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    if (!(sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
     }
@@ -754,7 +754,7 @@ exit:
 }
 
 
-static void pa_qal_config_free_sink(pa_qal_sink_config *sink) {
+static void pa_pal_config_free_sink(pa_pal_sink_config *sink) {
     pa_assert(sink);
 
     pa_log_info("%s: freeing sink %s", __func__, sink->name);
@@ -775,7 +775,7 @@ static void pa_qal_config_free_sink(pa_qal_sink_config *sink) {
     pa_xfree(sink);
 } /* end sink parsing related functions */
 
-static void pa_qal_config_free_source(pa_qal_source_config *source) {
+static void pa_pal_config_free_source(pa_pal_source_config *source) {
     pa_assert(source);
 
     pa_log_info("%s: freeing source %s", __func__, source->name);
@@ -797,12 +797,12 @@ static void pa_qal_config_free_source(pa_qal_source_config *source) {
 } /* end source parsing related functions */
 
 /* common between port, profile and sink*/
-static int pa_qal_config_parse_description(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_card_profile_config *profile;
-    pa_qal_card_port_config *port;
-    pa_qal_sink_config *sink;
-    pa_qal_source_config *source;
+static int pa_pal_config_parse_description(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_card_profile_config *profile;
+    pa_pal_card_port_config *port;
+    pa_pal_sink_config *sink;
+    pa_pal_source_config *source;
 
     int ret = 0;
 
@@ -810,13 +810,13 @@ static int pa_qal_config_parse_description(pa_config_parser_state *state) {
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((profile = pa_qal_config_get_profile(config_data->profiles, state->section))) {
+    if ((profile = pa_pal_config_get_profile(config_data->profiles, state->section))) {
         profile->description = pa_xstrdup(state->rvalue);
-    } else if ((port = pa_qal_config_get_port(config_data->ports, state->section))) {
+    } else if ((port = pa_pal_config_get_port(config_data->ports, state->section))) {
         port->description = pa_xstrdup(state->rvalue);
-    } else if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    } else if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         sink->description = pa_xstrdup(state->rvalue);
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         source->description = pa_xstrdup(state->rvalue);
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
@@ -827,10 +827,10 @@ static int pa_qal_config_parse_description(pa_config_parser_state *state) {
 }
 
 /* common between port and profile */
-static int pa_qal_config_parse_priority(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_card_profile_config *profile;
-    pa_qal_card_port_config *port;
+static int pa_pal_config_parse_priority(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_card_profile_config *profile;
+    pa_pal_card_port_config *port;
 
     int ret = 0;
 
@@ -838,11 +838,11 @@ static int pa_qal_config_parse_priority(pa_config_parser_state *state) {
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((profile = pa_qal_config_get_profile(config_data->profiles, state->section))) {
+    if ((profile = pa_pal_config_get_profile(config_data->profiles, state->section))) {
         if (pa_atou(state->rvalue, &profile->priority) < 0) {
             pa_log("%s: Invalid profile priority", __func__);
         }
-    } else if ((port = pa_qal_config_get_port(config_data->ports, state->section))) {
+    } else if ((port = pa_pal_config_get_port(config_data->ports, state->section))) {
         if (pa_atou(state->rvalue, &port->priority) < 0) {
             pa_log("%s: Invalid port priority", __func__);
         }
@@ -854,25 +854,25 @@ static int pa_qal_config_parse_priority(pa_config_parser_state *state) {
     return ret;
 }
 
-static pa_qal_card_profile_config* pa_qal_config_get_profile(pa_hashmap *profiles, char *name) {
-    pa_qal_card_profile_config *profile = NULL;
+static pa_pal_card_profile_config* pa_pal_config_get_profile(pa_hashmap *profiles, char *name) {
+    pa_pal_card_profile_config *profile = NULL;
 
     pa_assert(profiles);
     pa_assert(name);
 
-    if (!pa_startswith(name, QAL_CARD_PROFILE_PREFIX)) {
+    if (!pa_startswith(name, PAL_CARD_PROFILE_PREFIX)) {
         goto exit;
     }
 
     /* point to Port name */
-    name += strlen(QAL_CARD_PROFILE_PREFIX);
+    name += strlen(PAL_CARD_PROFILE_PREFIX);
 
     profile = pa_hashmap_get(profiles, name);
     if (profile) {
         goto exit;
     }
 
-    profile = pa_xnew0(pa_qal_card_profile_config, 1);
+    profile = pa_xnew0(pa_pal_card_profile_config, 1);
 
     profile->ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
@@ -886,9 +886,9 @@ exit:
     return profile;
 }
 
-static int pa_qal_config_parse_profile_max_sink_channels(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_card_profile_config *profile;
+static int pa_pal_config_parse_profile_max_sink_channels(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_card_profile_config *profile;
 
     int ret = 0;
 
@@ -896,7 +896,7 @@ static int pa_qal_config_parse_profile_max_sink_channels(pa_config_parser_state 
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((profile = pa_qal_config_get_profile(config_data->profiles, state->section))) {
+    if ((profile = pa_pal_config_get_profile(config_data->profiles, state->section))) {
         if (pa_atou(state->rvalue, &profile->max_sink_channels) < 0) {
             pa_log("%s: Invalid profile sink channel count", __func__);
             ret = -1;
@@ -909,9 +909,9 @@ static int pa_qal_config_parse_profile_max_sink_channels(pa_config_parser_state 
     return ret;
 }
 
-static int pa_qal_config_parse_profile_max_source_channels(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_card_profile_config *profile;
+static int pa_pal_config_parse_profile_max_source_channels(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_card_profile_config *profile;
 
     int ret = 0;
 
@@ -919,7 +919,7 @@ static int pa_qal_config_parse_profile_max_source_channels(pa_config_parser_stat
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((profile = pa_qal_config_get_profile(config_data->profiles, state->section))) {
+    if ((profile = pa_pal_config_get_profile(config_data->profiles, state->section))) {
         if (pa_atou(state->rvalue, &profile->max_source_channels) < 0) {
             pa_log("%s: Invalid profile source channel count", __func__);
             ret = -1;
@@ -932,14 +932,14 @@ static int pa_qal_config_parse_profile_max_source_channels(pa_config_parser_stat
     return ret;
 }
 
-static int pa_qal_config_parse_port_names(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
+static int pa_pal_config_parse_port_names(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
 
-    pa_qal_card_profile_config *profile1;
-    pa_qal_card_profile_config *profile;
-    pa_qal_card_port_config *port;
-    pa_qal_sink_config *sink = NULL;
-    pa_qal_source_config *source = NULL;
+    pa_pal_card_profile_config *profile1;
+    pa_pal_card_profile_config *profile;
+    pa_pal_card_port_config *port;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
 
     pa_hashmap *ports = NULL;
     pa_hashmap *profiles = NULL;
@@ -956,18 +956,18 @@ static int pa_qal_config_parse_port_names(pa_config_parser_state *state) {
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if ((profile = pa_qal_config_get_profile(config_data->profiles, state->section))) {
+    if ((profile = pa_pal_config_get_profile(config_data->profiles, state->section))) {
         ports = profile->ports;
         profile->port_conf_string = pa_split_spaces_strv(state->rvalue);
         items = profile->port_conf_string;
         name = profile->name;
-    } else if ((sink = pa_qal_config_get_sink(config_data->sinks, state->section))) {
+    } else if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         ports = sink->ports;
         sink->port_conf_string = pa_split_spaces_strv(state->rvalue);
         items = sink->port_conf_string;
         profiles = sink->profiles;
         name = sink->name;
-    } else if ((source = pa_qal_config_get_source(config_data->sources, state->section))) {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         ports = source->ports;
         source->port_conf_string = pa_split_spaces_strv(state->rvalue);
         items = source->port_conf_string;
@@ -1024,7 +1024,7 @@ exit:
     return ret;
 }
 
-static void pa_qal_config_free_profile(pa_qal_card_profile_config *profile) {
+static void pa_pal_config_free_profile(pa_pal_card_profile_config *profile) {
     pa_assert(profile);
 
     pa_log_info("%s: freeing profile %s", __func__, profile->name);
@@ -1042,24 +1042,24 @@ static void pa_qal_config_free_profile(pa_qal_card_profile_config *profile) {
     pa_xfree(profile);
 } /* end profile parsing related functions */
 
-static pa_qal_card_port_config* pa_qal_config_get_port(pa_hashmap *ports, char *name) {
-    pa_qal_card_port_config *port = NULL;
+static pa_pal_card_port_config* pa_pal_config_get_port(pa_hashmap *ports, char *name) {
+    pa_pal_card_port_config *port = NULL;
 
     pa_assert(ports);
     pa_assert(name);
 
-    if (!pa_startswith(name, QAL_CARD_PORT_PREFIX))
+    if (!pa_startswith(name, PAL_CARD_PORT_PREFIX))
         goto exit;
 
     /* point to Port name */
-    name += strlen(QAL_CARD_PORT_PREFIX);
+    name += strlen(PAL_CARD_PORT_PREFIX);
 
     port = pa_hashmap_get(ports, name);
     if (port) {
         goto exit;
     }
 
-    port = pa_xnew0(pa_qal_card_port_config, 1);
+    port = pa_xnew0(pa_pal_card_port_config, 1);
     port->name = pa_xstrdup(name);
     port->formats = pa_idxset_new(NULL, NULL);
 
@@ -1071,23 +1071,23 @@ exit:
     return port;
 }
 
-static int pa_qal_config_parse_port_device(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_card_port_config *port;
+static int pa_pal_config_parse_port_device(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_card_port_config *port;
     int ret = 0;
 
     pa_assert(config_data);
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    port = pa_qal_config_get_port(config_data->ports, state->section);
+    port = pa_pal_config_get_port(config_data->ports, state->section);
     if (!port) {
         ret = -1;
         goto exit;
     }
 
-    port->device = pa_qal_util_device_name_to_enum((const char *)state->rvalue);
-    if (port->device != QAL_DEVICE_NONE) {
+    port->device = pa_pal_util_device_name_to_enum((const char *)state->rvalue);
+    if (port->device != PAL_DEVICE_NONE) {
         goto exit;
     } else {
         pa_log_error("%s: invalid port device %s ", __func__, state->rvalue);
@@ -1098,16 +1098,16 @@ exit:
     return ret;
 }
 
-static int pa_qal_config_parse_port_direction(pa_config_parser_state *state) {
-    pa_qal_config_data* config_data = state->userdata;
-    pa_qal_card_port_config *port;
+static int pa_pal_config_parse_port_direction(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_card_port_config *port;
     int ret = 0;
 
     pa_assert(config_data);
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    port = pa_qal_config_get_port(config_data->ports, state->section);
+    port = pa_pal_config_get_port(config_data->ports, state->section);
     if (!port) {
         ret = -1;
         goto exit;
@@ -1126,7 +1126,7 @@ exit:
     return ret;
 }
 
-static void pa_qal_config_free_port(pa_qal_card_port_config *port) {
+static void pa_pal_config_free_port(pa_pal_card_port_config *port) {
     pa_assert(port);
 
     pa_log_info("%s: freeing port %s", __func__, port->name);
@@ -1140,7 +1140,7 @@ static void pa_qal_config_free_port(pa_qal_card_port_config *port) {
     pa_xfree(port);
 }
 
-static char *pa_qal_config_get_conf_file_name() {
+static char *pa_pal_config_get_conf_file_name() {
     const char *cards = "/proc/asound/cards";
 
     char **items = NULL;
@@ -1162,7 +1162,7 @@ static char *pa_qal_config_get_conf_file_name() {
     }
 
     while ((item = items[i++])) {
-        if (strstr(item, QAL_CARD_SND_SUFFIX)) {
+        if (strstr(item, PAL_CARD_SND_SUFFIX)) {
             conf_file_name = pa_xstrdup(item);
             break;
         }
@@ -1184,14 +1184,14 @@ exit:
     return conf_file_name;
 }
 
-static char* pa_qal_config_parser_get_conf_file_name(char *dir, char *conf_name) {
+static char* pa_pal_config_parser_get_conf_file_name(char *dir, char *conf_name) {
     char *conf_path = NULL;
     char *conf_file_name = NULL;
 
     if (!dir)
         dir = (char *)QAL_CARD_DEFAULT_CONF_PATH;
 
-    conf_file_name = pa_qal_config_get_conf_file_name();
+    conf_file_name = pa_pal_config_get_conf_file_name();
     if (conf_file_name) {
         /* add .conf suffix conf_file_name */
         conf_name = pa_sprintf_malloc("%s%s", conf_file_name, ".conf");
@@ -1203,7 +1203,7 @@ static char* pa_qal_config_parser_get_conf_file_name(char *dir, char *conf_name)
 
     if (access(conf_path, F_OK) < 0) {
         /* use default conf name */
-        conf_name = (char *)QAL_CARD_DEFAULT_CONF_NAME;
+        conf_name = (char *)PAL_CARD_DEFAULT_CONF_NAME;
         pa_log_debug("%s:: No config file name %s, Using default conf file", __func__, conf_path);
         conf_path = pa_maybe_prefix_path(conf_name, dir);
     }
@@ -1214,8 +1214,8 @@ static char* pa_qal_config_parser_get_conf_file_name(char *dir, char *conf_name)
 }
 
 /* function to parser conf file to get card related info */
-pa_qal_config_data* pa_qal_config_parse_new(char *dir, char *conf_file_name) {
-    pa_qal_config_data *config_data;
+pa_pal_config_data* pa_pal_config_parse_new(char *dir, char *conf_file_name) {
+    pa_pal_config_data *config_data;
 
     int ret = 0;
     char *conf_full_path = NULL;
@@ -1225,60 +1225,60 @@ pa_qal_config_data* pa_qal_config_parse_new(char *dir, char *conf_file_name) {
         { "default-profile",             pa_config_parse_string,                                   NULL, "Global" },
 
         /* [Port... ] */
-        { "direction",                   pa_qal_config_parse_port_direction,                      NULL, NULL },
-        { "device",                      pa_qal_config_parse_port_device,                         NULL, NULL },
+        { "direction",                   pa_pal_config_parse_port_direction,                      NULL, NULL },
+        { "device",                      pa_pal_config_parse_port_device,                         NULL, NULL },
 
         /* [Profile... ] */
-        { "max-sink-channels",           pa_qal_config_parse_profile_max_sink_channels,           NULL, NULL },
-        { "max-source-channels",         pa_qal_config_parse_profile_max_source_channels ,        NULL, NULL },
+        { "max-sink-channels",           pa_pal_config_parse_profile_max_sink_channels,           NULL, NULL },
+        { "max-source-channels",         pa_pal_config_parse_profile_max_source_channels ,        NULL, NULL },
 
-        { "use-hw-volume",               pa_qal_config_parse_use_hw_volume,                       NULL, NULL },
+        { "use-hw-volume",               pa_pal_config_parse_use_hw_volume,                       NULL, NULL },
 
         /* common between sink and source*/
-        { "type",                        pa_qal_config_parse_type,                                NULL, NULL },
-        { "alternate-sample-rate",       pa_qal_config_parse_alternative_sample_rate,             NULL, NULL },
+        { "type",                        pa_pal_config_parse_type,                                NULL, NULL },
+        { "alternate-sample-rate",       pa_pal_config_parse_alternative_sample_rate,             NULL, NULL },
 
         /* common between profile, sink and source */
-        { "port-names",                  pa_qal_config_parse_port_names,                          NULL, NULL },
+        { "port-names",                  pa_pal_config_parse_port_names,                          NULL, NULL },
 
 
         /* common between port and profile section */
-        { "priority",                    pa_qal_config_parse_priority,                            NULL, NULL },
+        { "priority",                    pa_pal_config_parse_priority,                            NULL, NULL },
 
         /* common between port and profile, sink source and port section */
-        { "description",                 pa_qal_config_parse_description,                         NULL, NULL },
+        { "description",                 pa_pal_config_parse_description,                         NULL, NULL },
 
         /* common between port, sink and source */
-        { "presence",                    pa_qal_config_parse_presence,                            NULL, NULL },
-        { "default-encoding",            pa_qal_config_parse_default_encoding,                    NULL, NULL },
-        { "default-sample-rate",         pa_qal_config_parse_default_sample_rate,                 NULL, NULL },
-        { "default-sample-format",       pa_qal_config_parse_default_sample_format,               NULL, NULL },
-        { "default-channel-map",         pa_qal_config_parse_default_channel_map,                 NULL, NULL },
-        { "default-buffer-size",         pa_qal_config_parse_default_buffer_size,                 NULL, NULL },
-        { "default-buffer-count",        pa_qal_config_parse_default_buffer_count,                NULL, NULL },
-        { "encodings",                   pa_qal_config_parse_encodings,                           NULL, NULL },
-        { "sample-rates",                pa_qal_config_parse_sample_rates,                        NULL, NULL },
-        { "sample-formats",              pa_qal_config_parse_sample_formats,                      NULL, NULL },
-        { "channel-maps",                pa_qal_config_parse_channel_maps,                        NULL, NULL },
+        { "presence",                    pa_pal_config_parse_presence,                            NULL, NULL },
+        { "default-encoding",            pa_pal_config_parse_default_encoding,                    NULL, NULL },
+        { "default-sample-rate",         pa_pal_config_parse_default_sample_rate,                 NULL, NULL },
+        { "default-sample-format",       pa_pal_config_parse_default_sample_format,               NULL, NULL },
+        { "default-channel-map",         pa_pal_config_parse_default_channel_map,                 NULL, NULL },
+        { "default-buffer-size",         pa_pal_config_parse_default_buffer_size,                 NULL, NULL },
+        { "default-buffer-count",        pa_pal_config_parse_default_buffer_count,                NULL, NULL },
+        { "encodings",                   pa_pal_config_parse_encodings,                           NULL, NULL },
+        { "sample-rates",                pa_pal_config_parse_sample_rates,                        NULL, NULL },
+        { "sample-formats",              pa_pal_config_parse_sample_formats,                      NULL, NULL },
+        { "channel-maps",                pa_pal_config_parse_channel_maps,                        NULL, NULL },
 
         {  NULL, NULL, NULL, NULL }
     };
 
     pa_log_info("%s", __func__);
 
-    config_data = pa_xnew0(pa_qal_config_data, 1);
+    config_data = pa_xnew0(pa_pal_config_data, 1);
 
     items[0].data = &config_data->default_profile;
 
-    config_data->ports = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qal_config_free_port);
+    config_data->ports = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_pal_config_free_port);
 
-    config_data->profiles = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qal_config_free_profile);
+    config_data->profiles = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_pal_config_free_profile);
 
-    config_data->sinks = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qal_config_free_sink);
+    config_data->sinks = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_pal_config_free_sink);
 
-    config_data->sources = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_qal_config_free_source);
+    config_data->sources = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_pal_config_free_source);
 
-    conf_full_path = pa_qal_config_parser_get_conf_file_name(dir, conf_file_name);
+    conf_full_path = pa_pal_config_parser_get_conf_file_name(dir, conf_file_name);
     if (!conf_full_path) {
         pa_log_error("%s:: Could not find valid conf, exiting ", __func__);
         ret = -1;
@@ -1294,7 +1294,7 @@ pa_qal_config_data* pa_qal_config_parse_new(char *dir, char *conf_file_name) {
     }
 
 fail:
-    pa_qal_config_parse_free(config_data);
+    pa_pal_config_parse_free(config_data);
     config_data = NULL;
 
 exit:
@@ -1304,7 +1304,7 @@ exit:
     return config_data;
 }
 
-void pa_qal_config_parse_free(pa_qal_config_data *config_data) {
+void pa_pal_config_parse_free(pa_pal_config_data *config_data) {
     pa_log_info("%s", __func__);
 
     pa_assert(config_data);

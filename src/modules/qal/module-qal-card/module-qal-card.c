@@ -28,8 +28,8 @@
 
 #include <string.h>
 
-#include <QalApi.h>
-#include <QalDefs.h>
+#include <PalApi.h>
+#include <PalDefs.h>
 #include <agm/agm_api.h>
 
 #include "qal-source.h"
@@ -38,26 +38,26 @@
 #include "qal-config-parser.h"
 
 #define CONC(A,B) (A B)
-#define QAL_MODULE_ID_PREFIX "audio."
-#define QAL_MODULE_PRIMARY "primary"
+#define PAL_MODULE_ID_PREFIX "audio."
+#define PAL_MODULE_PRIMARY "primary"
 
-#ifndef QAL_MODULE_ID_PRIMARY
-#define QAL_MODULE_ID_PRIMARY CONC(QAL_MODULE_ID_PREFIX, QAL_MODULE_PRIMARY)
+#ifndef PAL_MODULE_ID_PRIMARY
+#define PAL_MODULE_ID_PRIMARY CONC(PAL_MODULE_ID_PREFIX, PAL_MODULE_PRIMARY)
 #endif
 
-#define QAL_CARD_NAME_PREFIX "qal."
+#define PAL_CARD_NAME_PREFIX "pal."
 #define DEFAULT_PROFILE "default"
 
 PA_MODULE_AUTHOR("QTI");
-PA_MODULE_DESCRIPTION("qal card module");
+PA_MODULE_DESCRIPTION("pal card module");
 PA_MODULE_VERSION(PACKAGE_VERSION);
 PA_MODULE_LOAD_ONCE(true);
 
 /* We don't have any module arguments */
 PA_MODULE_USAGE(
         "module=audio.primary"
-        "conf_dir_name= direct from qal conf is present"
-        "conf_file_name= qal conf name is present in conf_dir_name"
+        "conf_dir_name= direct from pal conf is present"
+        "conf_file_name= pal conf name is present in conf_dir_name"
 );
 
 static const char* const valid_modargs[] = {
@@ -68,12 +68,12 @@ static const char* const valid_modargs[] = {
 };
 
 typedef struct {
-    pa_qal_source_handle_t *handle;
-} pa_qal_card_source_info;
+    pa_pal_source_handle_t *handle;
+} pa_pal_card_source_info;
 
 typedef struct {
-    pa_qal_sink_handle_t *handle;
-} pa_qal_card_sink_info;
+    pa_pal_sink_handle_t *handle;
+} pa_pal_card_sink_info;
 
 struct userdata {
     pa_core *core;
@@ -90,19 +90,19 @@ struct userdata {
     pa_hashmap *sinks;
     pa_hashmap *sources;
 
-    pa_qal_config_data *config_data;
+    pa_pal_config_data *config_data;
     char *conf_dir_name;
     char *conf_file_name;
 };
 
 /* internal functions */
 
-static int pa_qal_card_add_source(pa_module *module, pa_card *card, const char *driver, char *module_name, pa_qal_source_config *source,
-                                  pa_qal_source_handle_t **source_handle);
-static int pa_qal_card_add_sink(pa_module *module, pa_card *card, const char *driver, char *module_name, pa_qal_sink_config *sink,
-                                pa_qal_sink_handle_t **sink_handle);
+static int pa_pal_card_add_source(pa_module *module, pa_card *card, const char *driver, char *module_name, pa_pal_source_config *source,
+                                  pa_pal_source_handle_t **source_handle);
+static int pa_pal_card_add_sink(pa_module *module, pa_card *card, const char *driver, char *module_name, pa_pal_sink_config *sink,
+                                pa_pal_sink_handle_t **sink_handle);
 
-static void pa_qal_card_profiles_free(struct userdata *u, pa_hashmap *profiles) {
+static void pa_pal_card_profiles_free(struct userdata *u, pa_hashmap *profiles) {
     pa_card_profile *p;
     void *state;
 
@@ -111,11 +111,11 @@ static void pa_qal_card_profiles_free(struct userdata *u, pa_hashmap *profiles) 
     }
 }
 
-static void pa_qal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_hashmap *profiles) {
+static void pa_pal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_hashmap *profiles) {
     pa_device_port *port;
-    pa_qal_card_port_config *config_port;
+    pa_pal_card_port_config *config_port;
     pa_device_port_new_data port_data;
-    pa_qal_card_port_device_data *port_device_data = NULL;
+    pa_pal_card_port_device_data *port_device_data = NULL;
 
     void *state;
 
@@ -133,7 +133,7 @@ static void pa_qal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_h
         pa_device_port_new_data_set_direction(&port_data, config_port->direction);
         pa_device_port_new_data_set_available(&port_data, config_port->available);
 
-        port = pa_device_port_new(u->core, &port_data, sizeof(pa_qal_card_port_device_data));
+        port = pa_device_port_new(u->core, &port_data, sizeof(pa_pal_card_port_device_data));
 
         port_device_data = PA_DEVICE_PORT_DATA(port);
 
@@ -151,11 +151,11 @@ static void pa_qal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_h
     }
 }
 
-static void pa_qal_card_create_profiles_and_add_ports(struct userdata *u, pa_hashmap *profiles, pa_hashmap *ports) {
+static void pa_pal_card_create_profiles_and_add_ports(struct userdata *u, pa_hashmap *profiles, pa_hashmap *ports) {
     pa_card_profile *profile = NULL;
-    pa_qal_card_port_config *config_port;
+    pa_pal_card_port_config *config_port;
     pa_device_port *card_port;
-    pa_qal_card_profile_config *config_profile;
+    pa_pal_card_profile_config *config_profile;
 
     void *state;
     void *state1;
@@ -190,12 +190,12 @@ static void pa_qal_card_create_profiles_and_add_ports(struct userdata *u, pa_has
 }
 
 
-static int pa_qal_card_set_profile(pa_card *c, pa_card_profile *new_profile) {
+static int pa_pal_card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     pa_log_error("profile change not supported yet");
     return 0;
 }
 
-static void pa_qal_card_free(struct userdata *u) {
+static void pa_pal_card_free(struct userdata *u) {
     pa_assert(u);
 
     if (u->card)
@@ -203,7 +203,7 @@ static void pa_qal_card_free(struct userdata *u) {
 }
 
 /* create port and profile and adds it card */
-static int pa_qal_card_create(struct userdata *u) {
+static int pa_pal_card_create(struct userdata *u) {
     pa_card_new_data data;
     pa_card_profile *profile;
 
@@ -212,30 +212,30 @@ static int pa_qal_card_create(struct userdata *u) {
     pa_card_new_data_init(&data);
     data.driver = __FILE__;
     data.module = u->module;
-    data.name =  pa_sprintf_malloc("%s%s", QAL_CARD_NAME_PREFIX, u->module_name);
+    data.name =  pa_sprintf_malloc("%s%s", PAL_CARD_NAME_PREFIX, u->module_name);
     data.namereg_fail = true;
 
     pa_proplist_setf(data.proplist, PA_PROP_DEVICE_DESCRIPTION, "Card for the %s HAL module", u->module_name);
 
-    pa_qal_card_create_ports(u, data.ports, data.profiles);
-    pa_qal_card_create_profiles_and_add_ports(u, data.profiles, data.ports);
+    pa_pal_card_create_ports(u, data.ports, data.profiles);
+    pa_pal_card_create_profiles_and_add_ports(u, data.profiles, data.ports);
 
     u->card = pa_card_new(u->core, &data);
     pa_card_new_data_done(&data);
 
     if (!u->card) {
         pa_log_error("Failed to allocate card.");
-        pa_qal_card_profiles_free(u, data.profiles);
+        pa_pal_card_profiles_free(u, data.profiles);
         return -1;
     }
 
     u->card->userdata = u;
-    u->card->set_profile = pa_qal_card_set_profile;
+    u->card->set_profile = pa_pal_card_set_profile;
 
     profile = pa_hashmap_get(u->card->profiles, DEFAULT_PROFILE);
     if (!profile) {
         pa_log("profile not found");
-        pa_qal_card_free(u);
+        pa_pal_card_free(u);
         return -1;
     }
 
@@ -248,8 +248,8 @@ static int pa_qal_card_create(struct userdata *u) {
     return 0;
 }
 
-static int pa_qal_card_add_source(pa_module *module, pa_card *card, const char *driver, char *module_name, pa_qal_source_config *source,
-                                  pa_qal_source_handle_t **source_handle) {
+static int pa_pal_card_add_source(pa_module *module, pa_card *card, const char *driver, char *module_name, pa_pal_source_config *source,
+                                  pa_pal_source_handle_t **source_handle) {
     uint32_t rc = 0;
 
     pa_assert(module);
@@ -259,7 +259,7 @@ static int pa_qal_card_add_source(pa_module *module, pa_card *card, const char *
     pa_assert(module_name);
     pa_assert(source);
 
-    rc = pa_qal_source_create(module, card, driver, module_name, source, source_handle);
+    rc = pa_pal_source_create(module, card, driver, module_name, source, source_handle);
     if (rc) {
         pa_log_error("%s: source %s create failed %d ", __func__, source->name, rc);
     }
@@ -267,20 +267,20 @@ static int pa_qal_card_add_source(pa_module *module, pa_card *card, const char *
     return rc;
 }
 
-static int pa_qal_card_create_sources(struct userdata *u, const char *profile_name, pa_qal_card_usecase_type_t usecase_type) {
+static int pa_pal_card_create_sources(struct userdata *u, const char *profile_name, pa_pal_card_usecase_type_t usecase_type) {
     uint32_t rc = 0;
-    pa_qal_source_config *source;
+    pa_pal_source_config *source;
 
     void *state;
 
-    pa_qal_card_source_info *source_info;
+    pa_pal_card_source_info *source_info;
 
     PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
         if (!(pa_hashmap_get(source->profiles, profile_name)) || source->usecase_type != usecase_type)
             continue;
 
-        source_info = pa_xnew0(pa_qal_card_source_info, 1);
-        rc = pa_qal_card_add_source(u->module, u->card, u->driver, u->module_name, source, &(source_info->handle));
+        source_info = pa_xnew0(pa_pal_card_source_info, 1);
+        rc = pa_pal_card_add_source(u->module, u->card, u->driver, u->module_name, source, &(source_info->handle));
         if (rc) {
             pa_log_error("%s: source %s create failed for profile %s, error %d ", __func__, source->name, profile_name, rc);
             source_info->handle = NULL;
@@ -293,10 +293,10 @@ static int pa_qal_card_create_sources(struct userdata *u, const char *profile_na
     return rc;
 }
 
-static void pa_qal_card_free_sources(struct userdata *u, const char *profile_name) {
-    pa_qal_source_config *source;
+static void pa_pal_card_free_sources(struct userdata *u, const char *profile_name) {
+    pa_pal_source_config *source;
     void *state;
-    pa_qal_card_source_info *source_info;
+    pa_pal_card_source_info *source_info;
 
     PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
         if (!(pa_hashmap_get(source->profiles, profile_name)))
@@ -305,7 +305,7 @@ static void pa_qal_card_free_sources(struct userdata *u, const char *profile_nam
         source_info = pa_hashmap_get(u->sources, source->name);
 
         if (source_info) {
-            pa_qal_source_close(source_info->handle);
+            pa_pal_source_close(source_info->handle);
 
             pa_hashmap_remove(u->sources, source->name);
             pa_xfree(source_info);
@@ -313,8 +313,8 @@ static void pa_qal_card_free_sources(struct userdata *u, const char *profile_nam
     }
 }
 
-static int pa_qal_card_add_sink(pa_module *module, pa_card *card, const char *driver, char *module_name,
-                                 pa_qal_sink_config *sink, pa_qal_sink_handle_t **sink_handle) {
+static int pa_pal_card_add_sink(pa_module *module, pa_card *card, const char *driver, char *module_name,
+                                 pa_pal_sink_config *sink, pa_pal_sink_handle_t **sink_handle) {
     uint32_t rc = 0;
 
     pa_assert(module);
@@ -324,7 +324,7 @@ static int pa_qal_card_add_sink(pa_module *module, pa_card *card, const char *dr
     pa_assert(module_name);
     pa_assert(sink);
 
-    rc = pa_qal_sink_create(module, card, driver, module_name, sink, sink_handle);
+    rc = pa_pal_sink_create(module, card, driver, module_name, sink, sink_handle);
     if (rc) {
         pa_log_error("%s: sink %s create failed %d ", __func__, sink->name, rc);
     }
@@ -332,20 +332,20 @@ static int pa_qal_card_add_sink(pa_module *module, pa_card *card, const char *dr
     return rc;
 }
 
-static int pa_qal_card_create_sinks(struct userdata *u, const char *profile_name, pa_qal_card_usecase_type_t usecase_type) {
+static int pa_pal_card_create_sinks(struct userdata *u, const char *profile_name, pa_pal_card_usecase_type_t usecase_type) {
     uint32_t rc = 0;
-    pa_qal_sink_config *sink;
+    pa_pal_sink_config *sink;
 
     void *state;
 
-    pa_qal_card_sink_info *sink_info;
+    pa_pal_card_sink_info *sink_info;
 
     PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
         if (!(pa_hashmap_get(sink->profiles, profile_name)) || sink->usecase_type != usecase_type)
             continue;
 
-        sink_info = pa_xnew0(pa_qal_card_sink_info, 1);
-        rc = pa_qal_card_add_sink(u->module, u->card, u->driver, u->module_name, sink, &(sink_info->handle));
+        sink_info = pa_xnew0(pa_pal_card_sink_info, 1);
+        rc = pa_pal_card_add_sink(u->module, u->card, u->driver, u->module_name, sink, &(sink_info->handle));
         if (rc) {
             pa_log_error("%s: sink %s create failed for profile %s, error %d ", __func__, sink->name, profile_name, rc);
             sink_info->handle = NULL;
@@ -359,10 +359,10 @@ static int pa_qal_card_create_sinks(struct userdata *u, const char *profile_name
     return rc;
 }
 
-static void pa_qal_card_free_sinks(struct userdata *u, const char *profile_name) {
-    pa_qal_sink_config *sink;
+static void pa_pal_card_free_sinks(struct userdata *u, const char *profile_name) {
+    pa_pal_sink_config *sink;
     void *state;
-    pa_qal_card_sink_info *sink_info;
+    pa_pal_card_sink_info *sink_info;
 
     PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
         if (!(pa_hashmap_get(sink->profiles, profile_name)))
@@ -371,7 +371,7 @@ static void pa_qal_card_free_sinks(struct userdata *u, const char *profile_name)
         sink_info = pa_hashmap_get(u->sinks, sink->name);
 
         if (sink_info) {
-            pa_qal_sink_close(sink_info->handle);
+            pa_pal_sink_close(sink_info->handle);
 
             pa_hashmap_remove(u->sinks, sink->name);
             pa_xfree(sink_info);
@@ -399,10 +399,10 @@ int pa__init(pa_module *m) {
     u->core = m->core;
     u->driver = __FILE__;
 
-    u->module_name = pa_xstrdup(pa_modargs_get_value(ma, "module", QAL_MODULE_ID_PRIMARY));
+    u->module_name = pa_xstrdup(pa_modargs_get_value(ma, "module", PAL_MODULE_ID_PRIMARY));
 
-    if (pa_streq(u->module_name, QAL_MODULE_ID_PRIMARY)) {
-        pa_log_debug("Loading qal module %s ", u->module_name);
+    if (pa_streq(u->module_name, PAL_MODULE_ID_PRIMARY)) {
+        pa_log_debug("Loading pal module %s ", u->module_name);
     } else {
         pa_log_error("Unsupported module_name %s", u->module_name);
         goto fail;
@@ -411,9 +411,9 @@ int pa__init(pa_module *m) {
     u->conf_dir_name = pa_xstrdup(pa_modargs_get_value(ma, "conf_dir_name", NULL));
     u->conf_file_name = pa_xstrdup(pa_modargs_get_value(ma, "conf_file_name", NULL));
 
-    u->config_data = pa_qal_config_parse_new(u->conf_dir_name, u->conf_file_name);
+    u->config_data = pa_pal_config_parse_new(u->conf_dir_name, u->conf_file_name);
     if (!u->config_data) {
-        pa_log_error("%s: pa_qal_config_parse_new failed", __func__);
+        pa_log_error("%s: pa_pal_config_parse_new failed", __func__);
         goto fail;
     }
 
@@ -423,24 +423,24 @@ int pa__init(pa_module *m) {
         goto fail;
     }
 
-    ret = qal_init();
+    ret = pal_init();
     if (ret) {
-        pa_log_error("%s: qal init failed\n", __func__);
+        pa_log_error("%s: pal init failed\n", __func__);
         goto fail;
     }
 
-    pa_qal_card_create(u);
+    pa_pal_card_create(u);
 
     if (!u->config_data->default_profile) {
         pa_log_info("%s: default profile not present in card conf", __func__);
         u->config_data->default_profile = (char *)DEFAULT_PROFILE;
     }
 
-    pa_qal_sink_module_init();
+    pa_pal_sink_module_init();
     if (pa_hashmap_size(u->config_data->sinks)) {
         u->sinks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
-        if (PA_UNLIKELY(pa_qal_card_create_sinks(u, u->config_data->default_profile, PA_QAL_CARD_USECASE_TYPE_STATIC)))
+        if (PA_UNLIKELY(pa_pal_card_create_sinks(u, u->config_data->default_profile, PA_PAL_CARD_USECASE_TYPE_STATIC)))
             goto fail;
 
     }
@@ -449,7 +449,7 @@ int pa__init(pa_module *m) {
 
     if (pa_hashmap_size(u->config_data->sources)) {
         u->sources = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
-        if (PA_UNLIKELY(pa_qal_card_create_sources(u, u->config_data->default_profile, PA_QAL_CARD_USECASE_TYPE_STATIC)))
+        if (PA_UNLIKELY(pa_pal_card_create_sources(u, u->config_data->default_profile, PA_PAL_CARD_USECASE_TYPE_STATIC)))
             goto fail;
     }
 
@@ -475,28 +475,28 @@ void pa__done(pa_module *m) {
 
     if (u->sinks) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
-            pa_qal_card_free_sinks(u, profile->name);
+            pa_pal_card_free_sinks(u, profile->name);
 
         pa_hashmap_free(u->sinks);
     }
 
-    pa_qal_sink_module_deinit();
+    pa_pal_sink_module_deinit();
 
     if (u->sources) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
-            pa_qal_card_free_sources(u, profile->name);
+            pa_pal_card_free_sources(u, profile->name);
 
         pa_hashmap_free(u->sources);
     }
 
-    qal_deinit();
+    pal_deinit();
 
     agm_deinit();
 
-    pa_qal_card_free(u);
+    pa_pal_card_free(u);
 
     if (u->config_data)
-        pa_qal_config_parse_free(u->config_data);
+        pa_pal_config_parse_free(u->config_data);
 
     pa_log_debug("module %s unloaded", u->module_name);
 

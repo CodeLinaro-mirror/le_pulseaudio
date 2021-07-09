@@ -16,19 +16,19 @@
  * 02110-1301  USA
  */
 
-#ifndef foomoduleqalcardfoo
-#define foomoduleqalcardfoo
+#ifndef foomodulepalcardfoo
+#define foomodulepalcardfoo
 
 typedef enum {
-    PA_QAL_CARD_SINK_NONE= 0x0,
-    PA_QAL_CARD_SINK_LL_0 = 0x1,
-    PA_QAL_CARD_SINK_OFFLOAD_0 = 0x3,
-} pa_qal_card_sink_usecase_id_t;
+    PA_PAL_CARD_SINK_NONE= 0x0,
+    PA_PAL_CARD_SINK_LL_0 = 0x1,
+    PA_PAL_CARD_SINK_OFFLOAD_0 = 0x3,
+} pa_pal_card_sink_usecase_id_t;
 
 typedef enum {
-    PA_QAL_CARD_SOURCE_NONE = 0x0,
-    PA_QAL_CARD_SOURCE_LL_0 = 0x7,
-} pa_qal_card_source_usecase_id_t;
+    PA_PAL_CARD_SOURCE_NONE = 0x0,
+    PA_PAL_CARD_SOURCE_LL_0 = 0x7,
+} pa_pal_card_source_usecase_id_t;
 
 typedef struct {
     char *name;
@@ -45,7 +45,7 @@ typedef struct {
 
     uint32_t max_sink_channels;
     uint32_t max_source_channels;
-} pa_qal_card_profile_config;
+} pa_pal_card_profile_config;
 
 typedef struct {
     char *name;
@@ -55,26 +55,26 @@ typedef struct {
     pa_sample_spec default_spec;
     pa_channel_map default_map;
     uint32_t priority;
-    qal_device_id_t device;
+    pal_device_id_t device;
 
     pa_idxset *formats;
-} pa_qal_card_port_config;
+} pa_pal_card_port_config;
 
 typedef union {
-    pa_qal_card_source_usecase_id_t source_id;
-    pa_qal_card_sink_usecase_id_t sink_id;
-} pa_qal_card_usecase_id_t;
+    pa_pal_card_source_usecase_id_t source_id;
+    pa_pal_card_sink_usecase_id_t sink_id;
+} pa_pal_card_usecase_id_t;
 
 typedef enum {
-    PA_QAL_CARD_USECASE_TYPE_STATIC = 0,
-    PA_QAL_CARD_USECASE_TYPE_DYNAMIC = 1,
-} pa_qal_card_usecase_type_t;
+    PA_PAL_CARD_USECASE_TYPE_STATIC = 0,
+    PA_PAL_CARD_USECASE_TYPE_DYNAMIC = 1,
+} pa_pal_card_usecase_type_t;
 
 typedef struct {
-    qal_device_id_t device;
-    pa_qal_card_usecase_id_t usecase_id;
+    pal_device_id_t device;
+    pa_pal_card_usecase_id_t usecase_id;
     pa_sample_spec default_spec;
     pa_channel_map default_map;
-} pa_qal_card_port_device_data;
+} pa_pal_card_port_device_data;
 
 #endif
