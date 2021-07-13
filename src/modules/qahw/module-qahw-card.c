@@ -356,6 +356,17 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
     new_source.preemph_status = config->preemph_status;
     new_source.dsd_rate = config->dsd_rate;
 
+    /* Sanity check on default_spec */
+    if(new_source.default_spec.format == PA_SAMPLE_INVALID) {
+        new_source.default_spec.format = source->default_spec.format;
+    }
+    if(new_source.default_spec.rate == 0) {
+        new_source.default_spec.rate = source->default_spec.rate;
+    }
+    if(new_source.default_spec.channels == 0) {
+        new_source.default_spec.channels = source->default_spec.channels;
+    }
+
     source_info = pa_xnew0(pa_qahw_card_source_info, 1);
     rc = pa_qahw_card_add_source(u->module, u->card, u->driver, u->module_handle, u->module_name, &new_source, &(source_info->handle));
     if (rc) {

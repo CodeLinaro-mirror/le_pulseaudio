@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -928,6 +928,9 @@ void pa_qahw_util_get_jack_sys_path(pa_qahw_card_port_config *config_port, pa_qa
 
     if (config_port->sample_rate_node_path)
         jack_in_config->jack_sys_path.audio_rate = config_port->sample_rate_node_path;
+
+    if (config_port->sample_size_node_path)
+        jack_in_config->jack_sys_path.audio_size = config_port->sample_size_node_path;
 
     if (config_port->sample_layout_node_path)
         jack_in_config->jack_sys_path.audio_layout = config_port->sample_layout_node_path;

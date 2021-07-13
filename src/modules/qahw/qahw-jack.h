@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -68,6 +68,7 @@ typedef struct {
     const char *audio_state;
     const char *audio_format;
     const char *audio_rate;
+    const char *audio_size;
     const char *audio_layout;
     const char *audio_channel;
     const char *audio_channel_alloc;
