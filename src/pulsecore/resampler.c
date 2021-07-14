@@ -2,7 +2,7 @@
   This file is part of PulseAudio.
 
   Copyright 2004-2006 Lennart Poettering
-  Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
+  Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include <pulse/xmalloc.h>
+#include <pulse/timeval.h>
 #include <pulsecore/log.h>
 #include <pulsecore/macro.h>
 #include <pulsecore/strbuf.h>
@@ -1490,7 +1491,7 @@ static pa_memchunk *convert_from_work_format(pa_resampler *r, pa_memchunk *input
 
 void pa_resampler_run(pa_resampler *r, const pa_memchunk *in, pa_memchunk *out) {
     pa_memchunk *buf;
-    bool invalidate_timestamp = false, invalidate_duration = false;
+    pa_nsec_t prev_leftover_duration = 0, new_leftover_duration = 0;
 
     pa_assert(r);
     pa_assert(in);
@@ -1500,9 +1501,8 @@ void pa_resampler_run(pa_resampler *r, const pa_memchunk *in, pa_memchunk *out) 
     pa_assert(in->length % r->i_fz == 0);
 
     if (*r->have_leftover) {
-        /* We're going to add data to the beginning -- invalidate the timestamp and duration */
-        invalidate_timestamp = true;
-        invalidate_duration = true;
+        /* We're going to add data to the beginning -- recompute the timestamp and duration */
+        prev_leftover_duration = pa_bytes_to_nsec(r->leftover_buf->length, &r->o_ss);
     }
 
     buf = (pa_memchunk*) in;
@@ -1533,18 +1533,31 @@ void pa_resampler_run(pa_resampler *r, const pa_memchunk *in, pa_memchunk *out) 
         pa_memchunk_reset(out);
 
     if (*r->have_leftover) {
-        /* The output is truncated relative to the input -- invalidate the duration */
-        invalidate_duration = true;
+        /* The output is truncated relative to the input -- recompute the
+        duration from new leftover buffers after resampling now */
+        new_leftover_duration = pa_bytes_to_nsec(r->leftover_buf->length, &r->o_ss);
     }
 
-//    if (!invalidate_timestamp)
+    if (in->timestamp != PA_NSEC_INVALID &&
+        prev_leftover_duration > 0 &&
+        in->timestamp > prev_leftover_duration) {
+        out->timestamp = in->timestamp - prev_leftover_duration;
+    } else {
+        /* out->timestamp is 0 by default and not PA_NSEC_INVALID
+         * group manager should not miss to add valid timestamps
+         * in case of non-timestamped streams
+         * so copy the in->timestamp even if invalid
+         */
         out->timestamp = in->timestamp;
-//    if (!invalidate_duration)
-        out->duration = in->duration;
-//    if (!invalidate_timestamp && !invalidate_duration) {
+    }
+    if (in->duration != PA_NSEC_INVALID) {
+        out->duration = in->duration + prev_leftover_duration;
+        out->duration -= PA_MIN(out->duration, new_leftover_duration);
+    }
+    if (prev_leftover_duration == 0 && new_leftover_duration == 0) {
         /* We know nothing of the semantics of the flags, so only copy if we didn't change the length */
         out->flags = in->flags;
-//    }
+    }
 }
 
 /*** copy (noop) implementation ***/
