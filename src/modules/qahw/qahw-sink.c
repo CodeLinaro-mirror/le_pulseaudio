@@ -2005,6 +2005,10 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
     char *kvpair = NULL;
 
     pa_assert(sdata);
+
+    if (!sdata->qahw_sink_opened)
+        return 0;
+
     pa_assert(sdata->qahw_sdata);
     pa_assert(sdata->qahw_sdata->module_handle);
 
