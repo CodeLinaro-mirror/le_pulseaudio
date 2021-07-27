@@ -101,6 +101,9 @@
 // 0.1% of the current error
 #define DEFAULT_OFFSET_CORRECTION_COEFFICIENT 0.001
 
+// Default offset added by bt-manager over downstream latency and set to fixed_offset
+#define BT_LATENCY 200 * PA_NSEC_PER_MSEC
+
 // A packet should be "early" by a moderate amount (because of drift or because
 // too many packets were late in a row). But a big amount indicate something
 // wrong (typically, the start of the stream, where the first packet was late,
@@ -959,6 +962,7 @@ static int a2dp_process_push(struct userdata *u) {
         pa_nsec_t ttp_offset;
         pa_nsec_t toa;  // Time-Of-Arrival
         int64_t offset_correction;
+        int64_t downstream_latency = (int64_t)(u->fixed_offset - BT_LATENCY);
 
         a2dp_prepare_buffer(u);
 
@@ -1055,18 +1059,18 @@ static int a2dp_process_push(struct userdata *u) {
                 (ttp_offset / PA_NSEC_PER_MSEC), ((u->fixed_offset + MAX_EXTRA_LATENCY) / PA_NSEC_PER_MSEC));
             memchunk.timestamp = toa + u->fixed_offset;
             ttp_offset = u->fixed_offset;
-        } else if (((int64_t)ttp_offset) < 0) {
+        } else if (((int64_t)ttp_offset) < downstream_latency) {
             // Packet is seemingly late, but we don't know if it's because it
             // is indeed late or because we lost one or more packets.
             // Since the packet is late enough to glitch already, we might as
             // well reset the timestamp in case it's the latter. And we'll
             // revert the reset later if it's the former, once we notice the
             // latency is too high.
-            // TODO(jbing): Instead of 0, the threshold should be the downstream
+            // Instead of 0, the threshold is downstream
             // latency, i.e. once there isn't enough time for downstream to
             // handle the packet.
-            pa_log_info("Packet late early (%" PRIu64 " <= 0 ms), reseting baseline",
-                (ttp_offset / PA_NSEC_PER_MSEC));
+            pa_log_info( "Packet late early (%" PRId64 " <= %" PRId64 " ms), reseting baseline",
+                (int64_t)(ttp_offset / PA_NSEC_PER_MSEC), downstream_latency);
             memchunk.timestamp = toa + u->fixed_offset;
             ttp_offset = u->fixed_offset;
         }

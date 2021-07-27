@@ -1287,21 +1287,22 @@ static void pa_qahw_post_proc_release_session (DBusConnection *conn, DBusMessage
 
     sdata = (pa_qahw_post_proc_session_data_t *) userdata;
 
-    pa_log_debug("%s", __func__);
+    pa_log_debug("%s Enter", __func__);
 
     if (sdata->mdata->dbus_protocol && sdata->session_object_path) {
         pa_assert_se(pa_dbus_protocol_remove_interface(sdata->mdata->dbus_protocol,
                         sdata->session_object_path, session_interface_info.name) >= 0);
     }
-    pa_dbus_send_empty_reply(conn, msg);
-
     pa_qahw_close_session(sdata);
+
+    pa_dbus_send_empty_reply(conn, msg);
+    pa_log_debug("%s Exit", __func__);
 }
 
 static void pa_qahw_close_session (pa_qahw_post_proc_session_data_t *sdata) {
     pa_assert(sdata);
 
-    pa_log_debug("%s", __func__);
+    pa_log_debug("%s Enter", __func__);
 
     if(sdata->session_object_path) pa_xfree(sdata->session_object_path);
 
@@ -1328,6 +1329,7 @@ static void pa_qahw_close_session (pa_qahw_post_proc_session_data_t *sdata) {
     if (sdata->effect_sessions) pa_hashmap_free(sdata->effect_sessions);
 
     pa_xfree(sdata);
+    pa_log_debug("%s Exit", __func__);
 }
 
 void pa_qahw_post_proc_module_deinit (pa_qahw_post_proc_handle_t post_proc_handle) {

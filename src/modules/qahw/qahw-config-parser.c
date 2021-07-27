@@ -1100,6 +1100,9 @@ static int pa_qahw_config_parse_port_sys_path(pa_config_parser_state *state) {
         } else if (pa_streq(state->lvalue, "sample-rate-node-path")) {
             port->sample_rate_node_path = pa_xstrdup(state->rvalue);
             pa_log_debug("%s: adding sample rate node path %s to %s", __func__, port->sample_rate_node_path, port->name);
+        } else if (pa_streq(state->lvalue, "sample-size-node-path")) {
+            port->sample_size_node_path = pa_xstrdup(state->rvalue);
+            pa_log_debug("%s: adding sample size node path %s to %s", __func__, port->sample_size_node_path, port->name);
         } else if (pa_streq(state->lvalue, "sample-layout-node-path")) {
             port->sample_layout_node_path = pa_xstrdup(state->rvalue);
             pa_log_debug("%s: adding sample layout node path %s to %s", __func__, port->sample_layout_node_path, port->name);
@@ -2022,6 +2025,9 @@ static void pa_qahw_config_free_port(pa_qahw_card_port_config *port) {
 
     if (port->sample_rate_node_path)
         pa_xfree(port->sample_rate_node_path);
+
+    if (port->sample_size_node_path)
+        pa_xfree(port->sample_size_node_path);
 
     if (port->sample_layout_node_path)
         pa_xfree(port->sample_layout_node_path);
