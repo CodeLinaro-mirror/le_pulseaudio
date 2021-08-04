@@ -80,6 +80,7 @@ pa_qahw_util_port_to_qahw_device_mapping port_to_qahw_device[] = {
     { (char *)"bta2dp-out" ,     AUDIO_DEVICE_OUT_BLUETOOTH_A2DP,       (char *)"AUDIO_DEVICE_OUT_BLUETOOTH_A2DP"},
     { (char *)"headset-mic",     AUDIO_DEVICE_IN_WIRED_HEADSET,         (char *)"AUDIO_DEVICE_IN_WIRED_HEADSET" },
     { (char *)"builtin-mic",     AUDIO_DEVICE_IN_BUILTIN_MIC,           (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC" },
+    { (char *)"builtin-mic-speaker-mic2", AUDIO_DEVICE_IN_BUILTIN_MIC | QAHW_AUDIO_DEVICE_IN_SPEAKER_MIC2,  (char *)"AUDIO_DEVICE_IN_BUILTIN_MIC_AND_SPEAKER_MIC2_CAPTURE" },
     { (char *)"hdmi-in",         AUDIO_DEVICE_IN_HDMI,                  (char *)"AUDIO_DEVICE_IN_HDMI" },
     { (char *)"spdif-in",        AUDIO_DEVICE_IN_SPDIF,                 (char *)"AUDIO_DEVICE_IN_SPDIF" },
     { (char *)"linein",          AUDIO_DEVICE_IN_LINE,                  (char *)"AUDIO_DEVICE_IN_LINE" },
