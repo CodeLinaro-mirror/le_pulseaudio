@@ -755,6 +755,14 @@ pa_qahw_post_proc_session_data_t *pa_qahw_open_session (pa_qahw_post_proc_module
     sdata->input_buf_config = input_buf_config;
     sdata->output_buf_config = output_buf_config;
 
+    if (qahw_open_post_proc_stream(mdata->module_handle, sdata->topology_id, sdata->app_type,
+        &sdata->input_buf_config, &sdata->output_buf_config, &sdata->stream_handle)) {
+        pa_log_error("Could not open post proc session in HAL");
+        goto fail;
+    }
+
+    sdata->popp_id = qahw_get_post_proc_session_id(sdata->stream_handle);
+
     if (pa_qahw_create_and_open_io_files(sdata) < 0) {
         pa_log_error("%s: Could not create IO files", __func__);
         goto fail;
@@ -774,14 +782,6 @@ pa_qahw_post_proc_session_data_t *pa_qahw_open_session (pa_qahw_post_proc_module
         goto fail;
     }
     pa_xfree(thread_name);
-
-    if (qahw_open_post_proc_stream(mdata->module_handle, sdata->topology_id, sdata->app_type,
-        &sdata->input_buf_config, &sdata->output_buf_config, &sdata->stream_handle)) {
-        pa_log_error("Could not open post proc session in HAL");
-        goto fail;
-    }
-
-    sdata->popp_id = qahw_get_post_proc_session_id(sdata->stream_handle);
 
     return sdata;
 
@@ -879,6 +879,11 @@ static void pa_qahw_post_proc_io_thread_func(void *userdata) {
 
         pollfd = pa_rtpoll_item_get_pollfd(sdata->rtpoll_item, NULL);
 
+        if (pollfd->revents & ~POLLIN) {
+            pa_log_error("%s: FIFO shutdown", __func__);
+            goto fail;
+        }
+
         if (pollfd->revents) {
             ssize_t l;
             void *data;
@@ -953,13 +958,6 @@ static void pa_qahw_post_proc_io_thread_func(void *userdata) {
 
         if (ret == 0)
             goto finish;
-
-        pollfd = pa_rtpoll_item_get_pollfd(sdata->rtpoll_item, NULL);
-
-        if (pollfd->revents & ~POLLIN) {
-            pa_log_error("%s: FIFO shutdown", __func__);
-            goto fail;
-        }
     }
 
 fail:
@@ -1306,6 +1304,8 @@ static void pa_qahw_close_session (pa_qahw_post_proc_session_data_t *sdata) {
 
     if(sdata->session_object_path) pa_xfree(sdata->session_object_path);
 
+    if (sdata->rtpoll_item) pa_rtpoll_item_free(sdata->rtpoll_item);
+
     if (sdata->stream_handle) {
         pa_log_debug("%s: Closing HAL session", __func__);
         qahw_close_post_proc_stream(sdata->stream_handle);
@@ -1315,9 +1315,11 @@ static void pa_qahw_close_session (pa_qahw_post_proc_session_data_t *sdata) {
         pa_asyncmsgq_send(sdata->thread_mq.inq, NULL, PA_MESSAGE_SHUTDOWN, NULL, 0, NULL);
         pa_thread_free(sdata->io_thread);
     }
-    pa_thread_mq_done(&sdata->thread_mq);
-    if (sdata->rtpoll_item) pa_rtpoll_item_free(sdata->rtpoll_item);
-    if (sdata->rtpoll) pa_rtpoll_free(sdata->rtpoll);
+
+    if (sdata->rtpoll) {
+        pa_rtpoll_free(sdata->rtpoll);
+        pa_thread_mq_done(&sdata->thread_mq);
+    }
 
     //closing file descriptors
     if (sdata->input_fd) pa_assert_se(pa_close(sdata->input_fd) == 0);
