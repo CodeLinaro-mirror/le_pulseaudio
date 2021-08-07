@@ -46,8 +46,6 @@ pa_pal_util_port_to_pal_device_mapping port_to_pal_device[] = {
     { (char *)"bta2dp-out",       PAL_DEVICE_OUT_BLUETOOTH_A2DP,   (char *)"PAL_DEVICE_OUT_BLUETOOTH_A2DP" },
     { (char *)"builtin-mic",      PAL_DEVICE_IN_HANDSET_MIC,       (char *)"PAL_DEVICE_IN_HANDSET_MIC" },
     { (char *)"speaker-mic",      PAL_DEVICE_IN_SPEAKER_MIC,       (char *)"PAL_DEVICE_IN_SPEAKER_MIC" },
-    { (char *)"tri-mic",          PAL_DEVICE_IN_TRI_MIC,           (char *)"PAL_DEVICE_IN_TRI_MIC" },
-    { (char *)"quad-mic",         PAL_DEVICE_IN_QUAD_MIC,          (char *)"PAL_DEVICE_IN_QUAD_MIC" },
     { (char *)"linein",           PAL_DEVICE_IN_LINE,              (char *)"PAL_DEVICE_IN_LINE" },
 };
 
@@ -91,11 +89,7 @@ static pa_pal_util_pa_pal_channel_map pa_pal_channel_map[] = {
     { PA_CHANNEL_POSITION_TOP_CENTER, PAL_CHMAP_CHANNEL_TC },
     { PA_CHANNEL_POSITION_TOP_REAR_LEFT, PAL_CHMAP_CHANNEL_TBL },
     { PA_CHANNEL_POSITION_TOP_REAR_RIGHT, PAL_CHMAP_CHANNEL_TBR },
-    { PA_CHANNEL_POSITION_TOP_REAR_CENTER, PAL_CHMAP_CHANNEL_TBC },
-    { PA_CHANNEL_POSITION_FRONT_LEFT_WIDE, PAL_CHMAP_CHANNEL_LW },
-    { PA_CHANNEL_POSITION_FRONT_RIGHT_WIDE, PAL_CHMAP_CHANNEL_RW },
-    { PA_CHANNEL_POSITION_TOP_SIDE_LEFT, PAL_CHMAP_CHANNEL_TSL },
-    { PA_CHANNEL_POSITION_TOP_SIDE_RIGHT, PAL_CHMAP_CHANNEL_TSR }
+    { PA_CHANNEL_POSITION_TOP_REAR_CENTER, PAL_CHMAP_CHANNEL_TBC }
 };
 
 uint32_t pa_pal_get_channel_count(pa_channel_map *pa_map) {

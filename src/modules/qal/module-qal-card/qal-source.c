@@ -101,6 +101,8 @@ static const char *pa_pal_source_get_name_from_type(pal_stream_type_t type) {
         name = "low-latency";
     else if (type == PAL_STREAM_COMPRESSED)
         name = "compress";
+    else if (type == PAL_STREAM_DEEP_BUFFER)
+        name = "deep-buffer";
 
     return name;
 }
@@ -108,7 +110,6 @@ static const char *pa_pal_source_get_name_from_type(pal_stream_type_t type) {
     //TODO: Format Hardcoded as of now
 static int pa_pal_source_fill_info(pal_source_data *pal_sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data,
                                     pal_stream_type_t type, int source_id, uint32_t buffer_size, uint32_t buffer_count) {
-    uint32_t channel_count = 0;
     pa_assert(pal_sdata);
 
     pal_sdata->stream_attributes = pa_xnew0(struct pal_stream_attributes, 1);
@@ -126,11 +127,9 @@ static int pa_pal_source_fill_info(pal_source_data *pal_sdata, pa_encoding_t enc
     pal_sdata->stream_attributes->in_media_config.bit_width = 16;
     pal_sdata->stream_attributes->in_media_config.aud_fmt_id = 0;
 
-    channel_count = pa_pal_get_channel_count(map);
-    pal_sdata->stream_attributes->in_media_config.ch_info = (struct pal_channel_info *)malloc(sizeof(uint16_t) + sizeof(uint8_t)*channel_count);
-    if (!pa_pal_channel_map_to_pal(map, pal_sdata->stream_attributes->in_media_config.ch_info)) {
+    if (!pa_pal_channel_map_to_pal(map, &pal_sdata->stream_attributes->in_media_config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
-        pa_xfree(pal_sdata->stream_attributes->in_media_config.ch_info);
+        pa_xfree(&pal_sdata->stream_attributes->in_media_config.ch_info);
         return -1;
     }
 
@@ -139,11 +138,9 @@ static int pa_pal_source_fill_info(pal_source_data *pal_sdata, pa_encoding_t enc
     pal_sdata->pal_device->id = port_device_data->device;
     pal_sdata->pal_device->config.sample_rate = port_device_data->default_spec.rate;
     pal_sdata->pal_device->config.bit_width = 16;
-    channel_count = pa_pal_get_channel_count(&port_device_data->default_map);
-    pal_sdata->pal_device->config.ch_info = (struct pal_channel_info *) malloc(sizeof(uint16_t) + sizeof(uint8_t)*channel_count);
-    if (!pa_pal_channel_map_to_pal(&port_device_data->default_map, pal_sdata->pal_device->config.ch_info)) {
+    if (!pa_pal_channel_map_to_pal(&port_device_data->default_map, &pal_sdata->pal_device->config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
-        pa_xfree(pal_sdata->pal_device->config.ch_info);
+        pa_xfree(&pal_sdata->pal_device->config.ch_info);
         return -1;
     }
 
@@ -391,7 +388,7 @@ static int open_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channe
     char *file_name;
 #endif
 
-    size_t out_buffer_size;
+    pal_buffer_config_t out_buf_cfg, in_buf_cfg;
 
     pa_assert(ss);
     pa_assert(map);
@@ -413,7 +410,7 @@ static int open_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channe
                  pal_sdata->stream_attributes->type, encoding, pal_sdata->stream_attributes->in_media_config.aud_fmt_id,
                  pal_sdata->stream_attributes->in_media_config.sample_rate);
 
-    rc = pal_stream_open(pal_sdata->stream_attributes, 1, pal_sdata->pal_device, 0, NULL, NULL, NULL,
+    rc = pal_stream_open(pal_sdata->stream_attributes, 1, pal_sdata->pal_device, 0, NULL, NULL, 0,
                              &pal_sdata->stream_handle);
     if (rc) {
         pal_sdata->stream_handle = NULL;
@@ -425,7 +422,13 @@ static int open_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channe
 
     /* FIXME: Update it by calling pal_stream_get_buffer_size */
     pa_log_debug("buffer size is %zu, buffer count is %zu\n", pal_sdata->buffer_size, pal_sdata->buffer_count);
-    rc = pal_stream_set_buffer_size(pal_sdata->stream_handle, &pal_sdata->buffer_size, pal_sdata->buffer_count, &out_buffer_size, 0);
+
+    out_buf_cfg.buf_size = 0;
+    out_buf_cfg.buf_count = 0;
+    in_buf_cfg.buf_size = pal_sdata->buffer_size;
+    in_buf_cfg.buf_count = pal_sdata->buffer_count;
+
+    rc = pal_stream_set_buffer_size(pal_sdata->stream_handle, &in_buf_cfg, &out_buf_cfg);
     if(rc) {
         pa_log_error("pal_stream_set_buffer_size failed\n");
     }
@@ -493,9 +496,9 @@ static int free_pal_source(pal_source_data *pal_sdata) {
         pa_log_error("close_pal_source failed, error %d", rc);
     }
 
-    pa_xfree(pal_sdata->stream_attributes->in_media_config.ch_info);
+    pa_xfree(&pal_sdata->stream_attributes->in_media_config.ch_info);
     pa_xfree(pal_sdata->stream_attributes);
-    pa_xfree(pal_sdata->pal_device->config.ch_info);
+    pa_xfree(&pal_sdata->pal_device->config.ch_info);
     pa_xfree(pal_sdata->pal_device);
     pa_xfree(pal_sdata);
     pal_sdata = NULL;

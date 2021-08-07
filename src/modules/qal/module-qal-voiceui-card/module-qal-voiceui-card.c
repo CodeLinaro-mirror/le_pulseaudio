@@ -311,14 +311,14 @@ static void pa_pal_fill_stream_attributes(struct pal_stream_attributes *stream_a
     stream_attr->in_media_config.sample_rate = 16000;
     stream_attr->in_media_config.bit_width = 16;
     stream_attr->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_DEFAULT_PCM;
-    stream_attr->in_media_config.ch_info->channels = 1;
+    stream_attr->in_media_config.ch_info.channels = 1;
 
     *no_of_devices = 1;
 
-    devices->id = PAL_DEVICE_IN_TRI_MIC;
+    devices->id = PAL_DEVICE_IN_HANDSET_MIC;
     devices->config.sample_rate = 48000; /* Have to check with 16k by adding MFC module before SVA module*/
     devices->config.bit_width = 16;
-    devices->config.ch_info->channels = 3;
+    devices->config.ch_info.channels = 1;
 
 }
 
@@ -417,9 +417,8 @@ static void async_thread_func(void *userdata) {
 
     pa_log_debug("[%d]Exiting Async Thread", sm_handle);
 }
-
 /* As of now pal is not filling event and cookie data. Hence just a log */
-static int32_t event_callback(pal_stream_handle_t *stream_handle, uint32_t event_id, uint32_t *event_data, void *cookie) {
+static int32_t event_callback(pal_stream_handle_t *stream_handle, uint32_t event_id, uint32_t *event_data, uint32_t event_size, uint64_t cookie) {
     DBusMessage *message = NULL;
     DBusMessageIter arg_i, struct_i, struct_ii, array_i, array_ii;
     dbus_uint32_t i, j;
@@ -443,7 +442,7 @@ static int32_t event_callback(pal_stream_handle_t *stream_handle, uint32_t event
     event = &phrase_event->common;
     capture_available = event->capture_available;
     trigger_in_data = event->trigger_in_data;
-    channels = event->media_config.ch_info->channels;
+    channels = event->media_config.ch_info.channels;
 
     pa_log_info("Callback event received: %d", event->status);
 
@@ -512,7 +511,6 @@ static int32_t event_callback(pal_stream_handle_t *stream_handle, uint32_t event
     dbus_message_unref(message);
     return 0;
 }
-
 /* TODO: Add support fot this once it's available in PAL
 static void get_version(DBusConnection *conn, DBusMessage *msg, void *userdata){
     int version;
@@ -902,7 +900,7 @@ static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *user
     rc_config->callback = NULL;
     rc_config->cookie = (void *)ses_data;
 
-    status = pal_stream_set_param(ses_data->ses_handle, PAL_PARAM_ID_START_RECOGNITION, (pal_param_payload *)rc_config);
+    status = pal_stream_set_param(ses_data->ses_handle, PAL_PARAM_ID_RECOGNITION_CONFIG, (pal_param_payload *)rc_config);
     pa_xfree(rc_config);
 
     if (status != 0) {
@@ -972,6 +970,7 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     char **addr_value = &value;
     uint32_t no_of_devices = 0;
     struct pal_device *devices = NULL;
+    struct pal_channel_info *stream_ch_info = NULL, *device_ch_info = NULL;
     uint32_t no_of_modifiers = 0;
     struct modifier_kv *modifiers = NULL;
     int rc = 0;
@@ -999,9 +998,11 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     pa_log_debug("load sound model");
 
     stream_attr = pa_xnew0(struct pal_stream_attributes, 1);
-    stream_attr->in_media_config.ch_info = pa_xnew0(struct pal_channel_info, 1);
+    stream_ch_info = pa_xnew0(struct pal_channel_info, 1);
+    memcpy(&stream_attr->in_media_config.ch_info, stream_ch_info, sizeof(struct pal_channel_info));
     devices = pa_xnew0(struct pal_device, 1);
-    devices->config.ch_info = pa_xnew0(struct pal_channel_info, 1);
+    device_ch_info = pa_xnew0(struct pal_channel_info, 1);
+    memcpy(&devices->config.ch_info, device_ch_info, sizeof(struct pal_channel_info));
 
     dbus_message_iter_recurse(&arg_i, &struct_i);
     dbus_message_iter_recurse(&struct_i, &struct_ii);
@@ -1044,7 +1045,7 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     ses_data = pa_xnew0(struct pal_voiceui_session_data, 1);
     ses_data->common = (struct pal_voiceui_module_data *)userdata;
 
-    rc = pal_stream_open(stream_attr, no_of_devices, devices, no_of_modifiers, modifiers, event_callback, ses_data, &stream_handle);
+    rc = pal_stream_open(stream_attr, no_of_devices, devices, no_of_modifiers, modifiers, event_callback, (uint64_t)ses_data, &stream_handle);
     if (rc != 0) {
         free(ses_data);
         ses_data = NULL;

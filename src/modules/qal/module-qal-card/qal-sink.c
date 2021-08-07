@@ -142,7 +142,7 @@ static void pa_pal_sink_set_volume_cb(pa_sink *s) {
     pa_assert(sdata->pal_sdata->stream_handle);
 
     pal_sdata = sdata->pal_sdata;
-    no_vol_pair = pal_sdata->stream_attributes->out_media_config.ch_info->channels;
+    no_vol_pair = pal_sdata->stream_attributes->out_media_config.ch_info.channels;
 
     gain = ((float) pa_cvolume_max(&s->real_volume) * (float)PAL_MAX_GAIN) / (float)PA_VOLUME_NORM;
     volume = (pa_volume_t) roundf((float) gain * PA_VOLUME_NORM / PAL_MAX_GAIN);
@@ -153,7 +153,7 @@ static void pa_pal_sink_set_volume_cb(pa_sink *s) {
     volume_data->no_of_volpair = no_vol_pair;
 
     for (i = 0; i < no_vol_pair; i++) {
-        channel_mask = (channel_mask | pal_sdata->stream_attributes->out_media_config.ch_info->ch_map[i]);
+        channel_mask = (channel_mask | pal_sdata->stream_attributes->out_media_config.ch_info.ch_map[i]);
     }
 
     channel_mask = (channel_mask << 1);
@@ -177,7 +177,6 @@ static void pa_pal_sink_set_volume_cb(pa_sink *s) {
 static int pa_pal_sink_fill_info(pal_sink_data *pal_sdata, pa_encoding_t encoding, pa_sample_spec *ss,
                                  pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
                                  int sink_id, uint32_t buffer_size, uint32_t buffer_count) {
-    uint32_t channel_count = 0;
     pa_assert(pal_sdata);
 
     pal_sdata->stream_attributes = pa_xnew0(struct pal_stream_attributes, 1);
@@ -193,11 +192,9 @@ static int pa_pal_sink_fill_info(pal_sink_data *pal_sdata, pa_encoding_t encodin
     pal_sdata->stream_attributes->out_media_config.bit_width = 16;
     pal_sdata->stream_attributes->out_media_config.aud_fmt_id = PAL_AUDIO_FMT_DEFAULT_PCM;
 
-    channel_count = pa_pal_get_channel_count(map);
-    pal_sdata->stream_attributes->out_media_config.ch_info = (struct pal_channel_info *) malloc(sizeof(uint16_t) + sizeof(uint8_t)*channel_count);
-    if (!pa_pal_channel_map_to_pal(map, pal_sdata->stream_attributes->out_media_config.ch_info)) {
+    if (!pa_pal_channel_map_to_pal(map, &pal_sdata->stream_attributes->out_media_config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
-        pa_xfree(pal_sdata->stream_attributes->out_media_config.ch_info);
+        pa_xfree(&pal_sdata->stream_attributes->out_media_config.ch_info);
         return -1;
     }
 
@@ -206,11 +203,9 @@ static int pa_pal_sink_fill_info(pal_sink_data *pal_sdata, pa_encoding_t encodin
     pal_sdata->pal_device->id = port_device_data->device;
     pal_sdata->pal_device->config.sample_rate = port_device_data->default_spec.rate;
     pal_sdata->pal_device->config.bit_width = 16;
-    channel_count = pa_pal_get_channel_count(&port_device_data->default_map);
-    pal_sdata->pal_device->config.ch_info = (struct pal_channel_info *) malloc(sizeof(uint16_t) + sizeof(uint8_t)*channel_count);
-    if (!pa_pal_channel_map_to_pal(&port_device_data->default_map, pal_sdata->pal_device->config.ch_info)) {
+    if (!pa_pal_channel_map_to_pal(&port_device_data->default_map, &pal_sdata->pal_device->config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
-        pa_xfree(pal_sdata->pal_device->config.ch_info);
+        pa_xfree(&pal_sdata->pal_device->config.ch_info);
         return -1;
     }
 
@@ -509,12 +504,12 @@ static void pa_pal_sink_thread_func(void *userdata) {
                 pa_assert(chunk.length == pal_sdata->buffer_size);
 
                 data = pa_memblock_acquire(chunk.memblock);
-                out_buf.buffer = (char*)data + chunk.index;
+                out_buf.buffer = (uint8_t*)data + chunk.index;
                 out_buf.size = chunk.length;
                 sink_buffer_size = chunk.length;
             } else {
                 /* Update buffer offset and size based on last write size*/
-                out_buf.buffer = (char *)out_buf.buffer + sink_buffer_size - out_buf.size;
+                out_buf.buffer = (uint8_t *)out_buf.buffer + sink_buffer_size - out_buf.size;
             }
 
             rc = pal_stream_write(pal_sdata->stream_handle, &out_buf);
@@ -567,7 +562,7 @@ static int open_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_
                          int sink_id, pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count) {
     int rc = 0;
     pal_sink_data *pal_sdata;
-    size_t in_buffer_size;
+    pal_buffer_config_t out_buf_cfg, in_buf_cfg;
 
 #ifdef SINK_DUMP_ENABLED
     char *file_name;
@@ -589,7 +584,7 @@ static int open_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_
                  pal_sdata->stream_attributes->out_media_config.sample_rate);
 
     /* FIXME: Update call with callback function for events once compress offload usecase is enabled in PAL */
-    rc = pal_stream_open(pal_sdata->stream_attributes, 1, pal_sdata->pal_device, 0, NULL, NULL, NULL,
+    rc = pal_stream_open(pal_sdata->stream_attributes, 1, pal_sdata->pal_device, 0, NULL, NULL, 0,
                              &pal_sdata->stream_handle);
 
     if (rc) {
@@ -601,7 +596,11 @@ static int open_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_
     pa_log_debug("pal sink opened %p", pal_sdata->stream_handle);
 
     /* FIXME: Update it by calling pal_stream_get_buffer_size */
-    rc = pal_stream_set_buffer_size(pal_sdata->stream_handle, &in_buffer_size, 0, &pal_sdata->buffer_size, pal_sdata->buffer_count);
+    in_buf_cfg.buf_size = 0;
+    in_buf_cfg.buf_count = 0;
+    out_buf_cfg.buf_size = pal_sdata->buffer_size;
+    out_buf_cfg.buf_count = pal_sdata->buffer_count;
+    rc = pal_stream_set_buffer_size(pal_sdata->stream_handle, &in_buf_cfg, &out_buf_cfg);
     if(rc) {
         pa_log_error("pal_stream_set_buffer_size failed\n");
     }
@@ -691,9 +690,9 @@ static int free_pal_sink(pa_pal_sink_data *sdata) {
         pa_log_error("close_pal_sink failed, error %d", rc);
     }
 
-    pa_xfree(sdata->pal_sdata->stream_attributes->out_media_config.ch_info);
+    pa_xfree(&sdata->pal_sdata->stream_attributes->out_media_config.ch_info);
     pa_xfree(sdata->pal_sdata->stream_attributes);
-    pa_xfree(sdata->pal_sdata->pal_device->config.ch_info);
+    pa_xfree(&sdata->pal_sdata->pal_device->config.ch_info);
     pa_xfree(sdata->pal_sdata->pal_device);
     pa_xfree(sdata->pal_sdata);
     sdata->pal_sdata = NULL;
