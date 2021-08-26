@@ -109,7 +109,7 @@
 // wrong (typically, the start of the stream, where the first packet was late,
 // causing the baseline to be off). This defines the threshold between moderate
 // and "too much"
-#define MAX_EXTRA_LATENCY (10 * PA_NSEC_PER_MSEC)
+#define MAX_EXTRA_LATENCY (60 * PA_NSEC_PER_MSEC)
 
 struct bt_dbus_data {
     char *obj_path;
