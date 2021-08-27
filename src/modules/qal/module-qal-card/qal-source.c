@@ -88,6 +88,7 @@ static int restart_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_cha
 static int create_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
                              int source_id, pa_pal_source_data *sdata, uint32_t buffer_size, uint32_t buffer_count);
 static int close_pal_source(pal_source_data *pal_sdata);
+static int open_pal_source(pal_source_data *pal_sdata);
 
 static const uint32_t supported_source_rates[] =
                           {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
@@ -110,6 +111,8 @@ static const char *pa_pal_source_get_name_from_type(pal_stream_type_t type) {
     //TODO: Format Hardcoded as of now
 static int pa_pal_source_fill_info(pal_source_data *pal_sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data,
                                     pal_stream_type_t type, int source_id, uint32_t buffer_size, uint32_t buffer_count) {
+    pa_assert(ss);
+    pa_assert(map);
     pa_assert(pal_sdata);
 
     pal_sdata->stream_attributes = pa_xnew0(struct pal_stream_attributes, 1);
@@ -154,12 +157,21 @@ static int pa_pal_source_fill_info(pal_source_data *pal_sdata, pa_encoding_t enc
     return 0;
 }
 
-static int pa_pal_source_start(pal_source_data *pal_sdata) {
+static int pa_pal_source_start(pa_pal_source_data *sdata) {
     int rc = 0;
-    pa_assert(pal_sdata);
+    pa_assert(sdata);
+    pa_assert(sdata->pal_sdata);
+    pal_source_data *pal_sdata = sdata->pal_sdata;
     pa_log_debug("%s", __func__);
 
     if (pal_sdata->standby) {
+        rc = open_pal_source(sdata->pal_sdata);
+        if (rc) {
+            pa_log_error("open_pal_source failed, error %d", rc);
+	    pa_xfree(sdata->pal_sdata);
+	    sdata->pal_sdata = NULL;
+            return rc;
+        }
         rc = pal_stream_start(pal_sdata->stream_handle);
         pa_log_debug("pal_stream_start returned %d", rc);
         pal_sdata->standby = false;
@@ -180,6 +192,12 @@ static int pa_pal_source_standby(pal_source_data *pal_sdata) {
     if (!pal_sdata->standby) {
         rc = pal_stream_stop(pal_sdata->stream_handle);
         pa_log_debug("pal_stream_stop returned %d\n", rc);
+        rc = pal_stream_close(pal_sdata->stream_handle);
+        if (PA_UNLIKELY(rc)) {
+            pa_log_error(" could not close source handle %p, error  %d", pal_sdata->stream_handle, rc);
+        }
+
+        pal_sdata->stream_handle = NULL;
         pal_sdata->standby = true;
     } else {
         pa_log_debug("pal_stream already in standby");
@@ -201,7 +219,7 @@ static int pa_pal_source_set_state_in_io_thread_cb(pa_source *s, pa_source_state
     pa_log_debug("New state is: %d", new_state);
 
     if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(s->thread_info.state))
-        r = pa_pal_source_start(source_data->pal_sdata);
+        r = pa_pal_source_start(source_data);
     else if (new_state == PA_SOURCE_SUSPENDED)
         r = pa_pal_source_standby(source_data->pal_sdata);
 
@@ -381,8 +399,7 @@ finish:
     pa_log_debug("Source IO Thread shutting down");
 }
 
-static int open_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
-                           int source_id, pal_source_data *pal_sdata, uint32_t buffer_size, uint32_t buffer_count) {
+static int open_pal_source(pal_source_data *pal_sdata) {
     int rc;
 #ifdef SOURCE_DUMP_ENABLED
     char *file_name;
@@ -390,11 +407,8 @@ static int open_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channe
 
     pal_buffer_config_t out_buf_cfg, in_buf_cfg;
 
-    pa_assert(ss);
-    pa_assert(map);
     pa_assert(pal_sdata);
 
-    pa_pal_source_fill_info(pal_sdata, encoding, ss, map, port_device_data, type, source_id, buffer_size, buffer_count);
 
 #ifdef SOURCE_DUMP_ENABLED
     file_name = pa_sprintf_malloc("/data/pcmdump_source_%d", pal_sdata->index);
@@ -406,8 +420,8 @@ static int open_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channe
     pa_xfree(file_name);
 #endif
 
-    pa_log_debug("opening source with configuration flag = 0x%x, encoding %d,format %d, sample_rate %d",
-                 pal_sdata->stream_attributes->type, encoding, pal_sdata->stream_attributes->in_media_config.aud_fmt_id,
+    pa_log_debug("opening source with configuration flag = 0x%x, format %d, sample_rate %d",
+                 pal_sdata->stream_attributes->type, pal_sdata->stream_attributes->in_media_config.aud_fmt_id,
                  pal_sdata->stream_attributes->in_media_config.sample_rate);
 
     rc = pal_stream_open(pal_sdata->stream_attributes, 1, pal_sdata->pal_device, 0, NULL, NULL, 0,
@@ -448,12 +462,10 @@ static int close_pal_source(pal_source_data *pal_sdata) {
     if (PA_UNLIKELY(pal_sdata->stream_handle == NULL)) {
         pa_log_error("Invalid source handle %p", pal_sdata->stream_handle);
     } else {
-        if (!pal_sdata->standby) {
-            rc = pal_stream_stop(pal_sdata->stream_handle);
+        rc = pal_stream_stop(pal_sdata->stream_handle);
 
-            if (PA_UNLIKELY(rc))
-                pa_log_error(" pal_stream_stop failed for %p error  %d", pal_sdata->stream_handle, rc);
-        }
+        if (PA_UNLIKELY(rc))
+            pa_log_error(" pal_stream_stop failed for %p error  %d", pal_sdata->stream_handle, rc);
 
         rc = pal_stream_close(pal_sdata->stream_handle);
         if (PA_UNLIKELY(rc)) {
@@ -473,13 +485,15 @@ static int restart_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_cha
                               int source_id, pal_source_data *pal_sdata, uint32_t buffer_size, uint32_t buffer_count) {
     int rc;
 
-    rc = close_pal_source(pal_sdata);
-    if (rc) {
-        pa_log_error("close_pal_source failed, error %d", rc);
-        goto exit;
+    if (!pal_sdata->standby) {
+        rc = close_pal_source(pal_sdata);
+        if (rc) {
+            pa_log_error("close_pal_source failed, error %d", rc);
+            goto exit;
+        }
     }
 
-    rc = open_pal_source(encoding, ss, map, port_device_data, type, source_id, pal_sdata, buffer_size, buffer_count);
+    rc = open_pal_source(pal_sdata);
     if (rc) {
         pa_log_error("open_pal_source failed during recreation, error %d", rc);
     }
@@ -489,11 +503,13 @@ exit:
 }
 
 static int free_pal_source(pal_source_data *pal_sdata) {
-    int rc;
+    int rc = 0;
 
-    rc = close_pal_source(pal_sdata);
-    if (rc) {
-        pa_log_error("close_pal_source failed, error %d", rc);
+    if (!pal_sdata->standby) {
+        rc = close_pal_source(pal_sdata);
+        if (rc) {
+            pa_log_error("close_pal_source failed, error %d", rc);
+        }
     }
 
     pa_xfree(&pal_sdata->stream_attributes->in_media_config.ch_info);
@@ -512,22 +528,13 @@ static int create_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_chan
 
     sdata->pal_sdata = pa_xnew0(pal_source_data, 1);
 
-    rc = open_pal_source(encoding, ss, map, port_device_data, type, source_id, sdata->pal_sdata, buffer_size, buffer_count);
+    rc = pa_pal_source_fill_info(sdata->pal_sdata, encoding, ss, map, port_device_data, type, source_id, buffer_size, buffer_count);
     if (rc) {
-        pa_log_error("open_pal_source failed, error %d", rc);
+        pa_log_error("pal source init failed, error %d", rc);
         pa_xfree(sdata->pal_sdata);
         sdata->pal_sdata = NULL;
         return rc;
     }
-
-    rc = pa_pal_source_start(sdata->pal_sdata);
-    if (rc) {
-        pa_log_error("pal stream start failed, error %d", rc);
-        pa_xfree(sdata->pal_sdata);
-        sdata->pal_sdata = NULL;
-        return rc;
-    }
-
     return rc;
 }
 
