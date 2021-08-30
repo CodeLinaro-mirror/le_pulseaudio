@@ -16,25 +16,25 @@
  * 02110-1301  USA
  */
 
-#ifndef fooqalpasourcehfoo
-#define fooqalpasourcehfoo
+#ifndef foopalpasourcehfoo
+#define foopalpasourcehfoo
 
 #include <pulse/sample.h>
 #include <pulsecore/card.h>
 #include <pulsecore/core.h>
 
-#include <QalApi.h>
-#include <QalDefs.h>
+#include <PalApi.h>
+#include <PalDefs.h>
 
 #include "qal-card.h"
 
-typedef size_t pa_qal_source_handle_t;
+typedef size_t pa_pal_source_handle_t;
 
 typedef struct {
     char *name;
     char *description;
     int id;
-    qal_stream_type_t stream_type;
+    pal_stream_type_t stream_type;
     pa_sample_spec default_spec;
     pa_encoding_t default_encoding;
     pa_channel_map default_map;
@@ -43,18 +43,18 @@ typedef struct {
     pa_hashmap *ports;
     pa_hashmap *profiles;
     char **port_conf_string;
-    pa_qal_card_usecase_type_t usecase_type;
+    pa_pal_card_usecase_type_t usecase_type;
     uint32_t buffer_size;
     uint32_t buffer_count;
-} pa_qal_source_config;
+} pa_pal_source_config;
 
-/*create qal session and pa source */
-int pa_qal_source_create(pa_module *m, pa_card *card, const char *driver, const char *module_name, pa_qal_source_config *source,
-                         pa_qal_source_handle_t **handle);
-void pa_qal_source_close(pa_qal_source_handle_t *handle);
-bool pa_qal_source_is_supported_sample_rate(uint32_t sample_rate);
+/*create pal session and pa source */
+int pa_pal_source_create(pa_module *m, pa_card *card, const char *driver, const char *module_name, pa_pal_source_config *source,
+                         pa_pal_source_handle_t **handle);
+void pa_pal_source_close(pa_pal_source_handle_t *handle);
+bool pa_pal_source_is_supported_sample_rate(uint32_t sample_rate);
 
-static inline bool pa_qal_source_is_supported_type(char *source_type) {
+static inline bool pa_pal_source_is_supported_type(char *source_type) {
     pa_assert(source_type);
 
     if (pa_streq(source_type, "low-latency") || pa_streq(source_type, "regular") || pa_streq(source_type, "compress") || pa_streq(source_type, "passthrough"))
@@ -63,7 +63,7 @@ static inline bool pa_qal_source_is_supported_type(char *source_type) {
     return false;
 }
 
-static inline bool pa_qal_source_is_supported_encoding(pa_encoding_t encoding) {
+static inline bool pa_pal_source_is_supported_encoding(pa_encoding_t encoding) {
     bool supported = true;
 
     switch (encoding) {
@@ -81,19 +81,19 @@ static inline bool pa_qal_source_is_supported_encoding(pa_encoding_t encoding) {
     return supported;
 }
 
-static inline qal_stream_type_t pa_qal_source_get_type_from_string(const char *stream_type) {
-    qal_stream_type_t type;
+static inline pal_stream_type_t pa_pal_source_get_type_from_string(const char *stream_type) {
+    pal_stream_type_t type;
 
-    if (pa_streq(stream_type, "QAL_STREAM_LOW_LATENCY")) {
-        type = QAL_STREAM_LOW_LATENCY;
-    } else if (pa_streq(stream_type,"QAL_STREAM_DEEP_BUFFER")) {
-        type = QAL_STREAM_DEEP_BUFFER;
-    } else if (pa_streq(stream_type, "QAL_STREAM_COMPRESSED")) {
-        type = QAL_STREAM_COMPRESSED;
-    } else if (pa_streq(stream_type, "QAL_STREAM_RAW")) {
-        type = QAL_STREAM_RAW;
+    if (pa_streq(stream_type, "PAL_STREAM_LOW_LATENCY")) {
+        type = PAL_STREAM_LOW_LATENCY;
+    } else if (pa_streq(stream_type,"PAL_STREAM_DEEP_BUFFER")) {
+        type = PAL_STREAM_DEEP_BUFFER;
+    } else if (pa_streq(stream_type, "PAL_STREAM_COMPRESSED")) {
+        type = PAL_STREAM_COMPRESSED;
+    } else if (pa_streq(stream_type, "PAL_STREAM_RAW")) {
+        type = PAL_STREAM_RAW;
     } else {
-        type = QAL_STREAM_GENERIC;
+        type = PAL_STREAM_GENERIC;
         pa_log_error("%s: Unsupported flag name %s", __func__, stream_type);
     }
 

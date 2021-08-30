@@ -19,21 +19,21 @@
 #ifndef fooqsthwutilfoo
 #define fooqsthwutilfoo
 
-typedef struct pa_qal_voiceui_hooks pa_qal_voiceui_hooks;
+typedef struct pa_pal_voiceui_hooks pa_pal_voiceui_hooks;
 
-typedef enum pa_qal_voiceui_hook {
-    PA_HOOK_QAL_VOICEUI_START_DETECTION,
-    PA_HOOK_QAL_VOICEUI_STOP_DETECTION,
-    PA_HOOK_QAL_VOICEUI_MAX,
-} pa_qal_voiceui_hook_t;
+typedef enum pa_pal_voiceui_hook {
+    PA_HOOK_PAL_VOICEUI_START_DETECTION,
+    PA_HOOK_PAL_VOICEUI_STOP_DETECTION,
+    PA_HOOK_PAL_VOICEUI_MAX,
+} pa_pal_voiceui_hook_t;
 
 typedef struct {
-    struct qal_st_phrase_recognition_event phrase_event;
+    struct pal_st_phrase_recognition_event phrase_event;
     uint64_t timestamp;
-} pa_qal_st_phrase_recognition_event;
+} pa_pal_st_phrase_recognition_event;
 
-struct pa_qal_voiceui_hooks {
-    pa_hook hooks[PA_HOOK_QAL_VOICEUI_MAX];
+struct pa_pal_voiceui_hooks {
+    pa_hook hooks[PA_HOOK_PAL_VOICEUI_MAX];
 };
 
 #endif //fooqsthwutilfoo

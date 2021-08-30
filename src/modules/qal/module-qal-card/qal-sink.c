@@ -47,7 +47,7 @@
 
 /* #define SINK_DUMP_ENABLED */
 
-#define QAL_MAX_GAIN 1
+#define PAL_MAX_GAIN 1
 
 #define PA_ALTERNATE_SINK_RATE 44100
 #define PA_FORMAT_DEFAULT_SAMPLE_RATE_INDEX 0
@@ -57,10 +57,10 @@
 #define PA_DEFAULT_SINK_CHANNELS 2
 
 typedef struct {
-    qal_stream_handle_t *stream_handle;
+    pal_stream_handle_t *stream_handle;
 
-    struct qal_device *qal_device;
-    struct qal_stream_attributes *stream_attributes;
+    struct pal_device *pal_device;
+    struct pal_stream_attributes *stream_attributes;
     const char *device_url;
 
     size_t buffer_size;
@@ -72,7 +72,7 @@ typedef struct {
     int index;
 
     bool standby;
-} qal_sink_data;
+} pal_sink_data;
 
 typedef struct {
     bool first;
@@ -84,76 +84,76 @@ typedef struct {
 } pa_sink_data;
 
 typedef struct {
-    qal_sink_data *qal_sdata;
+    pal_sink_data *pal_sdata;
     pa_sink_data *pa_sdata;
     struct userdata *u;
 
-    pa_fdsem *fdsem; /* common resource between pa and qal sink */
-} pa_qal_sink_data;
+    pa_fdsem *fdsem; /* common resource between pa and pal sink */
+} pa_pal_sink_data;
 
 typedef struct {
     struct pa_idxset *sinks;
-} pa_qal_sink_module_data;
+} pa_pal_sink_module_data;
 
-static pa_qal_sink_module_data *mdata = NULL;
+static pa_pal_sink_module_data *mdata = NULL;
 
-static int restart_qal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map,
-                            pa_qal_card_port_device_data *port_device_data, qal_stream_type_t type, int sink_id,
-                            pa_qal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count);
-static int create_qal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map,
-                           pa_qal_card_port_device_data *port_device_data, qal_stream_type_t type, int sink_id,
-                           pa_qal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count);
-static int close_qal_sink(pa_qal_sink_data *sdata);
-static int free_pa_sink(pa_qal_sink_data *sdata);
+static int restart_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map,
+                            pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type, int sink_id,
+                            pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count);
+static int create_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map,
+                           pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type, int sink_id,
+                           pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count);
+static int close_pal_sink(pa_pal_sink_data *sdata);
+static int free_pa_sink(pa_pal_sink_data *sdata);
 
 static const uint32_t supported_sink_rates[] =
                           {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
 
-static const char *pa_qal_sink_get_name_from_type(qal_stream_type_t type) {
+static const char *pa_pal_sink_get_name_from_type(pal_stream_type_t type) {
     const char *name = NULL;
 
-    if (type == QAL_STREAM_LOW_LATENCY)
+    if (type == PAL_STREAM_LOW_LATENCY)
         name = "low_latency";
-    else if (type == QAL_STREAM_DEEP_BUFFER)
+    else if (type == PAL_STREAM_DEEP_BUFFER)
         name = "deep_buffer";
-    else if (type == QAL_STREAM_COMPRESSED)
+    else if (type == PAL_STREAM_COMPRESSED)
         name = "offload";
-    else if (type == QAL_STREAM_GENERIC)
+    else if (type == PAL_STREAM_GENERIC)
         name = "direct_pcm";
 
     return name;
 }
 
-static void pa_qal_sink_set_volume_cb(pa_sink *s) {
-    pa_qal_sink_data *sdata = NULL;
+static void pa_pal_sink_set_volume_cb(pa_sink *s) {
+    pa_pal_sink_data *sdata = NULL;
     float gain;
     int rc;
     pa_volume_t volume;
-    qal_sink_data *qal_sdata = NULL;
-    struct qal_volume_data *volume_data = NULL;
+    pal_sink_data *pal_sdata = NULL;
+    struct pal_volume_data *volume_data = NULL;
     uint32_t i,no_vol_pair;
     uint32_t channel_mask = 1;
 
     pa_assert(s);
-    sdata = (pa_qal_sink_data *)s->userdata;
+    sdata = (pa_pal_sink_data *)s->userdata;
 
     pa_assert(sdata);
-    pa_assert(sdata->qal_sdata);
-    pa_assert(sdata->qal_sdata->stream_handle);
+    pa_assert(sdata->pal_sdata);
+    pa_assert(sdata->pal_sdata->stream_handle);
 
-    qal_sdata = sdata->qal_sdata;
-    no_vol_pair = qal_sdata->stream_attributes->out_media_config.ch_info->channels;
+    pal_sdata = sdata->pal_sdata;
+    no_vol_pair = pal_sdata->stream_attributes->out_media_config.ch_info.channels;
 
-    gain = ((float) pa_cvolume_max(&s->real_volume) * (float)QAL_MAX_GAIN) / (float)PA_VOLUME_NORM;
-    volume = (pa_volume_t) roundf((float) gain * PA_VOLUME_NORM / QAL_MAX_GAIN);
+    gain = ((float) pa_cvolume_max(&s->real_volume) * (float)PAL_MAX_GAIN) / (float)PA_VOLUME_NORM;
+    volume = (pa_volume_t) roundf((float) gain * PA_VOLUME_NORM / PAL_MAX_GAIN);
 
-    volume_data = (struct qal_volume_data *)malloc(sizeof(uint32_t) +
-                                                 (sizeof(struct qal_channel_vol_kv) * (no_vol_pair)));
+    volume_data = (struct pal_volume_data *)malloc(sizeof(uint32_t) +
+                                                 (sizeof(struct pal_channel_vol_kv) * (no_vol_pair)));
 
     volume_data->no_of_volpair = no_vol_pair;
 
     for (i = 0; i < no_vol_pair; i++) {
-        channel_mask = (channel_mask | qal_sdata->stream_attributes->out_media_config.ch_info->ch_map[i]);
+        channel_mask = (channel_mask | pal_sdata->stream_attributes->out_media_config.ch_info.ch_map[i]);
     }
 
     channel_mask = (channel_mask << 1);
@@ -163,9 +163,9 @@ static void pa_qal_sink_set_volume_cb(pa_sink *s) {
         volume_data->volume_pair[i].vol = gain;
     }
 
-    rc = qal_stream_set_volume(sdata->qal_sdata->stream_handle, volume_data);
+    rc = pal_stream_set_volume(sdata->pal_sdata->stream_handle, volume_data);
     if (rc)
-        pa_log_error("qal stream : unable to set volume error %d\n", rc);
+        pa_log_error("pal stream : unable to set volume error %d\n", rc);
     else
         pa_cvolume_set(&s->real_volume, s->real_volume.channels, volume); /* TODO: Is this correct?  */
 
@@ -174,79 +174,74 @@ static void pa_qal_sink_set_volume_cb(pa_sink *s) {
 }
 
 /* FIXME: Modify API to remove hardcoded values */
-static int pa_qal_sink_fill_info(qal_sink_data *qal_sdata, pa_encoding_t encoding, pa_sample_spec *ss,
-                                 pa_channel_map *map, pa_qal_card_port_device_data *port_device_data, qal_stream_type_t type,
+static int pa_pal_sink_fill_info(pal_sink_data *pal_sdata, pa_encoding_t encoding, pa_sample_spec *ss,
+                                 pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
                                  int sink_id, uint32_t buffer_size, uint32_t buffer_count) {
-    uint32_t channel_count = 0;
-    pa_assert(qal_sdata);
+    pa_assert(pal_sdata);
 
-    qal_sdata->stream_attributes = pa_xnew0(struct qal_stream_attributes, 1);
-    qal_sdata->stream_attributes->type = type;
-    qal_sdata->stream_attributes->info.opt_stream_info.version = 1;
-    qal_sdata->stream_attributes->info.opt_stream_info.duration_us = -1;
-    qal_sdata->stream_attributes->info.opt_stream_info.has_video = false;
-    qal_sdata->stream_attributes->info.opt_stream_info.is_streaming = false;
+    pal_sdata->stream_attributes = pa_xnew0(struct pal_stream_attributes, 1);
+    pal_sdata->stream_attributes->type = type;
+    pal_sdata->stream_attributes->info.opt_stream_info.version = 1;
+    pal_sdata->stream_attributes->info.opt_stream_info.duration_us = -1;
+    pal_sdata->stream_attributes->info.opt_stream_info.has_video = false;
+    pal_sdata->stream_attributes->info.opt_stream_info.is_streaming = false;
 
-    qal_sdata->stream_attributes->flags = 0;
-    qal_sdata->stream_attributes->direction = QAL_AUDIO_OUTPUT;
-    qal_sdata->stream_attributes->out_media_config.sample_rate = ss->rate;
-    qal_sdata->stream_attributes->out_media_config.bit_width = 16;
-    qal_sdata->stream_attributes->out_media_config.aud_fmt_id = QAL_AUDIO_FMT_DEFAULT_PCM;
+    pal_sdata->stream_attributes->flags = 0;
+    pal_sdata->stream_attributes->direction = PAL_AUDIO_OUTPUT;
+    pal_sdata->stream_attributes->out_media_config.sample_rate = ss->rate;
+    pal_sdata->stream_attributes->out_media_config.bit_width = 16;
+    pal_sdata->stream_attributes->out_media_config.aud_fmt_id = PAL_AUDIO_FMT_DEFAULT_PCM;
 
-    channel_count = pa_qal_get_channel_count(map);
-    qal_sdata->stream_attributes->out_media_config.ch_info = (struct qal_channel_info *) malloc(sizeof(uint16_t) + sizeof(uint8_t)*channel_count);
-    if (!pa_qal_channel_map_to_qal(map, qal_sdata->stream_attributes->out_media_config.ch_info)) {
+    if (!pa_pal_channel_map_to_pal(map, &pal_sdata->stream_attributes->out_media_config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
-        pa_xfree(qal_sdata->stream_attributes->out_media_config.ch_info);
+        pa_xfree(&pal_sdata->stream_attributes->out_media_config.ch_info);
         return -1;
     }
 
-    qal_sdata->qal_device = pa_xnew0(struct qal_device, 1);
-    memset(qal_sdata->qal_device, 0, sizeof(struct qal_device));
-    qal_sdata->qal_device->id = port_device_data->device;
-    qal_sdata->qal_device->config.sample_rate = port_device_data->default_spec.rate;
-    qal_sdata->qal_device->config.bit_width = 16;
-    channel_count = pa_qal_get_channel_count(&port_device_data->default_map);
-    qal_sdata->qal_device->config.ch_info = (struct qal_channel_info *) malloc(sizeof(uint16_t) + sizeof(uint8_t)*channel_count);
-    if (!pa_qal_channel_map_to_qal(&port_device_data->default_map, qal_sdata->qal_device->config.ch_info)) {
+    pal_sdata->pal_device = pa_xnew0(struct pal_device, 1);
+    memset(pal_sdata->pal_device, 0, sizeof(struct pal_device));
+    pal_sdata->pal_device->id = port_device_data->device;
+    pal_sdata->pal_device->config.sample_rate = port_device_data->default_spec.rate;
+    pal_sdata->pal_device->config.bit_width = 16;
+    if (!pa_pal_channel_map_to_pal(&port_device_data->default_map, &pal_sdata->pal_device->config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
-        pa_xfree(qal_sdata->qal_device->config.ch_info);
+        pa_xfree(&pal_sdata->pal_device->config.ch_info);
         return -1;
     }
 
-    qal_sdata->device_url = NULL; /* TODO: useful for BT devices */
-    qal_sdata->bytes_written = 0;
-    qal_sdata->index = sink_id;
-    qal_sdata->buffer_size = (size_t)buffer_size;
-    qal_sdata->buffer_count = (size_t)buffer_count;
+    pal_sdata->device_url = NULL; /* TODO: useful for BT devices */
+    pal_sdata->bytes_written = 0;
+    pal_sdata->index = sink_id;
+    pal_sdata->buffer_size = (size_t)buffer_size;
+    pal_sdata->buffer_count = (size_t)buffer_count;
 
-    qal_sdata->standby = true;
+    pal_sdata->standby = true;
 
     return 0;
 }
 
-static uint64_t pa_qal_sink_get_latency(pa_qal_sink_data *sdata) {
+static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
     int rc, delta, bytes_rendered;
     int64_t latency = 0, ticks = 0;
     uint64_t cur_qtimer, abs_qtimer_time_stamp, session_time_stamp;
     uint64_t cur_session_time = 0, time_in_future = 0, time_elapsed = 0;
-    qal_sink_data *qal_sdata;
+    pal_sink_data *pal_sdata;
     pa_sink_data *pa_sdata;
-    struct qal_session_time stime = {0};
+    struct pal_session_time stime = {0};
 
     pa_log_debug("%s", __func__);
 
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
-    pa_assert(sdata->qal_sdata);
+    pa_assert(sdata->pal_sdata);
 
-    qal_sdata = sdata->qal_sdata;
+    pal_sdata = sdata->pal_sdata;
     pa_sdata = sdata->pa_sdata;
 
     pa_assert(pa_sdata->sink);
-    pa_assert(sdata->qal_sdata->stream_handle);
+    pa_assert(sdata->pal_sdata->stream_handle);
 
-    rc = qal_get_timestamp(sdata->qal_sdata->stream_handle, &stime);
+    rc = pal_get_timestamp(sdata->pal_sdata->stream_handle, &stime);
     if (!rc) {
         abs_qtimer_time_stamp = (uint64_t)(((uint64_t)stime.absolute_time.value_msw << 32) | (uint64_t)stime.absolute_time.value_lsw);
         session_time_stamp = (uint64_t)(((uint64_t)stime.session_time.value_msw << 32) | (uint64_t)stime.session_time.value_lsw);
@@ -282,7 +277,7 @@ static uint64_t pa_qal_sink_get_latency(pa_qal_sink_data *sdata) {
             bytes_rendered = pa_usec_to_bytes(cur_session_time, &pa_sdata->sink->sample_spec);
         }
 
-        delta = qal_sdata->bytes_written - bytes_rendered;
+        delta = pal_sdata->bytes_written - bytes_rendered;
         latency = pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec);
 #ifdef SINK_DEBUG
         pa_log_debug("%s:: time_in_future %" PRId64 ", cur_session_time %" PRId64 " bytes_rendered %d,  latency %" PRId64 "", __func__,
@@ -297,9 +292,9 @@ static uint64_t pa_qal_sink_get_latency(pa_qal_sink_data *sdata) {
         }
 
     } else  {
-        latency = (int64_t)(pa_bytes_to_usec(qal_sdata->bytes_written, &pa_sdata->sink->sample_spec));
+        latency = (int64_t)(pa_bytes_to_usec(pal_sdata->bytes_written, &pa_sdata->sink->sample_spec));
 #ifdef SINK_DEBUG
-        pa_log_debug("qal_get_timestamp failed, using latency based on written bytes latency = %" PRId64 "", latency);
+        pa_log_debug("pal_get_timestamp failed, using latency based on written bytes latency = %" PRId64 "", latency);
 #endif
     }
 
@@ -311,73 +306,73 @@ static uint64_t pa_qal_sink_get_latency(pa_qal_sink_data *sdata) {
     return (uint64_t)latency;
 }
 
-static int pa_qal_sink_start(qal_sink_data *qal_sdata) {
+static int pa_pal_sink_start(pal_sink_data *pal_sdata) {
     int rc = 0;
-    pa_assert(qal_sdata);
-    pa_log_debug("%s %d", __func__, qal_sdata->standby);
+    pa_assert(pal_sdata);
+    pa_log_debug("%s %d", __func__, pal_sdata->standby);
 
-    if (qal_sdata->standby) {
-        rc = qal_stream_start(qal_sdata->stream_handle);
-        pa_log_debug("qal_stream_start returned %d", rc);
-        qal_sdata->standby = false;
+    if (pal_sdata->standby) {
+        rc = pal_stream_start(pal_sdata->stream_handle);
+        pa_log_debug("pal_stream_start returned %d", rc);
+        pal_sdata->standby = false;
     } else {
-        pa_log_debug("qal_stream already started");
+        pa_log_debug("pal_stream already started");
     }
     return rc;
 }
 
-static int pa_qal_sink_standby(qal_sink_data *qal_sdata) {
+static int pa_pal_sink_standby(pal_sink_data *pal_sdata) {
     int rc = 0;
 
-    pa_assert(qal_sdata);
-    pa_assert(qal_sdata->stream_handle);
+    pa_assert(pal_sdata);
+    pa_assert(pal_sdata->stream_handle);
 
     pa_log_debug("%s",__func__);
 
-    if (!qal_sdata->standby) {
-        rc = qal_stream_stop(qal_sdata->stream_handle);
-        pa_log_debug("qal_stream_stop returned %d\n", rc);
-        qal_sdata->bytes_written = 0;
-        qal_sdata->standby = true;
+    if (!pal_sdata->standby) {
+        rc = pal_stream_stop(pal_sdata->stream_handle);
+        pa_log_debug("pal_stream_stop returned %d\n", rc);
+        pal_sdata->bytes_written = 0;
+        pal_sdata->standby = true;
     } else {
-        pa_log_debug("qal_stream already in standby");
+        pa_log_debug("pal_stream already in standby");
     }
 
     return 0;
 }
 
-static int pa_qal_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state, pa_suspend_cause_t new_suspend_cause PA_GCC_UNUSED)
+static int pa_pal_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state, pa_suspend_cause_t new_suspend_cause PA_GCC_UNUSED)
 {
-    pa_qal_sink_data *sdata = NULL;
+    pa_pal_sink_data *sdata = NULL;
     int r = 0;
 
     pa_assert(s);
 
-    sdata = (pa_qal_sink_data *)(s->userdata);
+    sdata = (pa_pal_sink_data *)(s->userdata);
     pa_assert(sdata);
 
     pa_log_debug("Sink new state is: %d", new_state);
 
     if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(s->thread_info.state))
-        r = pa_qal_sink_start(sdata->qal_sdata);
+        r = pa_pal_sink_start(sdata->pal_sdata);
     else if (new_state == PA_SINK_SUSPENDED)
-        r = pa_qal_sink_standby(sdata->qal_sdata);
+        r = pa_pal_sink_standby(sdata->pal_sdata);
 
     return r;
 }
 
-static int pa_qal_sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
+static int pa_pal_sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
 
-    pa_qal_sink_data *sdata = (pa_qal_sink_data *)(PA_SINK(o)->userdata);
+    pa_pal_sink_data *sdata = (pa_pal_sink_data *)(PA_SINK(o)->userdata);
 
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
     pa_assert(sdata->pa_sdata->sink);
 
-/* FIXME: Add callback function once qal_stream_get_param is enabled */
+/* FIXME: Add callback function once pal_stream_get_param is enabled */
     switch (code) {
         case PA_SINK_MESSAGE_GET_LATENCY:
-             *((int64_t*) data) = pa_qal_sink_get_latency(sdata);
+             *((int64_t*) data) = pa_pal_sink_get_latency(sdata);
              return 0;
 
         default:
@@ -387,11 +382,11 @@ static int pa_qal_sink_process_msg(pa_msgobject *o, int code, void *data, int64_
     return pa_sink_process_msg(o, code, data, offset, chunk);
 }
 
-static int pa_qal_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough) {
-    pa_qal_sink_data *sdata = NULL;
+static int pa_pal_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough) {
+    pa_pal_sink_data *sdata = NULL;
     pa_sink_data *pa_sdata = NULL;
-    qal_sink_data *qal_sdata = NULL;
-    pa_qal_card_port_device_data *port_device_data;
+    pal_sink_data *pal_sdata = NULL;
+    pa_pal_card_port_device_data *port_device_data;
     pa_channel_map new_map;
 
     bool supported = false;
@@ -401,16 +396,16 @@ static int pa_qal_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chann
 
     pa_assert(s);
 
-    sdata = (pa_qal_sink_data *) s->userdata;
+    sdata = (pa_pal_sink_data *) s->userdata;
 
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
-    pa_assert(sdata->qal_sdata);
+    pa_assert(sdata->pal_sdata);
 
     pa_log_debug("%s", __func__);
 
     pa_sdata = sdata->pa_sdata;
-    qal_sdata = sdata->qal_sdata;
+    pal_sdata = sdata->pal_sdata;
 
     for (i = 0; i < ARRAY_SIZE(supported_sink_rates) ; i++) {
         if (spec->rate == supported_sink_rates[i]) {
@@ -434,29 +429,29 @@ static int pa_qal_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chann
         pa_sdata->sink->sample_spec.rate = spec->rate;
 
         port_device_data = PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port);
-        rc = restart_qal_sink(PA_ENCODING_PCM, &pa_sdata->sink->sample_spec, &new_map, port_device_data,                                                                                                                                 qal_sdata->stream_attributes->type, qal_sdata->index, sdata, (uint32_t)qal_sdata->buffer_size, qal_sdata->buffer_count);
+        rc = restart_pal_sink(PA_ENCODING_PCM, &pa_sdata->sink->sample_spec, &new_map, port_device_data,                                                                                                                                 pal_sdata->stream_attributes->type, pal_sdata->index, sdata, (uint32_t)pal_sdata->buffer_size, pal_sdata->buffer_count);
         if (PA_UNLIKELY(rc)) {
             pa_sdata->sink->sample_spec.rate = old_rate; /* restore old rate if failed */
-            pa_log_error("Could create reopen qal sink, error %d", rc);
+            pa_log_error("Could create reopen pal sink, error %d", rc);
             return -1;
         }
 
         pa_sdata->sink->sample_spec = *spec;
         pa_sdata->sink->channel_map = new_map;
 
-        pa_sink_set_fixed_latency(pa_sdata->sink, qal_sdata->sink_latency_us);
+        pa_sink_set_fixed_latency(pa_sdata->sink, pal_sdata->sink_latency_us);
         return 0;
     }
 
     return rc;
 }
 
-static pa_idxset* pa_qal_sink_get_formats(pa_sink *s) {
-    pa_qal_sink_data *sdata = NULL;
+static pa_idxset* pa_pal_sink_get_formats(pa_sink *s) {
+    pa_pal_sink_data *sdata = NULL;
 
     pa_assert(s);
 
-    sdata = (pa_qal_sink_data *) s->userdata;
+    sdata = (pa_pal_sink_data *) s->userdata;
 
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
@@ -464,13 +459,13 @@ static pa_idxset* pa_qal_sink_get_formats(pa_sink *s) {
     return pa_idxset_copy(sdata->pa_sdata->formats, (pa_copy_func_t) pa_format_info_copy);
 }
 
-static void pa_qal_sink_thread_func(void *userdata) {
-    pa_qal_sink_data *sdata;
+static void pa_pal_sink_thread_func(void *userdata) {
+    pa_pal_sink_data *sdata;
     pa_sink_data *pa_sdata;
-    qal_sink_data *qal_sdata;
+    pal_sink_data *pal_sdata;
     uint32_t sink_buffer_size;
     pa_memchunk chunk;
-    struct qal_buffer out_buf;
+    struct pal_buffer out_buf;
 
     void *data;
     bool wait;
@@ -478,21 +473,21 @@ static void pa_qal_sink_thread_func(void *userdata) {
 
     pa_assert(userdata);
 
-    sdata = (pa_qal_sink_data *)userdata;
+    sdata = (pa_pal_sink_data *)userdata;
     pa_sdata = sdata->pa_sdata;
-    qal_sdata = sdata->qal_sdata;
-    sink_buffer_size = (uint32_t)qal_sdata->buffer_size;
+    pal_sdata = sdata->pal_sdata;
+    sink_buffer_size = (uint32_t)pal_sdata->buffer_size;
 
     pa_log_debug("%s:\n", __func__);
 
     if ((pa_sdata->sink->core->realtime_scheduling)) {
-        pa_log_info("%s:: Making io thread for %s as realtime with prio %d", __func__, pa_qal_sink_get_name_from_type(qal_sdata->stream_attributes->type),
+        pa_log_info("%s:: Making io thread for %s as realtime with prio %d", __func__, pa_pal_sink_get_name_from_type(pal_sdata->stream_attributes->type),
                      pa_sdata->sink->core->realtime_priority);
         pa_thread_make_realtime(pa_sdata->sink->core->realtime_priority);
     }
     pa_thread_mq_install(&pa_sdata->thread_mq);
 
-    memset(&out_buf, 0, sizeof(struct qal_buffer));
+    memset(&out_buf, 0, sizeof(struct pal_buffer));
 
     while (true) {
         wait = true;
@@ -505,19 +500,19 @@ static void pa_qal_sink_thread_func(void *userdata) {
             /* Check if we need to resend previous buffer */
             if (!out_buf.buffer) {
                 /* FIXME: can be more efficient by not using _full */
-                pa_sink_render_full(pa_sdata->sink, qal_sdata->buffer_size, &chunk);
-                pa_assert(chunk.length == qal_sdata->buffer_size);
+                pa_sink_render_full(pa_sdata->sink, pal_sdata->buffer_size, &chunk);
+                pa_assert(chunk.length == pal_sdata->buffer_size);
 
                 data = pa_memblock_acquire(chunk.memblock);
-                out_buf.buffer = (char*)data + chunk.index;
+                out_buf.buffer = (uint8_t*)data + chunk.index;
                 out_buf.size = chunk.length;
                 sink_buffer_size = chunk.length;
             } else {
                 /* Update buffer offset and size based on last write size*/
-                out_buf.buffer = (char *)out_buf.buffer + sink_buffer_size - out_buf.size;
+                out_buf.buffer = (uint8_t *)out_buf.buffer + sink_buffer_size - out_buf.size;
             }
 
-            rc = qal_stream_write(qal_sdata->stream_handle, &out_buf);
+            rc = pal_stream_write(pal_sdata->stream_handle, &out_buf);
 
             if (rc < 0) {
                 pa_log_error("Could not write data: %d", rc);
@@ -529,7 +524,7 @@ static void pa_qal_sink_thread_func(void *userdata) {
                 pa_log_error("%d waiting for write done event, rc is %d, out_buf.size is %d", __LINE__, rc, (int)out_buf.size);
                 out_buf.size = out_buf.size - rc;
             } else {
-                qal_sdata->bytes_written += rc;
+                pal_sdata->bytes_written += rc;
                 /* Mark buffer as NULL, to indicate buffer has been consumed */
                 out_buf.buffer = NULL;
 
@@ -539,9 +534,9 @@ static void pa_qal_sink_thread_func(void *userdata) {
                 wait = false;
             }
         } else if (pa_sdata->sink->thread_info.state == PA_SINK_SUSPENDED) {
-            /* if sink is suspended state then reset buffer otherwise it might end up sending incorrect buffer to qal_write */
+            /* if sink is suspended state then reset buffer otherwise it might end up sending incorrect buffer to pal_write */
             pa_log_debug("%d sink in suspended state. sending empty buffer \n", __LINE__);
-            memset(&out_buf, 0, sizeof(struct qal_buffer));
+            memset(&out_buf, 0, sizeof(struct pal_buffer));
         }
 
         rc = pa_rtpoll_run(pa_sdata->rtpoll, wait);
@@ -563,11 +558,11 @@ done:
     pa_log_debug("Closing I/O thread");
 }
 
-static int open_qal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_qal_card_port_device_data *port_device_data, qal_stream_type_t type,
-                         int sink_id, pa_qal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count) {
+static int open_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
+                         int sink_id, pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count) {
     int rc = 0;
-    qal_sink_data *qal_sdata;
-    size_t in_buffer_size;
+    pal_sink_data *pal_sdata;
+    pal_buffer_config_t out_buf_cfg, in_buf_cfg;
 
 #ifdef SINK_DUMP_ENABLED
     char *file_name;
@@ -576,46 +571,50 @@ static int open_qal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_
     pa_assert(ss);
     pa_assert(map);
     pa_assert(sdata);
-    pa_assert(sdata->qal_sdata);
+    pa_assert(sdata->pal_sdata);
 
-    qal_sdata = sdata->qal_sdata;
+    pal_sdata = sdata->pal_sdata;
 
-    if (pa_qal_sink_fill_info(qal_sdata, encoding, ss, map, port_device_data, type, sink_id, buffer_size, buffer_count)) {
+    if (pa_pal_sink_fill_info(pal_sdata, encoding, ss, map, port_device_data, type, sink_id, buffer_size, buffer_count)) {
         goto exit;
     }
 
     pa_log_debug("opening sink with configuration type = 0x%x, encoding %d, format %d, sample_rate %d",
-                 qal_sdata->stream_attributes->type, encoding, qal_sdata->stream_attributes->out_media_config.aud_fmt_id,
-                 qal_sdata->stream_attributes->out_media_config.sample_rate);
+                 pal_sdata->stream_attributes->type, encoding, pal_sdata->stream_attributes->out_media_config.aud_fmt_id,
+                 pal_sdata->stream_attributes->out_media_config.sample_rate);
 
-    /* FIXME: Update call with callback function for events once compress offload usecase is enabled in QAL */
-    rc = qal_stream_open(qal_sdata->stream_attributes, 1, qal_sdata->qal_device, 0, NULL, NULL, NULL,
-                             &qal_sdata->stream_handle);
+    /* FIXME: Update call with callback function for events once compress offload usecase is enabled in PAL */
+    rc = pal_stream_open(pal_sdata->stream_attributes, 1, pal_sdata->pal_device, 0, NULL, NULL, 0,
+                             &pal_sdata->stream_handle);
 
     if (rc) {
-        qal_sdata->stream_handle = NULL;
+        pal_sdata->stream_handle = NULL;
         pa_log_error("Could not open output stream %d", rc);
         goto exit;
     }
 
-    pa_log_debug("qal sink opened %p", qal_sdata->stream_handle);
+    pa_log_debug("pal sink opened %p", pal_sdata->stream_handle);
 
-    /* FIXME: Update it by calling qal_stream_get_buffer_size */
-    rc = qal_stream_set_buffer_size(qal_sdata->stream_handle, &in_buffer_size, 0, &qal_sdata->buffer_size, qal_sdata->buffer_count);
+    /* FIXME: Update it by calling pal_stream_get_buffer_size */
+    in_buf_cfg.buf_size = 0;
+    in_buf_cfg.buf_count = 0;
+    out_buf_cfg.buf_size = pal_sdata->buffer_size;
+    out_buf_cfg.buf_count = pal_sdata->buffer_count;
+    rc = pal_stream_set_buffer_size(pal_sdata->stream_handle, &in_buf_cfg, &out_buf_cfg);
     if(rc) {
-        pa_log_error("qal_stream_set_buffer_size failed\n");
+        pa_log_error("pal_stream_set_buffer_size failed\n");
     }
 
     /* FIXME: Add DSP latency */
-    qal_sdata->sink_latency_us = pa_bytes_to_usec(qal_sdata->buffer_size, ss);
-    pa_log_debug("sink latency %dus", qal_sdata->sink_latency_us);
+    pal_sdata->sink_latency_us = pa_bytes_to_usec(pal_sdata->buffer_size, ss);
+    pa_log_debug("sink latency %dus", pal_sdata->sink_latency_us);
 
 #ifdef SINK_DUMP_ENABLED
-    file_name = pa_sprintf_malloc("/data/pcmdump_sink_%d", qal_sdata->index);
+    file_name = pa_sprintf_malloc("/data/pcmdump_sink_%d", pal_sdata->index);
 
-    qal_sdata->write_fd = open(file_name, O_RDWR | O_TRUNC | O_CREAT, S_IRWXU);
-    if(qal_sdata->write_fd < 0)
-        pa_log_error("Could not open write fd %d for sink index %d", qal_sdata->write_fd, qal_sdata->index);
+    pal_sdata->write_fd = open(file_name, O_RDWR | O_TRUNC | O_CREAT, S_IRWXU);
+    if(pal_sdata->write_fd < 0)
+        pa_log_error("Could not open write fd %d for sink index %d", pal_sdata->write_fd, pal_sdata->index);
 
     pa_xfree(file_name);
 #endif
@@ -624,109 +623,109 @@ exit:
     return rc;
 }
 
-static int close_qal_sink(pa_qal_sink_data *sdata) {
-    qal_sink_data *qal_sdata;
+static int close_pal_sink(pa_pal_sink_data *sdata) {
+    pal_sink_data *pal_sdata;
     int rc = -1;
 
     pa_assert(sdata);
-    pa_assert(sdata->qal_sdata);
+    pa_assert(sdata->pal_sdata);
 
-    qal_sdata = sdata->qal_sdata;
+    pal_sdata = sdata->pal_sdata;
 
-    pa_assert(qal_sdata->stream_handle);
+    pa_assert(pal_sdata->stream_handle);
 
-    pa_log_debug("closing qal sink %p", qal_sdata->stream_handle);
+    pa_log_debug("closing pal sink %p", pal_sdata->stream_handle);
 
-    if (PA_UNLIKELY(qal_sdata->stream_handle == NULL)) {
-        pa_log_error("Invalid sink handle %p", qal_sdata->stream_handle);
+    if (PA_UNLIKELY(pal_sdata->stream_handle == NULL)) {
+        pa_log_error("Invalid sink handle %p", pal_sdata->stream_handle);
     } else {
-        if (!qal_sdata->standby) {
-            rc = qal_stream_stop(qal_sdata->stream_handle);
+        if (!pal_sdata->standby) {
+            rc = pal_stream_stop(pal_sdata->stream_handle);
 
             if (PA_UNLIKELY(rc))
-                pa_log_error(" qal_stream_stop failed for %p error  %d", qal_sdata->stream_handle, rc);
+                pa_log_error(" pal_stream_stop failed for %p error  %d", pal_sdata->stream_handle, rc);
         }
 
-        rc = qal_stream_close(qal_sdata->stream_handle);
+        rc = pal_stream_close(pal_sdata->stream_handle);
         if (PA_UNLIKELY(rc))
-            pa_log_error(" could not close sink sink handle %p, error  %d", qal_sdata->stream_handle, rc);
+            pa_log_error(" could not close sink sink handle %p, error  %d", pal_sdata->stream_handle, rc);
 
-        qal_sdata->stream_handle = NULL;
+        pal_sdata->stream_handle = NULL;
     }
 
 #ifdef SINK_DUMP_ENABLED
-    close(qal_sdata->write_fd);
+    close(pal_sdata->write_fd);
 #endif
 
     return rc;
 }
 
-static int restart_qal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_qal_card_port_device_data *port_device_data, qal_stream_type_t type,
-                            int sink_id, pa_qal_sink_data *sdata,uint32_t buffer_size, uint32_t buffer_count) {
+static int restart_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
+                            int sink_id, pa_pal_sink_data *sdata,uint32_t buffer_size, uint32_t buffer_count) {
     int rc;
 
-    rc = close_qal_sink(sdata);
+    rc = close_pal_sink(sdata);
     if (rc) {
-        pa_log_error("close_qal_sink failed, error %d", rc);
+        pa_log_error("close_pal_sink failed, error %d", rc);
         goto exit;
     }
 
-    rc = open_qal_sink(encoding, ss, map, port_device_data, type, sink_id, sdata, buffer_size, buffer_count);
+    rc = open_pal_sink(encoding, ss, map, port_device_data, type, sink_id, sdata, buffer_size, buffer_count);
     if (rc) {
-        pa_log_error("open_qal_sink failed during recreation, error %d", rc);
+        pa_log_error("open_pal_sink failed during recreation, error %d", rc);
     }
 
 exit:
     return rc;
 }
 
-static int free_qal_sink(pa_qal_sink_data *sdata) {
+static int free_pal_sink(pa_pal_sink_data *sdata) {
     int rc;
 
     pa_assert(sdata);
-    pa_assert(sdata->qal_sdata);
+    pa_assert(sdata->pal_sdata);
 
-    rc = close_qal_sink(sdata);
+    rc = close_pal_sink(sdata);
     if (rc) {
-        pa_log_error("close_qal_sink failed, error %d", rc);
+        pa_log_error("close_pal_sink failed, error %d", rc);
     }
 
-    pa_xfree(sdata->qal_sdata->stream_attributes->out_media_config.ch_info);
-    pa_xfree(sdata->qal_sdata->stream_attributes);
-    pa_xfree(sdata->qal_sdata->qal_device->config.ch_info);
-    pa_xfree(sdata->qal_sdata->qal_device);
-    pa_xfree(sdata->qal_sdata);
-    sdata->qal_sdata = NULL;
+    pa_xfree(&sdata->pal_sdata->stream_attributes->out_media_config.ch_info);
+    pa_xfree(sdata->pal_sdata->stream_attributes);
+    pa_xfree(&sdata->pal_sdata->pal_device->config.ch_info);
+    pa_xfree(sdata->pal_sdata->pal_device);
+    pa_xfree(sdata->pal_sdata);
+    sdata->pal_sdata = NULL;
 
     return rc;
 }
 
-static int create_qal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_qal_card_port_device_data *port_device_data, qal_stream_type_t type, int sink_id,
-                           pa_qal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count) {
+static int create_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type, int sink_id,
+                           pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count) {
     int rc;
 
-    sdata->qal_sdata = pa_xnew0(qal_sink_data, 1);
+    sdata->pal_sdata = pa_xnew0(pal_sink_data, 1);
 
-    rc = open_qal_sink(encoding, ss, map, port_device_data, type, sink_id, sdata, buffer_size, buffer_count);
+    rc = open_pal_sink(encoding, ss, map, port_device_data, type, sink_id, sdata, buffer_size, buffer_count);
     if (rc) {
-        pa_log_error("open_qal_sink failed, error %d", rc);
-        pa_xfree(sdata->qal_sdata);
-        sdata->qal_sdata = NULL;
+        pa_log_error("open_pal_sink failed, error %d", rc);
+        pa_xfree(sdata->pal_sdata);
+        sdata->pal_sdata = NULL;
         return rc;
     }
 
-    rc = pa_qal_sink_start(sdata->qal_sdata);
+    rc = pa_pal_sink_start(sdata->pal_sdata);
     if (rc) {
-        pa_log_error("qal stream start failed, error %d", rc);
-        pa_xfree(sdata->qal_sdata);
-        sdata->qal_sdata = NULL;
+        pa_log_error("pal stream start failed, error %d", rc);
+        pa_xfree(sdata->pal_sdata);
+        sdata->pal_sdata = NULL;
         return rc;
     }
 
     return rc;
 }
 
-static int pa_qal_sink_free_common_resources(pa_qal_sink_data *sdata) {
+static int pa_pal_sink_free_common_resources(pa_pal_sink_data *sdata) {
     pa_assert(sdata);
 
     if (sdata->fdsem)
@@ -735,7 +734,7 @@ static int pa_qal_sink_free_common_resources(pa_qal_sink_data *sdata) {
     return 0;
 }
 
-static int pa_qal_sink_alloc_common_resources(pa_qal_sink_data *sdata) {
+static int pa_pal_sink_alloc_common_resources(pa_pal_sink_data *sdata) {
     pa_assert(sdata);
 
    sdata->fdsem = pa_fdsem_new();
@@ -747,7 +746,7 @@ static int pa_qal_sink_alloc_common_resources(pa_qal_sink_data *sdata) {
    return 0;
 }
 
-static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, bool use_hw_volume, uint32_t alternate_sample_rate, pa_card *card, pa_hashmap *ports, const char *driver, pa_qal_sink_data *sdata) {
+static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, bool use_hw_volume, uint32_t alternate_sample_rate, pa_card *card, pa_hashmap *ports, const char *driver, pa_pal_sink_data *sdata) {
     pa_sink_new_data new_data;
     pa_sink_data *pa_sdata;
     pa_device_port *port;
@@ -759,7 +758,7 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
 
     bool port_sink_mapping = false;
 
-    pa_assert(sdata->qal_sdata);
+    pa_assert(sdata->pal_sdata);
 
     pa_sdata = pa_xnew0(pa_sink_data, 1);
     pa_sink_new_data_init(&new_data);
@@ -796,7 +795,7 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
         goto fail;
     }
 
-    pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_qal_sink_get_name_from_type(sdata->qal_sdata->stream_attributes->type));
+    pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_pal_sink_get_name_from_type(sdata->pal_sdata->stream_attributes->type));
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
 
     pa_sdata->sink = pa_sink_new(m->core, &new_data, PA_SINK_HARDWARE | PA_SINK_LATENCY );
@@ -810,13 +809,13 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_log_debug("pa sink opened %p", pa_sdata->sink);
 
     pa_sdata->sink->userdata = (void *)sdata;
-    pa_sdata->sink->parent.process_msg = pa_qal_sink_process_msg;
-    pa_sdata->sink->set_state_in_io_thread = pa_qal_sink_set_state_in_io_thread_cb;
+    pa_sdata->sink->parent.process_msg = pa_pal_sink_process_msg;
+    pa_sdata->sink->set_state_in_io_thread = pa_pal_sink_set_state_in_io_thread_cb;
     pa_sdata->sink->set_port = NULL;
-    pa_sdata->sink->reconfigure = pa_qal_sink_reconfigure_cb;
+    pa_sdata->sink->reconfigure = pa_pal_sink_reconfigure_cb;
 
     if (pa_idxset_size(formats) > 0 ) {
-        pa_sdata->sink->get_formats = pa_qal_sink_get_formats;
+        pa_sdata->sink->get_formats = pa_pal_sink_get_formats;
 
         pa_sdata->formats = pa_idxset_new(NULL, NULL);
 
@@ -828,16 +827,16 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
 
     pa_sink_set_asyncmsgq(pa_sdata->sink, pa_sdata->thread_mq.inq);
     pa_sink_set_rtpoll(pa_sdata->sink, pa_sdata->rtpoll);
-    pa_sink_set_max_request(pa_sdata->sink, sdata->qal_sdata->buffer_size);
+    pa_sink_set_max_request(pa_sdata->sink, sdata->pal_sdata->buffer_size);
     pa_sink_set_max_rewind(pa_sdata->sink, 0);
-    pa_sink_set_fixed_latency(pa_sdata->sink, sdata->qal_sdata->sink_latency_us);
+    pa_sink_set_fixed_latency(pa_sdata->sink, sdata->pal_sdata->sink_latency_us);
 
     if (use_hw_volume) {
         pa_sdata->sink->n_volume_steps = PA_VOLUME_NORM+1; /* FIXME: What should be value */
-        pa_sink_set_set_volume_callback(pa_sdata->sink, pa_qal_sink_set_volume_cb);
+        pa_sink_set_set_volume_callback(pa_sdata->sink, pa_pal_sink_set_volume_cb);
     }
 
-    pa_sdata->thread = pa_thread_new(sink_name, pa_qal_sink_thread_func, sdata);
+    pa_sdata->thread = pa_thread_new(sink_name, pa_pal_sink_thread_func, sdata);
     if (PA_UNLIKELY(pa_sdata->thread == NULL)) {
         pa_log_error("Could not spawn I/O thread");
         goto fail;
@@ -854,7 +853,7 @@ fail :
     return -1;
 }
 
-static int free_pa_sink(pa_qal_sink_data *sdata) {
+static int free_pa_sink(pa_pal_sink_data *sdata) {
     pa_sink_data *pa_sdata;
 
     pa_assert(sdata);
@@ -887,7 +886,7 @@ static int free_pa_sink(pa_qal_sink_data *sdata) {
     return 0;
 }
 
-bool pa_qal_sink_is_supported_sample_rate(uint32_t sample_rate) {
+bool pa_pal_sink_is_supported_sample_rate(uint32_t sample_rate) {
     bool supported = false;
     uint32_t i;
 
@@ -901,13 +900,13 @@ bool pa_qal_sink_is_supported_sample_rate(uint32_t sample_rate) {
     return supported;
 }
 
-int pa_qal_sink_create(pa_module *m, pa_card *card, const char *driver, const char *module_name, pa_qal_sink_config *sink, pa_qal_sink_handle_t **handle) {
+int pa_pal_sink_create(pa_module *m, pa_card *card, const char *driver, const char *module_name, pa_pal_sink_config *sink, pa_pal_sink_handle_t **handle) {
     int rc = -1;
-    pa_qal_sink_data *sdata;
+    pa_pal_sink_data *sdata;
     pa_device_port *card_port;
-    pa_qal_card_port_config *sink_port;
+    pa_pal_card_port_config *sink_port;
     pa_hashmap *ports;
-    pa_qal_card_port_device_data *port_device_data;
+    pa_pal_card_port_device_data *port_device_data;
 
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
 
@@ -943,20 +942,20 @@ int pa_qal_sink_create(pa_module *m, pa_card *card, const char *driver, const ch
 
     pa_log_info("%s: creating sink with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &sink->default_spec));
 
-    sdata = pa_xnew0(pa_qal_sink_data, 1);
+    sdata = pa_xnew0(pa_pal_sink_data, 1);
 
-    rc = pa_qal_sink_alloc_common_resources(sdata);
+    rc = pa_pal_sink_alloc_common_resources(sdata);
     if (PA_UNLIKELY(rc)) {
-        pa_log_error("Could pa_qal_sink_alloc_common_resources, error %d", rc);
+        pa_log_error("Could pa_pal_sink_alloc_common_resources, error %d", rc);
         pa_xfree(sdata);
         sdata = NULL;
         goto exit;
     }
 
-    rc = create_qal_sink(sink->default_encoding, &sink->default_spec, &sink->default_map, port_device_data, sink->stream_type, sink->id, sdata, sink->buffer_size, sink->buffer_count);
+    rc = create_pal_sink(sink->default_encoding, &sink->default_spec, &sink->default_map, port_device_data, sink->stream_type, sink->id, sdata, sink->buffer_size, sink->buffer_count);
     if (PA_UNLIKELY(rc))  {
-        pa_log_error("Could create open qal sink, error %d", rc);
-        pa_qal_sink_free_common_resources(sdata);
+        pa_log_error("Could create open pal sink, error %d", rc);
+        pa_pal_sink_free_common_resources(sdata);
         pa_xfree(sdata);
         sdata = NULL;
         goto exit;
@@ -966,35 +965,35 @@ int pa_qal_sink_create(pa_module *m, pa_card *card, const char *driver, const ch
     pa_hashmap_free(ports);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", sink->name, rc);
-        free_qal_sink(sdata);
-        pa_qal_sink_free_common_resources(sdata);
+        free_pal_sink(sdata);
+        pa_pal_sink_free_common_resources(sdata);
         pa_xfree(sdata);
         sdata = NULL;
         goto exit;
     }
 
-    *handle = (pa_qal_sink_handle_t *)sdata;
+    *handle = (pa_pal_sink_handle_t *)sdata;
     pa_idxset_put(mdata->sinks, sdata, NULL);
 
 exit:
     return rc;
 }
 
-void pa_qal_sink_close(pa_qal_sink_handle_t *handle) {
-    pa_qal_sink_data *sdata = (pa_qal_sink_data *)handle;
+void pa_pal_sink_close(pa_pal_sink_handle_t *handle) {
+    pa_pal_sink_data *sdata = (pa_pal_sink_data *)handle;
 
     pa_assert(sdata);
 
     free_pa_sink(sdata);
-    free_qal_sink(sdata);
-    pa_qal_sink_free_common_resources(sdata);
+    free_pal_sink(sdata);
+    pa_pal_sink_free_common_resources(sdata);
 
     pa_idxset_remove_by_data(mdata->sinks, sdata, NULL);
 
     pa_xfree(sdata);
 }
 
-void pa_qal_sink_module_deinit() {
+void pa_pal_sink_module_deinit() {
 
     pa_assert(mdata);
 
@@ -1004,9 +1003,9 @@ void pa_qal_sink_module_deinit() {
     mdata = NULL;
 }
 
-void pa_qal_sink_module_init() {
+void pa_pal_sink_module_init() {
 
-    mdata = pa_xnew0(pa_qal_sink_module_data, sizeof(pa_qal_sink_module_data));
+    mdata = pa_xnew0(pa_pal_sink_module_data, sizeof(pa_pal_sink_module_data));
 
     mdata->sinks = pa_idxset_new(NULL, NULL);
 }
