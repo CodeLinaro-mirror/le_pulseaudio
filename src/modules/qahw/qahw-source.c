@@ -853,6 +853,10 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
     if (buffer_duration > 0)
         qahw_sdata->config.offload_info.duration_us = buffer_duration * 1000;
 
+#ifdef UPDATE_DEVICE_LIST
+    qahw_sdata->device_url = "input_stream";
+#endif
+
     rc = qahw_open_input_stream(module_handle, qahw_sdata->handle, qahw_sdata->devices, &qahw_sdata->config, &qahw_sdata->in_handle, qahw_sdata->flags,
                                 qahw_sdata->device_url, qahw_sdata->source_type);
     if (rc) {

@@ -464,6 +464,8 @@ AC_CHECK_HEADERS_ONCE([locale.h xlocale.h])
 
 AM_CONDITIONAL(HAVE_SYS_EVENTFD_H, test "x$ac_cv_header_sys_eventfd_h" = "xyes")
 
+AM_CONDITIONAL(ADAPT_UPDATE_DEVICE_LIST, test x$ADAPT_HAL_API_UPDATE_DEVICE_LIST = xtrue)
+
 #### Typdefs, structures, etc. ####
 
 AC_C_CONST
