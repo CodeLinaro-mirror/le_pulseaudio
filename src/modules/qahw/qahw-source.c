@@ -24,8 +24,6 @@
 #include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
-#include <time.h>
-#include <pthread.h>
 
 #include <pulse/rtclock.h>
 #include <pulse/timeval.h>
@@ -60,10 +58,6 @@
 #define PA_DEFAULT_STARTUP_LATENCY_USEC (200 * 1000)
 #define PA_A2DP_STARTUP_LATENCY_USEC (500 * 1000)
 #define PA_A2DP_RUNTIME_DELAY_USEC (200 * 1000)
-
-#define PA_QAHW_STOP_WAIT_TIMEOUT_SEC   0
-#define PA_QAHW_STOP_WAIT_TIMEOUT_MSEC  150
-#define PA_QAHW_STOP_WAIT_TIMEOUT_NSEC  (PA_QAHW_STOP_WAIT_TIMEOUT_MSEC * 1000000)
 
 //#define SOURCE_DUMP_ENABLED
 
@@ -113,7 +107,7 @@ typedef struct {
     pa_rtpoll *qahw_thread_rtpoll;
     qahw_msg_obj *qahw_msg;
 
-    pthread_mutex_t qahw_source_mutex;
+    pa_mutex *qahw_source_mutex;
 
     trace_log ts_log;
 } qahw_source_data;
@@ -691,7 +685,7 @@ static void qahw_source_thread_func(void *userdata) {
         if (qahw_sdata->flags & QAHW_INPUT_FLAG_TIMESTAMP)
             in_buf.timestamp = (int64_t *)&chunk.timestamp;
 
-        pthread_mutex_lock(&qahw_sdata->qahw_source_mutex);
+        pa_mutex_lock(qahw_sdata->qahw_source_mutex);
         if (!pa_atomic_load(&qahw_sdata->stopped)) {
             if ((ret = qahw_in_read(qahw_sdata->in_handle, &in_buf)) <= 0) {
                 pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %" PRIu64 "ms",
@@ -739,7 +733,7 @@ static void qahw_source_thread_func(void *userdata) {
         pa_asyncmsgq_post(pa_sdata->thread_mq.inq, PA_MSGOBJECT(pa_sdata->source), PA_QAHW_SOURCE_READ_EVENT_DONE, NULL, 0, &chunk,NULL);
 
 poll:
-        pthread_mutex_unlock(&qahw_sdata->qahw_source_mutex);
+        pa_mutex_unlock(qahw_sdata->qahw_source_mutex);
         if ((ret = pa_rtpoll_run(qahw_sdata->qahw_thread_rtpoll, wait)) < 0)
             goto fail;
 
@@ -1289,11 +1283,14 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
         goto exit;
     }
 
+    sdata->qahw_sdata->qahw_source_mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
+
     rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate,
                           source->avoid_config_processing, card, ports, driver, sdata, source->proplist, source->priority);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", source->name, rc);
         free_qahw_source(sdata->qahw_sdata);
+        pa_mutex_free(sdata->qahw_sdata->qahw_source_mutex);
         pa_xfree(sdata->qahw_sdata);
         pa_xfree(sdata);
         sdata = NULL;
@@ -1305,6 +1302,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
         pa_log_error("Could not create qahw source extn %s, error %d", source->name, rc);
         free_qahw_source(sdata->qahw_sdata);
         free_pa_source(sdata->pa_sdata);
+        pa_mutex_free(sdata->qahw_sdata->qahw_source_mutex);
         pa_xfree(sdata->qahw_sdata);
         pa_xfree(sdata);
         sdata = NULL;
@@ -1321,27 +1319,20 @@ exit:
 
 static int stop_qahw_source(qahw_source_data *qahw_sdata) {
     int rc;
-    bool timer_expired = false;
-    struct timespec timeout_info;
+    bool got_lock = false;
 
     pa_assert(qahw_sdata);
 
     pa_log_debug("%s", __func__);
 
-    clock_gettime(CLOCK_REALTIME, &timeout_info);
-    timeout_info.tv_sec += PA_QAHW_STOP_WAIT_TIMEOUT_SEC;
-    timeout_info.tv_nsec += PA_QAHW_STOP_WAIT_TIMEOUT_NSEC;
-
-    if (pthread_mutex_timedlock(&qahw_sdata->qahw_source_mutex, &timeout_info)) {
-        timer_expired = true;
-        pa_log_info("%s: stop wait timer expired", __func__);
-    }
+    /*try to acquire the lock to avoid any concurrent sceanrio with read*/
+    got_lock = pa_mutex_try_lock(qahw_sdata->qahw_source_mutex);
 
     pa_atomic_store(&qahw_sdata->stopped, 1);
     rc = qahw_in_stop(qahw_sdata->in_handle);
 
-    if (!timer_expired)
-        pthread_mutex_unlock(&qahw_sdata->qahw_source_mutex);
+    if (got_lock)
+        pa_mutex_unlock(qahw_sdata->qahw_source_mutex);
 
     return rc;
 }
@@ -1358,6 +1349,8 @@ void pa_qahw_source_close(pa_qahw_source_handle_t *handle) {
     pa_qahw_source_extn_free(sdata->source_extn_handle);
     free_qahw_source(sdata->qahw_sdata);
     free_pa_source(sdata->pa_sdata);
+    /*Freeing qahw_source_mutex in last to avoid cases where IO event comes after QAHW thread close*/
+    pa_mutex_free(sdata->qahw_sdata->qahw_source_mutex);
     pa_xfree(sdata->qahw_sdata);
     pa_xfree(sdata);
 }

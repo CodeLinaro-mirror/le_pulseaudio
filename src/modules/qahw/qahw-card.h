@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -83,6 +83,7 @@ typedef struct {
     char *state_node_path;
     char *sample_format_node_path;
     char *sample_rate_node_path;
+    char *sample_size_node_path;
     char *sample_layout_node_path;
     char *sample_channel_node_path;
     char *sample_channel_alloc_node_path;
