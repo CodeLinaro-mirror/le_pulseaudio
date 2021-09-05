@@ -1664,7 +1664,7 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
     pa_usec_t deadline_us, allocated_latency_us;
     int64_t timeout_ns;
     bool timer_enabled;
-    bool notify_qahw_thread;
+    bool notify_qahw_thread = false;
 
     if ((pa_sdata->sink->core->realtime_scheduling)) {
         pa_log_info("%s:: Making io thread for %s as realtime with prio %d", __func__, pa_qahw_sink_get_name_from_flags(qahw_sdata->flags), pa_sdata->sink->core->realtime_priority);
@@ -1728,8 +1728,6 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
 
                 pa_mutex_lock(qahw_sdata->memblockq_mutex);
 
-                notify_qahw_thread = !pa_memblockq_is_readable(qahw_sdata->memblockq);
-
 #ifdef SINK_DEBUG
                 if (ts_enable)
                     pa_log_debug("%s: pushing chunk with duration %" PRIu64 ", latency %" PRId64 " to memblockq",
@@ -1742,16 +1740,20 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
                    qahw_sdata->last_chunk_duration = chunk.duration;
                 }
 
-                /* push chunk to memblockq */
-                if (pa_memblockq_push(qahw_sdata->memblockq, &chunk) < 0) {
-                    pa_log_error("%s: failed to push to memblockq", __func__);
+                if (qahw_sdata->memblockq) {
+                    notify_qahw_thread = !pa_memblockq_is_readable(qahw_sdata->memblockq);
 
-                    /* queue doesn't have enough space (overflow), drop the chunk and
-                       wait for PA_QAHW_SINK_MESSAGE_NEED_CHUNK */
-                    pa_atomic_store(&qahw_sdata->need_chunk, 0);
+                    /* push chunk to memblockq */
+                    if (pa_memblockq_push(qahw_sdata->memblockq, &chunk) < 0) {
+                        pa_log_error("%s: failed to push to memblockq", __func__);
 
-                    pa_mutex_unlock(qahw_sdata->memblockq_mutex);
-                    goto poll;
+                        /* queue doesn't have enough space (overflow), drop the chunk and
+                           wait for PA_QAHW_SINK_MESSAGE_NEED_CHUNK */
+                        pa_atomic_store(&qahw_sdata->need_chunk, 0);
+
+                        pa_mutex_unlock(qahw_sdata->memblockq_mutex);
+                        goto poll;
+                    }
                 }
 
                 pa_memblock_unref(chunk.memblock);
@@ -2003,6 +2005,10 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
     char *kvpair = NULL;
 
     pa_assert(sdata);
+
+    if (!sdata->qahw_sink_opened)
+        return 0;
+
     pa_assert(sdata->qahw_sdata);
     pa_assert(sdata->qahw_sdata->module_handle);
 

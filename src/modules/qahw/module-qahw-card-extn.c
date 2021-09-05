@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -839,11 +839,12 @@ int pa_qahw_module_extn_init(pa_core *core, pa_card *card, qahw_module_handle_t 
     qahw_extn_mdata->final_kvpairs = NULL;
 
     thread_name = pa_sprintf_malloc("qahw async thread");
+    qahw_extn_mdata->mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
+    qahw_extn_mdata->cond = pa_cond_new();
+
     if (!(qahw_extn_mdata->async_thread = pa_thread_new(thread_name, async_thread_func, qahw_extn_mdata)))
         pa_log_error("%s: qahw async thread creation failed", __func__);
 
-    qahw_extn_mdata->mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
-    qahw_extn_mdata->cond = pa_cond_new();
     qahw_extn_mdata->thread_state = QAHW_THREAD_IDLE;
     pa_xfree(thread_name);
 
