@@ -16,13 +16,13 @@
  * 02110-1301  USA
  */
 
-#ifndef fooqalconfparserfoo
-#define fooqalconfparserfoo
+#ifndef foopalconfparserfoo
+#define foopalconfparserfoo
 
 #include <pulsecore/conf-parser.h>
 
-#include <QalApi.h>
-#include <QalDefs.h>
+#include <PalApi.h>
+#include <PalDefs.h>
 
 #include "qal-card.h"
 
@@ -32,8 +32,8 @@ typedef struct {
     pa_hashmap *sinks;
     pa_hashmap *sources;
     char *default_profile;
-} pa_qal_config_data;
+} pa_pal_config_data;
 
-pa_qal_config_data* pa_qal_config_parse_new(char *dir, char *conf_file_name);
-void pa_qal_config_parse_free(pa_qal_config_data *config_data);
+pa_pal_config_data* pa_pal_config_parse_new(char *dir, char *conf_file_name);
+void pa_pal_config_parse_free(pa_pal_config_data *config_data);
 #endif

@@ -16,17 +16,17 @@
  * 02110-1301  USA
  */
 
-#ifndef fooqalutilsfoo
-#define fooqalutilsfoo
+#ifndef foopalutilsfoo
+#define foopalutilsfoo
 
 #include <pulse/sample.h>
 
-#include <QalApi.h>
-#include <QalDefs.h>
+#include <PalApi.h>
+#include <PalDefs.h>
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
-qal_device_id_t pa_qal_util_device_name_to_enum(const char *device);
-uint32_t pa_qal_get_channel_count(pa_channel_map *pa_map);
-bool pa_qal_channel_map_to_qal(pa_channel_map *pa_map, struct qal_channel_info *qal_map);
+pal_device_id_t pa_pal_util_device_name_to_enum(const char *device);
+uint32_t pa_pal_get_channel_count(pa_channel_map *pa_map);
+bool pa_pal_channel_map_to_pal(pa_channel_map *pa_map, struct pal_channel_info *pal_map);
 #endif
