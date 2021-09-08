@@ -1416,6 +1416,7 @@ modlibexec_LTLIBRARIES += module-qahw-card.la
 
 dist_qahwconfsets_DATA = \
       modules/qahw/configs/kona-iot-snd-card.conf \
+      modules/qahw/configs/bengal-idp-snd-card.conf \
       modules/qahw/configs/bengal-scubaidp-snd-card.conf
 endif
 
