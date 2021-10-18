@@ -1021,8 +1021,10 @@ libpulsecore_@PA_MAJORMINOR@_la_SOURCES = \
 		pulsecore/cpu-orc.c pulsecore/cpu-orc.h \
 		pulsecore/sconv-s16be.c pulsecore/sconv-s16be.h \
 		pulsecore/sconv-s16le.c pulsecore/sconv-s16le.h \
+		pulsecore/sconv-s32le.c pulsecore/sconv-s32le.h \
 		pulsecore/sconv_sse.c \
 		pulsecore/sconv.c pulsecore/sconv.h \
+		pulsecore/sconv2.c pulsecore/sconv2.h \
 		pulsecore/shared.c pulsecore/shared.h \
 		pulsecore/sink-input.c pulsecore/sink-input.h \
 		pulsecore/sink.c pulsecore/sink.h \
@@ -1426,7 +1428,8 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/sm6150-tavil-snd-card.conf \
       modules/qahw/configs/apq8009-tashalite-snd-card.conf \
       modules/qahw/configs/qcs405-capture-bt.conf \
-      modules/qahw/configs/kona-iot-snd-card.conf
+      modules/qahw/configs/kona-iot-snd-card.conf \
+      modules/qahw/configs/kona-gloria-snd-card.conf
 endif
 
 if HAVE_QAL
