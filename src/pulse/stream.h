@@ -803,6 +803,18 @@ int pa_stream_set_monitor_stream(pa_stream *s, uint32_t sink_input_idx);
  * on failure. \since 0.9.11 */
 uint32_t pa_stream_get_monitor_stream(const pa_stream *s);
 
+/** Set the callback function that will be called to notify that the
+ * filled level info is updated. Filled level info would get updated
+ * whenever a block of data is rendered out of the sink-input buffer.
+ * \Implemented and verified on v13.0 */
+void pa_stream_set_filled_level_callback(pa_stream *s, pa_stream_notify_cb_t cb, void *userdata);
+
+/** Return the sink input filled level that has been reported by server.
+ * This function needs to be called from notification callback function
+ * that is registered by client using pa_stream_set_filled_level_callback.
+ * \Implemented and verified on v13.0 */
+int64_t pa_stream_get_filled_level(const pa_stream *s);
+
 PA_C_DECL_END
 
 #endif

@@ -79,6 +79,8 @@ static void reset_callbacks(pa_stream *s) {
     s->event_userdata = NULL;
     s->buffer_attr_callback = NULL;
     s->buffer_attr_userdata = NULL;
+    s->filled_level_callback = NULL;
+    s->filled_level_userdata = NULL;
 }
 
 static pa_stream *pa_stream_new_with_proplist_internal(
@@ -182,6 +184,7 @@ static pa_stream *pa_stream_new_with_proplist_internal(
 
     s->previous_time = 0;
     s->latest_underrun_at_index = -1;
+    s->sink_input_filled_level = 0;
 
     s->read_index_not_before = 0;
     s->write_index_not_before = 0;
@@ -912,6 +915,46 @@ finish:
     pa_context_unref(c);
 }
 
+void pa_command_report_filled_level(pa_pdispatch *pd, uint32_t command, uint32_t tag, pa_tagstruct *t, void *userdata) {
+    pa_stream *s;
+    pa_context *c = userdata;
+    uint32_t channel;
+
+    pa_assert(pd);
+    pa_assert(command == PA_COMMAND_REPORT_FILLED_LEVEL);
+    pa_assert(t);
+    pa_assert(c);
+    pa_assert(PA_REFCNT_VALUE(c) >= 1);
+
+    pa_context_ref(c);
+
+    if (pa_tagstruct_getu32(t, &channel) < 0) {
+        pa_context_fail(c, PA_ERR_PROTOCOL);
+        goto finish;
+    }
+    if (!(s = pa_hashmap_get(c->playback_streams, PA_UINT32_TO_PTR(channel))))
+        goto finish;
+
+    if (pa_tagstruct_gets64(t, &s->sink_input_filled_level) < 0) {
+        pa_context_fail(c, PA_ERR_PROTOCOL);
+        goto finish;
+    }
+    if (!pa_tagstruct_eof(t)) {
+        pa_context_fail(c, PA_ERR_PROTOCOL);
+        goto finish;
+    }
+
+    if (s->state != PA_STREAM_READY)
+        goto finish;
+
+    if (s->filled_level_callback){
+        s->filled_level_callback(s, &s->filled_level_userdata);
+    }
+
+finish:
+    pa_context_unref(c);
+}
+
 static void invalidate_indexes(pa_stream *s, bool r, bool w) {
     pa_assert(s);
     pa_assert(PA_REFCNT_VALUE(s) >= 1);
@@ -1220,7 +1263,8 @@ static int create_stream(
                                               PA_STREAM_START_UNMUTED|
                                               PA_STREAM_FAIL_ON_SUSPEND|
                                               PA_STREAM_RELATIVE_VOLUME|
-                                              PA_STREAM_PASSTHROUGH)), PA_ERR_INVALID);
+                                              PA_STREAM_PASSTHROUGH|
+                                              PA_STREAM_UPDATE_FILLED_LEVEL)), PA_ERR_INVALID);
 
     PA_CHECK_VALIDITY(s->context, s->context->version >= 12 || !(flags & PA_STREAM_VARIABLE_RATE), PA_ERR_NOTSUPPORTED);
     PA_CHECK_VALIDITY(s->context, s->context->version >= 13 || !(flags & PA_STREAM_PEAK_DETECT), PA_ERR_NOTSUPPORTED);
@@ -1378,6 +1422,9 @@ static int create_stream(
         pa_tagstruct_put_boolean(t, flags & PA_STREAM_RELATIVE_VOLUME);
         pa_tagstruct_put_boolean(t, flags & (PA_STREAM_PASSTHROUGH));
     }
+
+    if (s->context->version >= 33 && s->direction == PA_STREAM_PLAYBACK)
+        pa_tagstruct_put_boolean(t, flags & (PA_STREAM_UPDATE_FILLED_LEVEL));
 
     pa_pstream_send_tagstruct(s->context->pstream, t);
     pa_pdispatch_register_reply(s->context->pdispatch, tag, DEFAULT_TIMEOUT, pa_create_stream_callback, s, NULL);
@@ -2232,6 +2279,20 @@ void pa_stream_set_buffer_attr_callback(pa_stream *s, pa_stream_notify_cb_t cb, 
     s->buffer_attr_userdata = userdata;
 }
 
+void pa_stream_set_filled_level_callback(pa_stream *s, pa_stream_notify_cb_t cb, void *userdata) {
+    pa_assert(s);
+    pa_assert(PA_REFCNT_VALUE(s) >= 1);
+
+    if (pa_detect_fork())
+        return;
+
+    if (s->state == PA_STREAM_TERMINATED || s->state == PA_STREAM_FAILED)
+        return;
+
+    s->filled_level_callback = cb;
+    s->filled_level_userdata = userdata;
+}
+
 void pa_stream_simple_ack_callback(pa_pdispatch *pd, uint32_t command, uint32_t tag, pa_tagstruct *t, void *userdata) {
     pa_operation *o = userdata;
     int success = 1;
@@ -2924,4 +2985,13 @@ uint32_t pa_stream_get_monitor_stream(const pa_stream *s) {
     PA_CHECK_VALIDITY_RETURN_ANY(s->context, s->context->version >= 13, PA_ERR_NOTSUPPORTED, PA_INVALID_INDEX);
 
     return s->direct_on_input;
+}
+
+int64_t pa_stream_get_filled_level(const pa_stream *s)
+{
+    pa_assert(s);
+    pa_assert(PA_REFCNT_VALUE(s) >= 1);
+
+    PA_CHECK_VALIDITY(s->context, !pa_detect_fork(), PA_ERR_FORKED);
+    return s->sink_input_filled_level;
 }
