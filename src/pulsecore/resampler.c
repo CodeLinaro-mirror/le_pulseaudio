@@ -281,11 +281,19 @@ static pa_sample_format_t choose_work_format(
         method = PA_RESAMPLER_SPEEX_FIXED_BASE;
 
     switch (method) {
+        case PA_RESAMPLER_NEON_PROP:
+            /* Do processing with max precision of input and output. */
+            if (sample_format_more_precise(a, PA_SAMPLE_S16NE) ||
+                sample_format_more_precise(b, PA_SAMPLE_S16NE))
+                work_format = PA_SAMPLE_S32NE;
+            else
+                work_format = PA_SAMPLE_S16NE;
+            break;
+
         /* This block is for resampling functions that only
          * support the S16 sample format. */
         case PA_RESAMPLER_SPEEX_FIXED_BASE:
         case PA_RESAMPLER_FFMPEG:
-        case PA_RESAMPLER_NEON_PROP:
             work_format = PA_SAMPLE_S16NE;
             break;
 
@@ -297,6 +305,16 @@ static pa_sample_format_t choose_work_format(
                 work_format = a;
                 break;
             }
+            /* If both input and output are using S32NE and we don't
+             * need any resampling we can use S32NE directly, avoiding
+             * converting back and forth between S32NE and
+             * FLOAT32NE. */
+            /*
+            if ((a == PA_SAMPLE_S32NE) && (b == PA_SAMPLE_S32NE)) {
+                work_format = PA_SAMPLE_S32NE;
+                break;
+            }
+            */
             /* Else fall through */
         case PA_RESAMPLER_PEAKS:
             /* PEAKS, COPY and TRIVIAL do not benefit from increased
@@ -380,6 +398,9 @@ pa_resampler* pa_resampler_new(
         if (r->work_format == PA_SAMPLE_FLOAT32NE) {
             if (!(r->to_work_format_func = pa_get_convert_to_float32ne_function(r->i_ss.format)))
                 goto fail;
+        } else if (r->work_format == PA_SAMPLE_S32NE) {
+            if (!(r->to_work_format_func = pa_get_convert_to_s32ne_function(r->i_ss.format)))
+                goto fail;
         } else {
             pa_assert(r->work_format == PA_SAMPLE_S16NE);
             if (!(r->to_work_format_func = pa_get_convert_to_s16ne_function(r->i_ss.format)))
@@ -390,6 +411,9 @@ pa_resampler* pa_resampler_new(
     if (r->o_ss.format != r->work_format) {
         if (r->work_format == PA_SAMPLE_FLOAT32NE) {
             if (!(r->from_work_format_func = pa_get_convert_from_float32ne_function(r->o_ss.format)))
+                goto fail;
+        }  else if (r->work_format == PA_SAMPLE_S32NE) {
+            if (!(r->from_work_format_func = pa_get_convert_from_s32ne_function(r->o_ss.format)))
                 goto fail;
         } else {
             pa_assert(r->work_format == PA_SAMPLE_S16NE);
