@@ -25,6 +25,7 @@
 #include <pulsecore/resampler.h>
 #include <pulsecore/sample-util.h>
 #include <pulsecore/ltdl-helper.h>
+#include <pulsecore/sconv-s16le.h>
 
 #define NEON_RESAMPLER_LIB "libneon_resampler.so"
 
@@ -162,9 +163,11 @@ static void neon_prop_free(pa_resampler *r) {
 
 static int create_neon_src_instance(pa_resampler *r) {
     int in_bit_depth;
+    int out_bit_depth;
     size_t state_size;
     struct neon_src_data *src_data;
     int ret = -1;
+    int32_t isNeon32bit = 0;
 
     pa_assert(r);
 
@@ -172,6 +175,10 @@ static int create_neon_src_instance(pa_resampler *r) {
     in_bit_depth = (int)pa_sample_size(&r->i_ss) * 8;
     state_size = (*memalloc_wrapper)(in_bit_depth, r->work_channels, r->i_ss.rate, r->o_ss.rate);
 
+    out_bit_depth = (int)pa_sample_size(&r->o_ss) * 8;
+    if ((in_bit_depth > 16) || (out_bit_depth > 16)) {
+        isNeon32bit = 1;
+    }
     src_data = pa_xnew0(struct neon_src_data, 1);
 
     // SRC state
@@ -200,7 +207,7 @@ static int create_neon_src_instance(pa_resampler *r) {
     r->impl.free = neon_prop_free;
     r->impl.data = src_data;
 
-    ret = (*neon_init_wrapper)(src_data->state, r->work_channels, r->i_ss.rate, r->o_ss.rate, 0, 0, 0);
+    ret = (*neon_init_wrapper)(src_data->state, r->work_channels, r->i_ss.rate, r->o_ss.rate, isNeon32bit, isNeon32bit, 0);
     return ret;
 }
 
