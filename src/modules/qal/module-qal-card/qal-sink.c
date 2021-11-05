@@ -105,6 +105,7 @@ static int create_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channe
                            pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count);
 static int close_pal_sink(pa_pal_sink_data *sdata);
 static int free_pa_sink(pa_pal_sink_data *sdata);
+static int open_pal_sink(pal_sink_data *pal_sdata);
 
 static const uint32_t supported_sink_rates[] =
                           {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
@@ -177,6 +178,8 @@ static void pa_pal_sink_set_volume_cb(pa_sink *s) {
 static int pa_pal_sink_fill_info(pal_sink_data *pal_sdata, pa_encoding_t encoding, pa_sample_spec *ss,
                                  pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
                                  int sink_id, uint32_t buffer_size, uint32_t buffer_count) {
+    pa_assert(ss);
+    pa_assert(map);
     pa_assert(pal_sdata);
 
     pal_sdata->stream_attributes = pa_xnew0(struct pal_stream_attributes, 1);
@@ -214,6 +217,9 @@ static int pa_pal_sink_fill_info(pal_sink_data *pal_sdata, pa_encoding_t encodin
     pal_sdata->index = sink_id;
     pal_sdata->buffer_size = (size_t)buffer_size;
     pal_sdata->buffer_count = (size_t)buffer_count;
+    /* FIXME: Add DSP latency */
+    pal_sdata->sink_latency_us = pa_bytes_to_usec(pal_sdata->buffer_size, ss);
+    pa_log_debug("sink latency %dus", pal_sdata->sink_latency_us);
 
     pal_sdata->standby = true;
 
@@ -306,12 +312,21 @@ static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
     return (uint64_t)latency;
 }
 
-static int pa_pal_sink_start(pal_sink_data *pal_sdata) {
+static int pa_pal_sink_start(pa_pal_sink_data *sdata) {
     int rc = 0;
-    pa_assert(pal_sdata);
+    pa_assert(sdata);
+    pa_assert(sdata->pal_sdata);
+    pal_sink_data *pal_sdata = sdata->pal_sdata;
     pa_log_debug("%s %d", __func__, pal_sdata->standby);
 
     if (pal_sdata->standby) {
+        rc = open_pal_sink(sdata->pal_sdata);
+        if (rc) {
+            pa_log_error("pal sink open failed, error %d", rc);
+            pa_xfree(sdata->pal_sdata);
+            sdata->pal_sdata = NULL;
+            return rc;
+        }
         rc = pal_stream_start(pal_sdata->stream_handle);
         pa_log_debug("pal_stream_start returned %d", rc);
         pal_sdata->standby = false;
@@ -332,6 +347,11 @@ static int pa_pal_sink_standby(pal_sink_data *pal_sdata) {
     if (!pal_sdata->standby) {
         rc = pal_stream_stop(pal_sdata->stream_handle);
         pa_log_debug("pal_stream_stop returned %d\n", rc);
+        rc = pal_stream_close(pal_sdata->stream_handle);
+        if (PA_UNLIKELY(rc))
+            pa_log_error(" could not close sink sink handle %p, error  %d", pal_sdata->stream_handle, rc);
+
+        pal_sdata->stream_handle = NULL;
         pal_sdata->bytes_written = 0;
         pal_sdata->standby = true;
     } else {
@@ -354,7 +374,7 @@ static int pa_pal_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new
     pa_log_debug("Sink new state is: %d", new_state);
 
     if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(s->thread_info.state))
-        r = pa_pal_sink_start(sdata->pal_sdata);
+        r = pa_pal_sink_start(sdata);
     else if (new_state == PA_SINK_SUSPENDED)
         r = pa_pal_sink_standby(sdata->pal_sdata);
 
@@ -558,29 +578,18 @@ done:
     pa_log_debug("Closing I/O thread");
 }
 
-static int open_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
-                         int sink_id, pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count) {
+static int open_pal_sink(pal_sink_data *pal_sdata) {
     int rc = 0;
-    pal_sink_data *pal_sdata;
     pal_buffer_config_t out_buf_cfg, in_buf_cfg;
 
 #ifdef SINK_DUMP_ENABLED
     char *file_name;
 #endif
 
-    pa_assert(ss);
-    pa_assert(map);
-    pa_assert(sdata);
-    pa_assert(sdata->pal_sdata);
+    pa_assert(pal_sdata);
 
-    pal_sdata = sdata->pal_sdata;
-
-    if (pa_pal_sink_fill_info(pal_sdata, encoding, ss, map, port_device_data, type, sink_id, buffer_size, buffer_count)) {
-        goto exit;
-    }
-
-    pa_log_debug("opening sink with configuration type = 0x%x, encoding %d, format %d, sample_rate %d",
-                 pal_sdata->stream_attributes->type, encoding, pal_sdata->stream_attributes->out_media_config.aud_fmt_id,
+    pa_log_debug("opening sink with configuration type = 0x%x, format %d, sample_rate %d",
+                 pal_sdata->stream_attributes->type, pal_sdata->stream_attributes->out_media_config.aud_fmt_id,
                  pal_sdata->stream_attributes->out_media_config.sample_rate);
 
     /* FIXME: Update call with callback function for events once compress offload usecase is enabled in PAL */
@@ -604,10 +613,6 @@ static int open_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_
     if(rc) {
         pa_log_error("pal_stream_set_buffer_size failed\n");
     }
-
-    /* FIXME: Add DSP latency */
-    pal_sdata->sink_latency_us = pa_bytes_to_usec(pal_sdata->buffer_size, ss);
-    pa_log_debug("sink latency %dus", pal_sdata->sink_latency_us);
 
 #ifdef SINK_DUMP_ENABLED
     file_name = pa_sprintf_malloc("/data/pcmdump_sink_%d", pal_sdata->index);
@@ -639,12 +644,10 @@ static int close_pal_sink(pa_pal_sink_data *sdata) {
     if (PA_UNLIKELY(pal_sdata->stream_handle == NULL)) {
         pa_log_error("Invalid sink handle %p", pal_sdata->stream_handle);
     } else {
-        if (!pal_sdata->standby) {
-            rc = pal_stream_stop(pal_sdata->stream_handle);
+        rc = pal_stream_stop(pal_sdata->stream_handle);
 
-            if (PA_UNLIKELY(rc))
-                pa_log_error(" pal_stream_stop failed for %p error  %d", pal_sdata->stream_handle, rc);
-        }
+        if (PA_UNLIKELY(rc))
+            pa_log_error(" pal_stream_stop failed for %p error  %d", pal_sdata->stream_handle, rc);
 
         rc = pal_stream_close(pal_sdata->stream_handle);
         if (PA_UNLIKELY(rc))
@@ -664,13 +667,15 @@ static int restart_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_chann
                             int sink_id, pa_pal_sink_data *sdata,uint32_t buffer_size, uint32_t buffer_count) {
     int rc;
 
-    rc = close_pal_sink(sdata);
-    if (rc) {
-        pa_log_error("close_pal_sink failed, error %d", rc);
-        goto exit;
+    if (!sdata->pal_sdata->standby) {
+        rc = close_pal_sink(sdata);
+        if (rc) {
+            pa_log_error("close_pal_sink failed, error %d", rc);
+            goto exit;
+        }
     }
 
-    rc = open_pal_sink(encoding, ss, map, port_device_data, type, sink_id, sdata, buffer_size, buffer_count);
+    rc = open_pal_sink(sdata->pal_sdata);
     if (rc) {
         pa_log_error("open_pal_sink failed during recreation, error %d", rc);
     }
@@ -680,14 +685,16 @@ exit:
 }
 
 static int free_pal_sink(pa_pal_sink_data *sdata) {
-    int rc;
+    int rc = 0;
 
     pa_assert(sdata);
     pa_assert(sdata->pal_sdata);
 
-    rc = close_pal_sink(sdata);
-    if (rc) {
-        pa_log_error("close_pal_sink failed, error %d", rc);
+    if (!sdata->pal_sdata->standby) {
+        rc = close_pal_sink(sdata);
+        if (rc) {
+            pa_log_error("close_pal_sink failed, error %d", rc);
+        }
     }
 
     pa_xfree(&sdata->pal_sdata->stream_attributes->out_media_config.ch_info);
@@ -702,21 +709,13 @@ static int free_pal_sink(pa_pal_sink_data *sdata) {
 
 static int create_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type, int sink_id,
                            pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count) {
-    int rc;
+    int rc = 0;
 
     sdata->pal_sdata = pa_xnew0(pal_sink_data, 1);
 
-    rc = open_pal_sink(encoding, ss, map, port_device_data, type, sink_id, sdata, buffer_size, buffer_count);
+    rc = pa_pal_sink_fill_info(sdata->pal_sdata, encoding, ss, map, port_device_data, type, sink_id, buffer_size, buffer_count);
     if (rc) {
-        pa_log_error("open_pal_sink failed, error %d", rc);
-        pa_xfree(sdata->pal_sdata);
-        sdata->pal_sdata = NULL;
-        return rc;
-    }
-
-    rc = pa_pal_sink_start(sdata->pal_sdata);
-    if (rc) {
-        pa_log_error("pal stream start failed, error %d", rc);
+        pa_log_error("pal sink init failed, error %d", rc);
         pa_xfree(sdata->pal_sdata);
         sdata->pal_sdata = NULL;
         return rc;
