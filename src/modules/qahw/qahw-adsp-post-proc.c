@@ -967,6 +967,8 @@ fail:
     pa_asyncmsgq_wait_for(sdata->thread_mq.inq, PA_MESSAGE_SHUTDOWN);
 
 finish:
+    /* Calling pa_thread_mq_done in PA mainloop context to avoid any concurrency in PA core. */
+    pa_thread_mq_done(&sdata->thread_mq);
     pa_log_debug("%s: IO thread is shutting down", __func__);
 }
 
@@ -1318,7 +1320,6 @@ static void pa_qahw_close_session (pa_qahw_post_proc_session_data_t *sdata) {
 
     if (sdata->rtpoll) {
         pa_rtpoll_free(sdata->rtpoll);
-        pa_thread_mq_done(&sdata->thread_mq);
     }
 
     //closing file descriptors
