@@ -512,9 +512,7 @@ static int free_pal_source(pal_source_data *pal_sdata) {
         }
     }
 
-    pa_xfree(&pal_sdata->stream_attributes->in_media_config.ch_info);
     pa_xfree(pal_sdata->stream_attributes);
-    pa_xfree(&pal_sdata->pal_device->config.ch_info);
     pa_xfree(pal_sdata->pal_device);
     pa_xfree(pal_sdata);
     pal_sdata = NULL;

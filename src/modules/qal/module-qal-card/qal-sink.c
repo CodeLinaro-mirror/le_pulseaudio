@@ -697,9 +697,7 @@ static int free_pal_sink(pa_pal_sink_data *sdata) {
         }
     }
 
-    pa_xfree(&sdata->pal_sdata->stream_attributes->out_media_config.ch_info);
     pa_xfree(sdata->pal_sdata->stream_attributes);
-    pa_xfree(&sdata->pal_sdata->pal_device->config.ch_info);
     pa_xfree(sdata->pal_sdata->pal_device);
     pa_xfree(sdata->pal_sdata);
     sdata->pal_sdata = NULL;
