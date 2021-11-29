@@ -1454,6 +1454,10 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
 
     qahw_sdata->module_handle = module_handle;
 
+#ifdef QAHW_UPDATE_DEVICE_LIST_ENABLED
+    qahw_sdata->device_url = "stream";
+#endif
+
     rc = qahw_open_output_stream(module_handle, qahw_sdata->handle, qahw_sdata->devices, qahw_sdata->flags, &qahw_sdata->config,
             &qahw_sdata->out_handle, qahw_sdata->device_url);
     if (rc) {
