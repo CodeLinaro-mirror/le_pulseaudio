@@ -49,7 +49,46 @@ typedef struct {
     uint32_t buffer_count;
 } pa_pal_sink_config;
 
+typedef struct {
+    pal_stream_handle_t *stream_handle;
+
+    struct pal_device *pal_device;
+    struct pal_stream_attributes *stream_attributes;
+    const char *device_url;
+
+    size_t buffer_size;
+    size_t buffer_count;
+    uint32_t sink_latency_us;
+    uint64_t bytes_written;
+
+    int write_fd;
+    int index;
+
+    bool standby;
+} pal_sink_data;
+
+typedef struct {
+    bool first;
+    pa_sink *sink;
+    pa_rtpoll *rtpoll;
+    pa_thread_mq thread_mq;
+    pa_thread *thread;
+    pa_idxset *formats;
+} pa_sink_data;
+
+typedef struct {
+    pal_sink_data *pal_sdata;
+    pa_sink_data *pa_sdata;
+    struct userdata *u;
+
+    pa_fdsem *fdsem; /* common resource between pa and pal sink */
+} pa_pal_sink_data;
+
 typedef size_t pa_pal_sink_handle_t;
+
+typedef struct {
+    pa_pal_sink_handle_t *handle;
+} pa_pal_card_sink_info;
 
 bool pa_pal_sink_is_supported_sample_rate(uint32_t sample_rate);
 /* create pal session and pa sink */

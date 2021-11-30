@@ -31,6 +31,10 @@
 typedef size_t pa_pal_source_handle_t;
 
 typedef struct {
+    pa_pal_source_handle_t *handle;
+} pa_pal_card_source_info;
+
+typedef struct {
     char *name;
     char *description;
     int id;
@@ -47,6 +51,36 @@ typedef struct {
     uint32_t buffer_size;
     uint32_t buffer_count;
 } pa_pal_source_config;
+
+typedef struct {
+    pal_stream_handle_t *stream_handle;
+
+    struct pal_device *pal_device;
+    struct pal_stream_attributes *stream_attributes;
+    const char *device_url;
+
+    int write_fd;
+
+    size_t buffer_size;
+    size_t buffer_count;
+    int index;
+
+    bool standby;
+} pal_source_data;
+
+typedef struct {
+    bool first;
+    pa_source *source;
+    pa_rtpoll *rtpoll;
+    pa_thread_mq thread_mq;
+    pa_thread *thread;
+    pa_idxset *formats;
+} pa_source_data;
+
+typedef struct {
+    pal_source_data *pal_sdata;
+    pa_source_data *pa_sdata;
+} pa_pal_source_data;
 
 /*create pal session and pa source */
 int pa_pal_source_create(pa_module *m, pa_card *card, const char *driver, const char *module_name, pa_pal_source_config *source,

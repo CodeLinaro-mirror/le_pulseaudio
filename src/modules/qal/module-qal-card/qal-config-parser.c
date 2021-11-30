@@ -22,6 +22,7 @@
 #include <pulsecore/device-port.h>
 #include <pulsecore/card.h>
 #include <pulsecore/core-util.h>
+#include <pulsecore/thread.h>
 
 #include <unistd.h>
 
