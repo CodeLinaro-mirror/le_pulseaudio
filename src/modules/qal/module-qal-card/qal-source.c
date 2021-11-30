@@ -51,38 +51,6 @@
 #define PA_DEFAULT_SOURCE_RATE 48000
 #define PA_DEFAULT_SOURCE_CHANNELS 2
 
-//#define SOURCE_DUMP_ENABLED
-
-typedef struct {
-    pal_stream_handle_t *stream_handle;
-
-    struct pal_device *pal_device;
-    struct pal_stream_attributes *stream_attributes;
-    const char *device_url;
-
-    int write_fd;
-
-    size_t buffer_size;
-    size_t buffer_count;
-    int index;
-
-    bool standby;
-} pal_source_data;
-
-typedef struct {
-    bool first;
-    pa_source *source;
-    pa_rtpoll *rtpoll;
-    pa_thread_mq thread_mq;
-    pa_thread *thread;
-    pa_idxset *formats;
-} pa_source_data;
-
-typedef struct {
-    pal_source_data *pal_sdata;
-    pa_source_data *pa_sdata;
-} pa_pal_source_data;
-
 static int restart_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
                               int source_id, pal_source_data *pal_sdata, uint32_t buffer_size, uint32_t buffer_count);
 static int create_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,

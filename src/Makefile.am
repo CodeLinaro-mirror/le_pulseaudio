@@ -1698,9 +1698,10 @@ module_qal_card_la_SOURCES = \
         modules/qal/module-qal-card/qal-sink.c modules/qal/module-qal-card/qal-sink.h \
         modules/qal/module-qal-card/qal-source.c modules/qal/module-qal-card/qal-source.h \
         modules/qal/module-qal-card/qal-utils.c modules/qal/module-qal-card/qal-utils.h \
-        modules/qal/module-qal-card/qal-config-parser.c modules/qal/module-qal-card/qal-config-parser.h
+        modules/qal/module-qal-card/qal-config-parser.c modules/qal/module-qal-card/qal-config-parser.h \
+        modules/qal/module-qal-card/module-qal-card-extn.c
 module_qal_card_la_CFLAGS = $(QAL_CFLAGS) $(AGM_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -DPA_MODULE_NAME=module_qal_card
-module_qal_card_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_qal_card_la_LDFLAGS = $(MODULE_LDFLAGS) -lcutils
 module_qal_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lpal -lagm
 
 module_qal_voiceui_card_la_SOURCES = modules/qal/module-qal-voiceui-card/module-qal-voiceui-card.c
