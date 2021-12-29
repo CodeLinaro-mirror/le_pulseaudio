@@ -111,7 +111,7 @@ set(PROJECT_LIBNAME_LDFLAGS
 target_link_libraries(${PROJECT_NAME} ${PROJECT_LIBNAME_LDFLAGS} ${PA_LIBRARIES} ${DBUS_LIBRARIES} ${LIBPULSE_LIBRARIES} Threads::Threads)
 
 set_target_properties(dbus_audiorate PROPERTIES PREFIX "lib")
-install(TARGETS dbus_audiorate DESTINATION lib)
+install(TARGETS dbus_audiorate DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(FILES libdbus_audiorate.pc DESTINATION "${INSTALL_PKGCONFIG_DIR}")
 install(FILES libdbus_audiorate.pc DESTINATION "${INSTALL_PKGCONFIG_DIR}/../lib/")
 install(FILES libdbus_audiorate.pc DESTINATION "${INSTALL_PKGCONFIG_DIR}/../share/pkgconfig")

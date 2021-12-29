@@ -108,7 +108,7 @@ set(PROJECT_LIBNAME_LDFLAGS
 
 target_link_libraries(${PROJECT_NAME} ${CMAKE_THREAD_LIBS_INIT} ${PROJECT_LIBNAME_LDFLAGS} ${PA_LIBRARIES} ${DBUS_LIBRARIES} ${LIBPULSE_LIBRARIES} -ldl Threads::Threads)
 
-set_target_properties( PROPERTIES PREFIX "")
-install(TARGETS module-pulseaudio-effects-sink DESTINATION lib)
+set_target_properties(module-pulseaudio-effects-sink PROPERTIES PREFIX "")
+install(TARGETS module-pulseaudio-effects-sink DESTINATION ${LIBPULSE_MODDIR})
 
 
