@@ -24,6 +24,7 @@
 #include <pulsecore/core-util.h>
 #include <pulsecore/thread.h>
 
+#include <fcntl.h>
 #include <unistd.h>
 
 #include "qal-config-parser.h"
@@ -39,6 +40,16 @@
 #define PAL_CARD_SINK_PREFIX "Sink "
 #define PAL_CARD_SOURCE_PREFIX "Source "
 #define PAL_CARD_SND_SUFFIX "snd-card"
+
+#define MAX_RETRY 100
+#define SNDCARD_PATH "/sys/kernel/snd_card/card_state"
+#define RETRY_INTERVAL 1
+
+/** Sound card state */
+typedef enum snd_card_status_t {
+    SND_CARD_STATUS_OFFLINE = 0,
+    SND_CARD_STATUS_ONLINE  = 1,
+} snd_card_status_t;
 
 static pa_pal_sink_config* pa_pal_config_get_sink(pa_hashmap *sinks, char *name);
 static pa_pal_source_config *pa_pal_config_get_source(pa_hashmap *sources, char *name);
@@ -1141,6 +1152,45 @@ static void pa_pal_config_free_port(pa_pal_card_port_config *port) {
     pa_xfree(port);
 }
 
+static int pa_wait_for_snd_card_to_online()
+{
+    int ret = 0;
+    uint32_t retries = MAX_RETRY;
+    int fd = -1;
+    char buf[2];
+    snd_card_status_t card_status = SND_CARD_STATUS_OFFLINE;
+
+    /* wait here till snd card is registered                               */
+    /* maximum wait period = (MAX_RETRY * RETRY_INTERVAL_US) micro-seconds */
+    do {
+        if ((fd = open(SNDCARD_PATH, O_RDWR)) >= 0) {
+            memset(buf , 0 ,sizeof(buf));
+            lseek(fd,0L,SEEK_SET);
+            read(fd, buf, 1);
+            close(fd);
+            fd = -1;
+
+            buf[sizeof(buf) - 1] = '\0';
+            card_status = SND_CARD_STATUS_OFFLINE;
+            sscanf(buf , "%d", &card_status);
+
+            if (card_status == SND_CARD_STATUS_ONLINE) {
+                pa_log_info("snd sysfs node open successful");
+                break;
+            }
+        }
+        retries--;
+        sleep(RETRY_INTERVAL);
+    } while ( retries > 0);
+
+    if (0 == retries) {
+        pa_log_error("Failed to open snd sysfs node, exiting ... ");
+        ret = -1;
+    }
+
+    return ret;
+}
+
 static char *pa_pal_config_get_conf_file_name() {
     const char *cards = "/proc/asound/cards";
 
@@ -1149,6 +1199,11 @@ static char *pa_pal_config_get_conf_file_name() {
     char *card_string;
     char *conf_file_name = NULL;
     uint32_t i = 0;
+
+    if(0 > pa_wait_for_snd_card_to_online()) {
+        pa_log_error("Not found any SND card online\n");
+        goto exit;
+    }
 
     card_string = pa_read_line_from_file(cards);
     if (!card_string) {
