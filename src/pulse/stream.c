@@ -948,7 +948,7 @@ void pa_command_report_filled_level(pa_pdispatch *pd, uint32_t command, uint32_t
         goto finish;
 
     if (s->filled_level_callback){
-        s->filled_level_callback(s, &s->filled_level_userdata);
+        s->filled_level_callback(s, s->filled_level_userdata);
     }
 
 finish:
