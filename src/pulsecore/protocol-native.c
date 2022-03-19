@@ -226,7 +226,8 @@ enum {
     PLAYBACK_STREAM_MESSAGE_OVERFLOW,
     PLAYBACK_STREAM_MESSAGE_DRAIN_ACK,
     PLAYBACK_STREAM_MESSAGE_STARTED,
-    PLAYBACK_STREAM_MESSAGE_UPDATE_TLENGTH
+    PLAYBACK_STREAM_MESSAGE_UPDATE_TLENGTH,
+    PLAYBACK_STREAM_MESSAGE_FILLED_LEVEL
 };
 
 enum {
@@ -764,6 +765,18 @@ static int playback_stream_process_msg(pa_msgobject *o, int code, void*userdata,
             }
 
             break;
+
+        case PLAYBACK_STREAM_MESSAGE_FILLED_LEVEL: {
+            pa_tagstruct *t;
+            int64_t filled_level = pa_memblockq_get_write_index(s->memblockq) - pa_memblockq_get_read_index(s->memblockq);
+            t = pa_tagstruct_new();
+            pa_tagstruct_putu32(t, PA_COMMAND_REPORT_FILLED_LEVEL);
+            pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+            pa_tagstruct_putu32(t, s->index);
+            pa_tagstruct_puts64(t, filled_level);
+            pa_pstream_send_tagstruct(s->connection->pstream, t);
+            break;
+        }
     }
 
     return 0;
@@ -1571,6 +1584,11 @@ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk
         pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_STARTED, NULL, 0, NULL, NULL);
 
     pa_memblockq_drop(s->memblockq, chunk->length);
+
+    if (i->flags & PA_SINK_INPUT_UPDATE_FILLED_LEVEL) {
+        pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_FILLED_LEVEL, NULL, 0, NULL, NULL);
+    }
+
     playback_stream_request_bytes(s);
 
     return 0;
@@ -1948,7 +1966,8 @@ static void command_create_playback_stream(pa_pdispatch *pd, uint32_t command, u
         muted_set = false,
         fail_on_suspend = false,
         relative_volume = false,
-        passthrough = false;
+        passthrough = false,
+        update_filled_level = false;
 
     pa_sink_input_flags_t flags = 0;
     pa_proplist *p = NULL;
@@ -2078,6 +2097,13 @@ static void command_create_playback_stream(pa_pdispatch *pd, uint32_t command, u
         }
     }
 
+    if (c->version >= 33) {
+        if (pa_tagstruct_get_boolean(t, &update_filled_level) < 0 ) {
+            protocol_error(c);
+            goto finish;
+        }
+    }
+
     if (n_formats == 0) {
         CHECK_VALIDITY_GOTO(c->pstream, pa_sample_spec_valid(&ss), tag, PA_ERR_INVALID, finish);
         CHECK_VALIDITY_GOTO(c->pstream, map.channels == ss.channels && volume.channels == ss.channels, tag, PA_ERR_INVALID, finish);
@@ -2119,7 +2145,8 @@ static void command_create_playback_stream(pa_pdispatch *pd, uint32_t command, u
         (variable_rate ? PA_SINK_INPUT_VARIABLE_RATE : 0) |
         (dont_inhibit_auto_suspend ? PA_SINK_INPUT_DONT_INHIBIT_AUTO_SUSPEND : 0) |
         (fail_on_suspend ? PA_SINK_INPUT_NO_CREATE_ON_SUSPEND|PA_SINK_INPUT_KILL_ON_SUSPEND : 0) |
-        (passthrough ? PA_SINK_INPUT_PASSTHROUGH : 0);
+        (passthrough ? PA_SINK_INPUT_PASSTHROUGH : 0) |
+        (update_filled_level ? PA_SINK_INPUT_UPDATE_FILLED_LEVEL : 0);
 
     /* Only since protocol version 15 there's a separate muted_set
      * flag. For older versions we synthesize it here */

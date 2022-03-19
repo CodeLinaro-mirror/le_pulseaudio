@@ -187,6 +187,10 @@ enum {
      * BOTH DIRECTIONS */
     PA_COMMAND_REGISTER_MEMFD_SHMID,
 
+    /* Implemented and verified on protocol v33 (13.0) */
+    /* SERVER->CLIENT */
+    PA_COMMAND_REPORT_FILLED_LEVEL,
+
     PA_COMMAND_MAX
 };
 
