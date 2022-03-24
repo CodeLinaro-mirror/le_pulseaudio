@@ -184,6 +184,7 @@ struct pa_stream {
     pa_memblock *write_memblock;
     void *write_data;
     int64_t latest_underrun_at_index;
+    int64_t sink_input_filled_level;
 
     /* recording */
     pa_memchunk peek_memchunk;
@@ -233,6 +234,8 @@ struct pa_stream {
     void *event_userdata;
     pa_stream_notify_cb_t buffer_attr_callback;
     void *buffer_attr_userdata;
+    pa_stream_notify_cb_t filled_level_callback;
+    void *filled_level_userdata;
 };
 
 typedef void (*pa_operation_cb_t)(void);
@@ -264,6 +267,7 @@ void pa_command_stream_started(pa_pdispatch *pd, uint32_t command, uint32_t tag,
 void pa_command_stream_event(pa_pdispatch *pd, uint32_t command, uint32_t tag, pa_tagstruct *t, void *userdata);
 void pa_command_client_event(pa_pdispatch *pd, uint32_t command, uint32_t tag, pa_tagstruct *t, void *userdata);
 void pa_command_stream_buffer_attr(pa_pdispatch *pd, uint32_t command, uint32_t tag, pa_tagstruct *t, void *userdata);
+void pa_command_report_filled_level(pa_pdispatch *pd, uint32_t command, uint32_t tag, pa_tagstruct *t, void *userdata);
 
 pa_operation *pa_operation_new(pa_context *c, pa_stream *s, pa_operation_cb_t callback, void *userdata);
 void pa_operation_done(pa_operation *o);
