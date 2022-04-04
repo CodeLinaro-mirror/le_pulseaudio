@@ -116,6 +116,11 @@ static void pa_pal_sink_set_volume_cb(pa_sink *s) {
 
     volume_data = (struct pal_volume_data *)malloc(sizeof(uint32_t) +
                                                  (sizeof(struct pal_channel_vol_kv) * (no_vol_pair)));
+    if (!volume_data) {
+        pa_log_error("malloc failed for size %zu", sizeof(uint32_t) +
+                 (sizeof(struct pal_channel_vol_kv) * (no_vol_pair)));
+        return;
+    }
 
     volume_data->no_of_volpair = no_vol_pair;
 
@@ -452,6 +457,7 @@ static void pa_pal_sink_thread_func(void *userdata) {
     uint32_t sink_buffer_size;
     pa_memchunk chunk;
     struct pal_buffer out_buf;
+    memset(&chunk, 0, sizeof(pa_memchunk));
 
     void *data;
     bool wait;

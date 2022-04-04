@@ -1196,7 +1196,7 @@ static char *pa_pal_config_get_conf_file_name() {
 
     char **items = NULL;
     char *item = NULL;
-    char *card_string;
+    char *card_string = NULL;
     char *conf_file_name = NULL;
     uint32_t i = 0;
 
