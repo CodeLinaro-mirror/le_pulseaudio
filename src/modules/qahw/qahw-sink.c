@@ -1417,6 +1417,7 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
     int ret = -1;
     const char *bt_sco_on = "BT_SCO=on";
     const char *dsd_format = NULL;
+    char *kvpair = NULL;
 
 #ifdef SINK_DUMP_ENABLED
     char *file_name;
@@ -1447,6 +1448,15 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
     if (audio_is_bluetooth_sco_device(qahw_sdata->devices)) {
         ret = qahw_set_parameters(module_handle, bt_sco_on);
         pa_log_info("%s: param %s set to hal with return value %d", __func__, bt_sco_on, ret);
+    }
+
+    /*Turn on hdmi-out if device is hdmi-out*/
+    if (qahw_sdata->devices & AUDIO_DEVICE_OUT_HDMI) {
+        kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_CONNECT, qahw_sdata->devices);
+        rc = qahw_set_parameters(qahw_sdata->module_handle, kvpair);
+        if (rc)
+            pa_log_error("qahw_set_parameters failed %d",rc);
+        pa_xfree(kvpair);
     }
 
     if (buffer_duration > 0)
