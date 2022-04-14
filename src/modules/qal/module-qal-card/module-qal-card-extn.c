@@ -125,7 +125,11 @@ static void pal_module_set_parameters(DBusConnection *conn, DBusMessage *msg, vo
 		return;
 	}
 	parms = str_parms_create_str(kvpairs);
-
+	if (!parms) {
+		pa_log_error("failed to create params\n");
+		status = -1;
+		goto done;
+	}
 	err = str_parms_get_str(parms, PAL_PARAM_KEY_VOLUME_INDEX, c_value, sizeof(c_value));
 	if (err >= 0) {
 		int volume_idx;

@@ -349,10 +349,17 @@ typedef enum pa_stream_flags {
      * consider absolute when the sink is in flat volume mode,
      * relative otherwise. \since 0.9.20 */
 
-    PA_STREAM_PASSTHROUGH = 0x80000U
+    PA_STREAM_PASSTHROUGH = 0x80000U,
     /**< Used to tag content that will be rendered by passthrough sinks.
      * The data will be left as is and not reformatted, resampled.
      * \since 1.0 */
+
+    PA_STREAM_UPDATE_FILLED_LEVEL = 0x100000U
+    /**< If set, filled level of sink-input buffer is updated for every
+     * block of data rendered out of sink-input buffer. Client will be
+     * notified about the update through the callback which is registered
+     * using the function pa_stream_set_filled_level_callback().
+     * \Implemented and verified on v13.0 */
 
 } pa_stream_flags_t;
 

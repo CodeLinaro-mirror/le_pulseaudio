@@ -1427,7 +1427,10 @@ modlibexec_LTLIBRARIES += module-qal-voiceui-card.la
 dist_qalconfsets_DATA = \
       modules/qal/module-qal-card/configs/kona-mtp-snd-card.conf \
       modules/qal/module-qal-card/configs/kona-xrfusionult-snd-card.conf \
-      modules/qal/module-qal-card/configs/kona-arglass-snd-card.conf
+      modules/qal/module-qal-card/configs/kona-arglass-snd-card.conf \
+      modules/qal/module-qal-card/configs/neo-idp-sg-snd-card.conf \
+      modules/qal/module-qal-card/configs/neo-idp-snd-card.conf \
+      modules/qal/module-qal-card/configs/neo-qxr-snd-card.conf
 endif
 
 if HAVE_QSTHW
