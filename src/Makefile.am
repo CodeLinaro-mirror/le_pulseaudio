@@ -1417,6 +1417,7 @@ modlibexec_LTLIBRARIES += module-qahw-card.la
 dist_qahwconfsets_DATA = \
       modules/qahw/configs/kona-iot-snd-card.conf \
       modules/qahw/configs/bengal-qrd-snd-card.conf \
+      modules/qahw/configs/sm6150-tavil-snd-card.conf \
       modules/qahw/configs/bengal-scubaqrd-snd-card.conf
 endif
 
@@ -1427,7 +1428,10 @@ modlibexec_LTLIBRARIES += module-qal-voiceui-card.la
 dist_qalconfsets_DATA = \
       modules/qal/module-qal-card/configs/kona-mtp-snd-card.conf \
       modules/qal/module-qal-card/configs/kona-xrfusionult-snd-card.conf \
-      modules/qal/module-qal-card/configs/kona-arglass-snd-card.conf
+      modules/qal/module-qal-card/configs/kona-arglass-snd-card.conf \
+      modules/qal/module-qal-card/configs/neo-idp-sg-snd-card.conf \
+      modules/qal/module-qal-card/configs/neo-idp-snd-card.conf \
+      modules/qal/module-qal-card/configs/neo-qxr-snd-card.conf
 endif
 
 if HAVE_QSTHW
