@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, 2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018, 2020-2021, The Linux Foundation. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -64,6 +64,7 @@ static void pa_qahw_sink_set_drift_correction_flag(DBusConnection *conn, DBusMes
 static void pa_qahw_sink_set_drift_correction_param(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_sink_set_matrix_param(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pa_qahw_sink_set_ch_status_info(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void pa_qahw_sink_set_external_sink_latency(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 /* sink set params based on key,value */
 static void pa_qahw_sink_set_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -83,7 +84,8 @@ enum sink_method_handler_index {
     METHOD_HANDLER_SINK_SET_CHANNEL_STATUS_INFO,
     METHOD_HANDLER_SINK_SET_PARAMETERS,
     METHOD_HANDLER_SINK_GET_PARAMETERS,
-    METHOD_HANDLER_SINK_LAST = METHOD_HANDLER_SINK_GET_PARAMETERS,
+    METHOD_HANDLER_SINK_SET_EXTERNAL_SINK_LATENCY,
+    METHOD_HANDLER_SINK_LAST = METHOD_HANDLER_SINK_SET_EXTERNAL_SINK_LATENCY,
     METHOD_HANDLER_SINK_MAX = METHOD_HANDLER_SINK_LAST + 1,
 };
 
@@ -118,6 +120,10 @@ static pa_dbus_arg_info sink_matrix_param_args[] = {
 
 static pa_dbus_arg_info sink_ch_status_info_args[] = {
     {"channel_status_info", "ay", "in"},
+};
+
+static pa_dbus_arg_info sink_external_sink_latency_args[] = {
+    {"external_sink_latency", "t", "in"},
 };
 
 static pa_dbus_arg_info sink_set_parameters_args[] = {
@@ -179,6 +185,11 @@ static pa_dbus_method_handler sink_method_handlers[METHOD_HANDLER_SINK_MAX] = {
         .arguments = sink_get_parameters_args,
         .n_arguments = sizeof(sink_get_parameters_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = pa_qahw_sink_get_parameters},
+[METHOD_HANDLER_SINK_SET_EXTERNAL_SINK_LATENCY] = {
+        .method_name = "SetExternalSinkLatency",
+        .arguments = sink_external_sink_latency_args,
+        .n_arguments = sizeof(sink_external_sink_latency_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = pa_qahw_sink_set_external_sink_latency},
 };
 
 static pa_dbus_signal_info failure_event_signal[SIGNAL_MAX] = {
@@ -637,6 +648,55 @@ static void pa_qahw_sink_set_ch_status_info(DBusConnection *conn, DBusMessage *m
     rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_CHANNEL_STATUS_INFO, &payload);
     if (rc) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "SetChStatusInfo failed");
+        dbus_error_free(&error);
+        return;
+    }
+
+exit:
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+static void pa_qahw_sink_set_external_sink_latency(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    int rc = 0;
+
+    struct pa_qahw_sink_extn_data *qahw_extn_sdata = (struct pa_qahw_sink_extn_data *)userdata;
+    qahw_param_payload payload;
+
+    DBusMessageIter arg_i;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
+                "pa_qahw_sink_set_external_sink_latency has no arguments");
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (!pa_streq(dbus_message_get_signature(msg), "t")) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
+                "Invalid signature for pa_qahw_sink_set_external_sink_latency");
+        dbus_error_free(&error);
+        return;
+    }
+
+    dbus_message_iter_get_basic(&arg_i, &payload.external_sink_latency.external_sink_latency);
+
+    pa_log_debug("%s:: external_sink_latency %" PRId64 "us", __func__, payload.external_sink_latency.external_sink_latency);
+
+    if (!qahw_extn_sdata->out_handle) {
+        pa_qahw_sink_extn_cache_set_param_data_request(qahw_extn_sdata, payload, QAHW_PARAM_OUT_EXTERNAL_SINK_LATENCY);
+        pa_log_info("%s: set QAHW_PARAM_OUT_EXTERNAL_SINK_LATENCY request cached", __func__);
+        goto exit;
+    }
+    rc = qahw_out_set_param_data(qahw_extn_sdata->out_handle, QAHW_PARAM_OUT_EXTERNAL_SINK_LATENCY, &payload);
+    if (rc) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "set_param_data for QAHW_PARAM_OUT_EXTERNAL_SINK_LATENCY failed");
         dbus_error_free(&error);
         return;
     }
