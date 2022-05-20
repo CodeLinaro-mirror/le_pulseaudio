@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -799,9 +800,12 @@ static void pa_qahw_source_io_thread_func(void *userdata) {
         if (timer_enabled) {
             if (pa_rtpoll_timer_elapsed(pa_sdata->rtpoll)) {
                 if (source_data->qahw_sdata) {
-                    pa_log_info("%s: timer exceeded. unblock read() by calling stop()", __func__);
-                    qahw_in_stop(qahw_sdata->in_handle);
-                    pa_atomic_store(&qahw_sdata->first_read, 0);
+                    /* Avoiding calling qahw_in_stop(),if it already has been called as part of source stop_qahw_source() */
+                    if (!pa_atomic_load(&qahw_sdata->stopped)) {
+                        pa_log_info("%s: timer exceeded. unblock read() by calling stop()", __func__);
+                        qahw_in_stop(qahw_sdata->in_handle);
+                        pa_atomic_store(&qahw_sdata->first_read, 0);
+                    }
                 }
             }
 
@@ -1320,7 +1324,6 @@ exit:
 static int stop_qahw_source(qahw_source_data *qahw_sdata) {
     int rc;
     bool got_lock = false;
-
     pa_assert(qahw_sdata);
 
     pa_log_debug("%s", __func__);
