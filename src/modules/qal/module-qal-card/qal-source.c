@@ -16,6 +16,10 @@
  * 02110-1301  USA
  */
 
+ /*
+  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+  */
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -53,8 +57,7 @@
 
 static int restart_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
                               int source_id, pal_source_data *pal_sdata, uint32_t buffer_size, uint32_t buffer_count);
-static int create_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
-                             int source_id, pa_pal_source_data *sdata, uint32_t buffer_size, uint32_t buffer_count);
+static int create_pal_source(pa_pal_source_config *source, pa_pal_card_port_device_data *port_device_data, pa_pal_source_data *sdata);
 static int close_pal_source(pal_source_data *pal_sdata);
 static int open_pal_source(pal_source_data *pal_sdata);
 
@@ -76,16 +79,12 @@ static const char *pa_pal_source_get_name_from_type(pal_stream_type_t type) {
     return name;
 }
 
-    //TODO: Format Hardcoded as of now
-static int pa_pal_source_fill_info(pal_source_data *pal_sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data,
-                                    pal_stream_type_t type, int source_id, uint32_t buffer_size, uint32_t buffer_count) {
-    pa_assert(ss);
-    pa_assert(map);
+static int pa_pal_source_fill_info(pa_pal_source_config *source, pal_source_data *pal_sdata, pa_pal_card_port_device_data *port_device_data) {
     pa_assert(pal_sdata);
 
     pal_sdata->stream_attributes = pa_xnew0(struct pal_stream_attributes, 1);
 
-    pal_sdata->stream_attributes->type = type;
+    pal_sdata->stream_attributes->type = source->stream_type;
     pal_sdata->stream_attributes->info.opt_stream_info.version = 1;
     pal_sdata->stream_attributes->info.opt_stream_info.duration_us = -1;
     pal_sdata->stream_attributes->info.opt_stream_info.has_video = false;
@@ -94,11 +93,11 @@ static int pa_pal_source_fill_info(pal_source_data *pal_sdata, pa_encoding_t enc
     pal_sdata->stream_attributes->flags = 0;
     pal_sdata->stream_attributes->direction = PAL_AUDIO_INPUT;
 
-    pal_sdata->stream_attributes->in_media_config.sample_rate = ss->rate;
+    pal_sdata->stream_attributes->in_media_config.sample_rate = source->default_spec.rate;
     pal_sdata->stream_attributes->in_media_config.bit_width = 16;
     pal_sdata->stream_attributes->in_media_config.aud_fmt_id = 0;
 
-    if (!pa_pal_channel_map_to_pal(map, &pal_sdata->stream_attributes->in_media_config.ch_info)) {
+    if (!pa_pal_channel_map_to_pal(&source->default_map, &pal_sdata->stream_attributes->in_media_config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
         pa_xfree(&pal_sdata->stream_attributes->in_media_config.ch_info);
         return -1;
@@ -109,6 +108,9 @@ static int pa_pal_source_fill_info(pal_source_data *pal_sdata, pa_encoding_t enc
     pal_sdata->pal_device->id = port_device_data->device;
     pal_sdata->pal_device->config.sample_rate = port_device_data->default_spec.rate;
     pal_sdata->pal_device->config.bit_width = 16;
+    if(source->pal_devicepp_config){
+        strlcpy(pal_sdata->pal_device->custom_config.custom_key, source->pal_devicepp_config, sizeof(pal_sdata->pal_device->custom_config.custom_key));
+    }
     if (!pa_pal_channel_map_to_pal(&port_device_data->default_map, &pal_sdata->pal_device->config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
         pa_xfree(&pal_sdata->pal_device->config.ch_info);
@@ -116,9 +118,9 @@ static int pa_pal_source_fill_info(pal_source_data *pal_sdata, pa_encoding_t enc
     }
 
     pal_sdata->device_url = NULL; /* TODO: useful for BT devices */
-    pal_sdata->index = source_id;
-    pal_sdata->buffer_size = (size_t)buffer_size;
-    pal_sdata->buffer_count = (size_t)buffer_count;
+    pal_sdata->index = source->id;
+    pal_sdata->buffer_size = (size_t)(source->buffer_size);
+    pal_sdata->buffer_count = (size_t)(source->buffer_count);
 
     pal_sdata->standby = true;
 
@@ -488,13 +490,12 @@ static int free_pal_source(pal_source_data *pal_sdata) {
     return rc;
 }
 
-static int create_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
-                             int source_id, pa_pal_source_data *sdata, uint32_t buffer_size, uint32_t buffer_count) {
+static int create_pal_source(pa_pal_source_config *source, pa_pal_card_port_device_data *port_device_data, pa_pal_source_data *sdata) {
     int rc;
 
     sdata->pal_sdata = pa_xnew0(pal_source_data, 1);
 
-    rc = pa_pal_source_fill_info(sdata->pal_sdata, encoding, ss, map, port_device_data, type, source_id, buffer_size, buffer_count);
+    rc = pa_pal_source_fill_info(source, sdata->pal_sdata, port_device_data);
     if (rc) {
         pa_log_error("pal source init failed, error %d", rc);
         pa_xfree(sdata->pal_sdata);
@@ -704,7 +705,7 @@ int pa_pal_source_create(pa_module *m, pa_card *card, const char *driver, const 
 
     pa_log_info("%s: creating source with ss %s buffer size %d buffer count %d", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &source->default_spec), source->buffer_size, source->buffer_count);
 
-    rc = create_pal_source(source->default_encoding, &source->default_spec, &source->default_map, port_device_data, source->stream_type, source->id, sdata, source->buffer_size, source->buffer_count);
+    rc = create_pal_source(source, port_device_data, sdata);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could not open pal source, error %d", rc);
         pa_xfree(sdata);
