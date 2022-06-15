@@ -950,8 +950,18 @@ static int close_qahw_source(qahw_source_data *qahw_sdata) {
     if (PA_UNLIKELY(qahw_sdata->in_handle == NULL)) {
         pa_log_error("Invalid source handle %p", qahw_sdata->in_handle);
     } else {
-        pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
-                                      QAHW_SOURCE_MESSAGE_CLOSE_INPUT, &rc, 0, NULL);
+        if (qahw_sdata->qahw_thread) {
+            pa_log_debug("%s, QAHW thread active: True", __func__);
+            pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
+                                          QAHW_SOURCE_MESSAGE_CLOSE_INPUT, &rc, 0, NULL);
+        } else {
+            pa_log_debug("%s, QAHW thread active: False", __func__);
+            rc = qahw_close_input_stream(qahw_sdata->in_handle);
+            if (PA_UNLIKELY(rc)) {
+                pa_log_error("%s, could not close source handle %p, error  %d", __func__, qahw_sdata->in_handle, rc);
+            }
+            qahw_sdata->in_handle = NULL;
+        }
         pa_log_debug("%s, Ack closing qahw source rc: %d", __func__, rc);
     }
 #ifdef SOURCE_DUMP_ENABLED
@@ -1063,7 +1073,7 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
 
     pa_source_new_data_set_name(&new_data, source_name);
 
-    pa_log_info("ss->rate %d ss->channels %d", ss->rate, ss->channels);
+    pa_log_info("ss->rate %d ss->channels %d, map->channels: %d", ss->rate, ss->channels, map->channels);
 
     if (source_data->qahw_sdata->config.format == AUDIO_FORMAT_DSD) {
         ss->channels = 1;
@@ -1288,6 +1298,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     }
 
     sdata->qahw_sdata->qahw_source_mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
+    sdata->qahw_sdata->qahw_thread = NULL;
 
     rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate,
                           source->avoid_config_processing, card, ports, driver, sdata, source->proplist, source->priority);
