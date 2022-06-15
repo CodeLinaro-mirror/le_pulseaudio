@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -348,9 +349,15 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
         pa_idxset_put(requested_formats, compr_stream_format, NULL);
 
     new_source = *source;
-    new_source.default_spec = config->ss;
     new_source.def_map_with_inval_ch = config->map;
     new_source.default_map = pa_map_remove_invalid_channels(&(config->map));
+
+    if (config->ss.channels != new_source.default_map.channels) {
+        pa_log_info("%s: ss->channels %d, map->channels %d", __func__, config->ss.channels, new_source.default_map.channels);
+        config->ss.channels = new_source.default_map.channels;
+    }
+
+    new_source.default_spec = config->ss;
     new_source.formats = requested_formats;
     new_source.default_encoding = config->encoding;
     new_source.preemph_status = config->preemph_status;
