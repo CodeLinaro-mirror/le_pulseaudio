@@ -111,6 +111,9 @@
 // and "too much"
 #define MAX_EXTRA_LATENCY (60 * PA_NSEC_PER_MSEC)
 
+//TTP offset received from bt-manager
+uint64_t external_ttp_offset = 0;
+
 struct bt_dbus_data {
     char *obj_path;
     pa_dbus_protocol *dbus_protocol;
@@ -947,6 +950,16 @@ static int a2dp_process_push(struct userdata *u) {
 
     pa_memchunk_reset(&memchunk);
     memchunk.memblock = pa_memblock_new(u->core->mempool, u->read_block_size);
+
+    //update the ttpoffset received from bt-manager to u->fixed_offset.
+    if(external_ttp_offset)
+    {
+        u->fixed_offset = external_ttp_offset;
+        pa_log_debug("%s:: fixed offset: %" PRId64 "us", __func__, u->fixed_offset);
+
+        //clear external offset after updating u->fixed_offset.
+        external_ttp_offset = 0;
+    }
 
     for (;;) {
         bool found_tstamp = false;
@@ -2881,7 +2894,10 @@ static void dbus_set_ttp_offset(DBusConnection *conn, DBusMessage *msg, void *us
     if (u->next_timestamp != PA_NSEC_INVALID) {
         u->next_timestamp += payload * PA_NSEC_PER_USEC - u->fixed_offset;
     }
-    u->fixed_offset = payload * PA_NSEC_PER_USEC;
+
+    //Update the external_ttp_offset value with the offset received from bt-manager.
+    external_ttp_offset = payload * PA_NSEC_PER_USEC;
+
     pa_dbus_send_empty_reply(conn, msg);
 }
 
