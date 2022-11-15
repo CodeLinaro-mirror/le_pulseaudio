@@ -1419,6 +1419,7 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/bengal-qrd-snd-card.conf \
       modules/qahw/configs/sm6150-tavil-snd-card.conf \
       modules/qahw/configs/sm6150-idp-snd-card.conf \
+      modules/qahw/configs/sm6150-ipc-snd-card.conf \
       modules/qahw/configs/bengal-scubaqrd-snd-card.conf
 endif
 
