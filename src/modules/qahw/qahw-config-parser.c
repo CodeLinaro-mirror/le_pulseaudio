@@ -1,6 +1,10 @@
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
  * 2.1 and only version 2.1 as published by the Free Software Foundation
@@ -162,7 +166,7 @@ static int pa_qahw_config_parse_effect_endpoint_names(pa_config_parser_state *st
     effect->endpoint_conf_string =  pa_split_spaces_strv(state->rvalue);
     items = effect->endpoint_conf_string;
 
-    if (!(items = pa_split_spaces_strv(state->rvalue))) {
+    if (!items) {
         pa_log_error("%s: [%s:%u] port name missing", __func__, state->filename, state->lineno);
         goto exit;
     }
@@ -241,28 +245,31 @@ exit:
 }
 
 static void pa_qahw_config_free_effect(pa_qahw_effect_config *effect) {
-    pa_assert(effect);
 
-    pa_log_info("%s: freeing effect %s", __func__, effect->name);
+    if (effect) {
+        pa_assert(effect);
 
-    pa_xfree(effect->name);
+        pa_log_info("%s: freeing effect %s", __func__, effect->name);
 
-    pa_xfree(effect->uuid);
+        pa_xfree(effect->name);
 
-    pa_xfree(effect->lib_name);
+        pa_xfree(effect->uuid);
 
-    pa_xfree(effect->description);
+        pa_xfree(effect->lib_name);
 
-    pa_hashmap_free(effect->sinks);
+        pa_xfree(effect->description);
 
-    pa_hashmap_free(effect->ports);
+        pa_hashmap_free(effect->sinks);
 
-    pa_hashmap_free(effect->loopbacks);
+        pa_hashmap_free(effect->ports);
 
-    if (effect->endpoint_conf_string)
-        pa_xstrfreev(effect->endpoint_conf_string);
+        pa_hashmap_free(effect->loopbacks);
 
-    pa_xfree(effect);
+        if (effect->endpoint_conf_string)
+            pa_xstrfreev(effect->endpoint_conf_string);
+
+        pa_xfree(effect);
+    }
 } /* end effect parsing related functions */
 
 static pa_qahw_source_config* pa_qahw_config_get_source(pa_hashmap *sources, char *name) {
