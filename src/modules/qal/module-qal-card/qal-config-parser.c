@@ -16,6 +16,10 @@
  * 02110-1301  USA
  */
 
+/*
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ */
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -689,6 +693,32 @@ exit:
     return ret;
 }
 
+static int pa_pal_config_parse_pal_devicepp_config(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = NULL;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
+    int ret = 0;
+
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    config_data = state->userdata;
+    pa_assert(config_data);
+
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
+        sink->pal_devicepp_config = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: pal devicepp config is %s for sink %s", __func__, sink->pal_devicepp_config, sink->name);
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
+        source->pal_devicepp_config = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: pal devicepp config is %s for source %s", __func__, source->pal_devicepp_config, source->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        ret = -1;
+    }
+
+    return ret;
+}
+
 static int pa_pal_config_parse_presence(pa_config_parser_state *state) {
     pa_pal_config_data* config_data = state->userdata;
     pa_pal_card_port_config *port;
@@ -784,6 +814,9 @@ static void pa_pal_config_free_sink(pa_pal_sink_config *sink) {
     if (sink->port_conf_string)
         pa_xstrfreev(sink->port_conf_string);
 
+    if (sink->pal_devicepp_config)
+        pa_xfree(sink->pal_devicepp_config);
+
     pa_xfree(sink);
 } /* end sink parsing related functions */
 
@@ -804,6 +837,9 @@ static void pa_pal_config_free_source(pa_pal_source_config *source) {
 
     if (source->port_conf_string)
         pa_xstrfreev(source->port_conf_string);
+
+    if (source->pal_devicepp_config)
+        pa_xfree(source->pal_devicepp_config);
 
     pa_xfree(source);
 } /* end source parsing related functions */
@@ -1293,6 +1329,7 @@ pa_pal_config_data* pa_pal_config_parse_new(char *dir, char *conf_file_name) {
         /* common between sink and source*/
         { "type",                        pa_pal_config_parse_type,                                NULL, NULL },
         { "alternate-sample-rate",       pa_pal_config_parse_alternative_sample_rate,             NULL, NULL },
+        { "pal-devicepp-config",         pa_pal_config_parse_pal_devicepp_config,                 NULL, NULL },
 
         /* common between profile, sink and source */
         { "port-names",                  pa_pal_config_parse_port_names,                          NULL, NULL },

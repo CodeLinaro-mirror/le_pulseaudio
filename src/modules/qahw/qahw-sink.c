@@ -1,6 +1,10 @@
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
  * 2.1 and only version 2.1 as published by the Free Software Foundation
@@ -1606,6 +1610,9 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
                                       QAHW_SINK_MESSAGE_CLOSE_OUTPUT, &rc, 0, NULL);
         pa_log_debug("%s Ack closing qahw sink rc: %d", __func__, rc);
     }
+
+    if (qahw_sdata->qahw_msg)
+        pa_xfree(qahw_sdata->qahw_msg);
 
 #ifdef SINK_DUMP_ENABLED
     close(qahw_sdata->write_fd);
