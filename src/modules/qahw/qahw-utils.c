@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -622,7 +623,7 @@ pa_channel_map pa_map_remove_invalid_channels(pa_channel_map *def_map_with_inval
         }
         i++;
     }
-    pa_map.channels = def_map_with_inval_ch->channels;
+    pa_map.channels = j;
     return pa_map;
 }
 
