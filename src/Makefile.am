@@ -1416,8 +1416,11 @@ modlibexec_LTLIBRARIES += module-qahw-card.la
 
 dist_qahwconfsets_DATA = \
       modules/qahw/configs/kona-iot-snd-card.conf \
-      modules/qahw/configs/bengal-idp-snd-card.conf \
-      modules/qahw/configs/bengal-scubaidp-snd-card.conf
+      modules/qahw/configs/bengal-qrd-snd-card.conf \
+      modules/qahw/configs/sm6150-tavil-snd-card.conf \
+      modules/qahw/configs/sm6150-idp-snd-card.conf \
+      modules/qahw/configs/sm6150-ipc-snd-card.conf \
+      modules/qahw/configs/bengal-scubaqrd-snd-card.conf
 endif
 
 if HAVE_QAL
@@ -1427,7 +1430,10 @@ modlibexec_LTLIBRARIES += module-qal-voiceui-card.la
 dist_qalconfsets_DATA = \
       modules/qal/module-qal-card/configs/kona-mtp-snd-card.conf \
       modules/qal/module-qal-card/configs/kona-xrfusionult-snd-card.conf \
-      modules/qal/module-qal-card/configs/kona-arglass-snd-card.conf
+      modules/qal/module-qal-card/configs/kona-arglass-snd-card.conf \
+      modules/qal/module-qal-card/configs/neo-idp-sg-snd-card.conf \
+      modules/qal/module-qal-card/configs/neo-idp-snd-card.conf \
+      modules/qal/module-qal-card/configs/neo-qxr-snd-card.conf
 endif
 
 if HAVE_QSTHW
@@ -1698,9 +1704,10 @@ module_qal_card_la_SOURCES = \
         modules/qal/module-qal-card/qal-sink.c modules/qal/module-qal-card/qal-sink.h \
         modules/qal/module-qal-card/qal-source.c modules/qal/module-qal-card/qal-source.h \
         modules/qal/module-qal-card/qal-utils.c modules/qal/module-qal-card/qal-utils.h \
-        modules/qal/module-qal-card/qal-config-parser.c modules/qal/module-qal-card/qal-config-parser.h
+        modules/qal/module-qal-card/qal-config-parser.c modules/qal/module-qal-card/qal-config-parser.h \
+        modules/qal/module-qal-card/module-qal-card-extn.c
 module_qal_card_la_CFLAGS = $(QAL_CFLAGS) $(AGM_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -DPA_MODULE_NAME=module_qal_card
-module_qal_card_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_qal_card_la_LDFLAGS = $(MODULE_LDFLAGS) -lcutils
 module_qal_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lpal -lagm
 
 module_qal_voiceui_card_la_SOURCES = modules/qal/module-qal-voiceui-card/module-qal-voiceui-card.c

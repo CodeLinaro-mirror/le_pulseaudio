@@ -16,6 +16,10 @@
  * 02110-1301  USA
  */
 
+ /*
+  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+  */
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -56,40 +60,6 @@
 #define PA_DEFAULT_SINK_RATE 48000
 #define PA_DEFAULT_SINK_CHANNELS 2
 
-typedef struct {
-    pal_stream_handle_t *stream_handle;
-
-    struct pal_device *pal_device;
-    struct pal_stream_attributes *stream_attributes;
-    const char *device_url;
-
-    size_t buffer_size;
-    size_t buffer_count;
-    uint32_t sink_latency_us;
-    uint64_t bytes_written;
-
-    int write_fd;
-    int index;
-
-    bool standby;
-} pal_sink_data;
-
-typedef struct {
-    bool first;
-    pa_sink *sink;
-    pa_rtpoll *rtpoll;
-    pa_thread_mq thread_mq;
-    pa_thread *thread;
-    pa_idxset *formats;
-} pa_sink_data;
-
-typedef struct {
-    pal_sink_data *pal_sdata;
-    pa_sink_data *pa_sdata;
-    struct userdata *u;
-
-    pa_fdsem *fdsem; /* common resource between pa and pal sink */
-} pa_pal_sink_data;
 
 typedef struct {
     struct pa_idxset *sinks;
@@ -100,9 +70,7 @@ static pa_pal_sink_module_data *mdata = NULL;
 static int restart_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map,
                             pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type, int sink_id,
                             pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count);
-static int create_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map,
-                           pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type, int sink_id,
-                           pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count);
+static int create_pal_sink(pa_pal_sink_config *sink, pa_pal_card_port_device_data *port_device_data, pa_pal_sink_data *sdata);
 static int close_pal_sink(pa_pal_sink_data *sdata);
 static int free_pa_sink(pa_pal_sink_data *sdata);
 static int open_pal_sink(pal_sink_data *pal_sdata);
@@ -150,6 +118,11 @@ static void pa_pal_sink_set_volume_cb(pa_sink *s) {
 
     volume_data = (struct pal_volume_data *)malloc(sizeof(uint32_t) +
                                                  (sizeof(struct pal_channel_vol_kv) * (no_vol_pair)));
+    if (!volume_data) {
+        pa_log_error("malloc failed for size %zu", sizeof(uint32_t) +
+                 (sizeof(struct pal_channel_vol_kv) * (no_vol_pair)));
+        return;
+    }
 
     volume_data->no_of_volpair = no_vol_pair;
 
@@ -174,16 +147,11 @@ static void pa_pal_sink_set_volume_cb(pa_sink *s) {
     return;
 }
 
-/* FIXME: Modify API to remove hardcoded values */
-static int pa_pal_sink_fill_info(pal_sink_data *pal_sdata, pa_encoding_t encoding, pa_sample_spec *ss,
-                                 pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
-                                 int sink_id, uint32_t buffer_size, uint32_t buffer_count) {
-    pa_assert(ss);
-    pa_assert(map);
+static int pa_pal_sink_fill_info(pa_pal_sink_config *sink, pal_sink_data *pal_sdata, pa_pal_card_port_device_data *port_device_data) {
     pa_assert(pal_sdata);
 
     pal_sdata->stream_attributes = pa_xnew0(struct pal_stream_attributes, 1);
-    pal_sdata->stream_attributes->type = type;
+    pal_sdata->stream_attributes->type = sink->stream_type;
     pal_sdata->stream_attributes->info.opt_stream_info.version = 1;
     pal_sdata->stream_attributes->info.opt_stream_info.duration_us = -1;
     pal_sdata->stream_attributes->info.opt_stream_info.has_video = false;
@@ -191,11 +159,11 @@ static int pa_pal_sink_fill_info(pal_sink_data *pal_sdata, pa_encoding_t encodin
 
     pal_sdata->stream_attributes->flags = 0;
     pal_sdata->stream_attributes->direction = PAL_AUDIO_OUTPUT;
-    pal_sdata->stream_attributes->out_media_config.sample_rate = ss->rate;
+    pal_sdata->stream_attributes->out_media_config.sample_rate = sink->default_spec.rate;
     pal_sdata->stream_attributes->out_media_config.bit_width = 16;
     pal_sdata->stream_attributes->out_media_config.aud_fmt_id = PAL_AUDIO_FMT_DEFAULT_PCM;
 
-    if (!pa_pal_channel_map_to_pal(map, &pal_sdata->stream_attributes->out_media_config.ch_info)) {
+    if (!pa_pal_channel_map_to_pal(&sink->default_map, &pal_sdata->stream_attributes->out_media_config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
         pa_xfree(&pal_sdata->stream_attributes->out_media_config.ch_info);
         return -1;
@@ -206,6 +174,9 @@ static int pa_pal_sink_fill_info(pal_sink_data *pal_sdata, pa_encoding_t encodin
     pal_sdata->pal_device->id = port_device_data->device;
     pal_sdata->pal_device->config.sample_rate = port_device_data->default_spec.rate;
     pal_sdata->pal_device->config.bit_width = 16;
+    if(sink->pal_devicepp_config){
+        strlcpy(pal_sdata->pal_device->custom_config.custom_key, sink->pal_devicepp_config, sizeof(pal_sdata->pal_device->custom_config.custom_key));
+    }
     if (!pa_pal_channel_map_to_pal(&port_device_data->default_map, &pal_sdata->pal_device->config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
         pa_xfree(&pal_sdata->pal_device->config.ch_info);
@@ -214,11 +185,11 @@ static int pa_pal_sink_fill_info(pal_sink_data *pal_sdata, pa_encoding_t encodin
 
     pal_sdata->device_url = NULL; /* TODO: useful for BT devices */
     pal_sdata->bytes_written = 0;
-    pal_sdata->index = sink_id;
-    pal_sdata->buffer_size = (size_t)buffer_size;
-    pal_sdata->buffer_count = (size_t)buffer_count;
+    pal_sdata->index = sink->id;
+    pal_sdata->buffer_size = (size_t)(sink->buffer_size);
+    pal_sdata->buffer_count = (size_t)(sink->buffer_count);
     /* FIXME: Add DSP latency */
-    pal_sdata->sink_latency_us = pa_bytes_to_usec(pal_sdata->buffer_size, ss);
+    pal_sdata->sink_latency_us = pa_bytes_to_usec(pal_sdata->buffer_size, &sink->default_spec);
     pa_log_debug("sink latency %dus", pal_sdata->sink_latency_us);
 
     pal_sdata->standby = true;
@@ -486,6 +457,7 @@ static void pa_pal_sink_thread_func(void *userdata) {
     uint32_t sink_buffer_size;
     pa_memchunk chunk;
     struct pal_buffer out_buf;
+    memset(&chunk, 0, sizeof(pa_memchunk));
 
     void *data;
     bool wait;
@@ -697,9 +669,7 @@ static int free_pal_sink(pa_pal_sink_data *sdata) {
         }
     }
 
-    pa_xfree(&sdata->pal_sdata->stream_attributes->out_media_config.ch_info);
     pa_xfree(sdata->pal_sdata->stream_attributes);
-    pa_xfree(&sdata->pal_sdata->pal_device->config.ch_info);
     pa_xfree(sdata->pal_sdata->pal_device);
     pa_xfree(sdata->pal_sdata);
     sdata->pal_sdata = NULL;
@@ -707,13 +677,12 @@ static int free_pal_sink(pa_pal_sink_data *sdata) {
     return rc;
 }
 
-static int create_pal_sink(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type, int sink_id,
-                           pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count) {
+static int create_pal_sink(pa_pal_sink_config *sink,  pa_pal_card_port_device_data *port_device_data, pa_pal_sink_data *sdata) {
     int rc = 0;
 
     sdata->pal_sdata = pa_xnew0(pal_sink_data, 1);
 
-    rc = pa_pal_sink_fill_info(sdata->pal_sdata, encoding, ss, map, port_device_data, type, sink_id, buffer_size, buffer_count);
+    rc = pa_pal_sink_fill_info(sink, sdata->pal_sdata, port_device_data);
     if (rc) {
         pa_log_error("pal sink init failed, error %d", rc);
         pa_xfree(sdata->pal_sdata);
@@ -951,7 +920,7 @@ int pa_pal_sink_create(pa_module *m, pa_card *card, const char *driver, const ch
         goto exit;
     }
 
-    rc = create_pal_sink(sink->default_encoding, &sink->default_spec, &sink->default_map, port_device_data, sink->stream_type, sink->id, sdata, sink->buffer_size, sink->buffer_count);
+    rc = create_pal_sink(sink, port_device_data, sdata);
     if (PA_UNLIKELY(rc))  {
         pa_log_error("Could create open pal sink, error %d", rc);
         pa_pal_sink_free_common_resources(sdata);

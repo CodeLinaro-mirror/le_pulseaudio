@@ -38,6 +38,9 @@
 #define PAL_DBUS_SESSION_IFACE "org.PulseAudio.Ext.Qsthw.Session"
 #define PA_DBUS_PAL_MODULE_IFACE_VERSION 0x101
 
+static const uint8_t chmap[] = {PAL_CHMAP_CHANNEL_FL, PAL_CHMAP_CHANNEL_FR, PAL_CHMAP_CHANNEL_C, PAL_CHMAP_CHANNEL_LS,
+             PAL_CHMAP_CHANNEL_RS, PAL_CHMAP_CHANNEL_LFE, PAL_CHMAP_CHANNEL_LB, PAL_CHMAP_CHANNEL_RB };
+
 static const char* const valid_modargs[] = {
     "module",
     NULL,
@@ -112,7 +115,7 @@ enum session_handler_index {
 };
 
 pa_dbus_arg_info load_sound_model_args[] = {
-    {"sound_model", "((i(uqqqay)(uqqqay))a(uuauss))","in"},
+    {"sound_model", "((i(uuuu)(uqqqay)(uqqqay))a(uuauss))","in"},
     {"opaque_data", "ay", "in"},
     {"object_path", "o","out"}
 };
@@ -297,14 +300,16 @@ static void signal_read_buffer_available(struct pal_voiceui_session_data *ses_da
     dbus_message_unref(message);
 }
 
-/* Need to update this */
-static void pa_pal_fill_stream_attributes(struct pal_stream_attributes *stream_attr, uint32_t *no_of_devices,
+static void pa_pal_fill_default_attributes(struct pal_stream_attributes *stream_attr, uint32_t *no_of_devices,
                                           struct pal_device *devices) {
     pa_assert(stream_attr);
     pa_assert(devices);
 
     stream_attr->type = PAL_STREAM_VOICE_UI;
     stream_attr->info.voice_rec_info.version = 1;
+    stream_attr->info.opt_stream_info.duration_us = 4000;
+    stream_attr->info.opt_stream_info.has_video = false;
+    stream_attr->info.opt_stream_info.is_streaming = false;
     stream_attr->info.voice_rec_info.record_direction = PAL_AUDIO_INPUT;
     stream_attr->flags = 0;
     stream_attr->direction = PAL_AUDIO_INPUT;
@@ -315,11 +320,11 @@ static void pa_pal_fill_stream_attributes(struct pal_stream_attributes *stream_a
 
     *no_of_devices = 1;
 
-    devices->id = PAL_DEVICE_IN_HANDSET_MIC;
-    devices->config.sample_rate = 48000; /* Have to check with 16k by adding MFC module before SVA module*/
+    devices->id = PAL_DEVICE_IN_HANDSET_VA_MIC;
+    devices->config.sample_rate = 48000;
     devices->config.bit_width = 16;
     devices->config.ch_info.channels = 1;
-
+    memcpy(&devices->config.ch_info.ch_map, chmap, sizeof(chmap));
 }
 
 static void signal_stop_buffering_done(struct pal_voiceui_session_data *ses_data,
@@ -573,6 +578,11 @@ static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdat
         param_id = PAL_PARAM_ID_DIRECTION_OF_ARRIVAL;
         payload_size = sizeof(struct pal_doa);
         doa_final = (struct pal_doa *)malloc(sizeof(struct pal_doa));
+        if (!doa_final) {
+            pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "get_param_data failed, failed to allocate memory");
+            dbus_error_free(&error);
+            return;
+        }
     } else {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "get_param_data failed, unsupported param");
         dbus_error_free(&error);
@@ -812,6 +822,7 @@ static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *user
     struct pal_voiceui_session_data *ses_data = (struct pal_voiceui_session_data *)userdata;
     struct pal_st_recognition_config config = {0, };
     struct pal_st_recognition_config *rc_config = NULL;
+    pal_param_payload *prm_payload = NULL;
     dbus_int32_t rc_config_size;
     DBusError error;
     DBusMessageIter arg_i, struct_i, struct_ii, struct_iii, array_i, sub_array_i;
@@ -893,15 +904,17 @@ static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *user
     config.data_offset = sizeof(config);
 
     rc_config_size = sizeof(struct pal_st_recognition_config) + config.data_size;
-    rc_config = (struct pal_st_recognition_config *)pa_xmalloc0(rc_config_size);
+    prm_payload = (pal_param_payload *) pa_xmalloc0(sizeof(pal_param_payload) + rc_config_size);
+    prm_payload->payload_size = sizeof(pal_param_payload) + rc_config_size;
+    rc_config = (struct pal_st_recognition_config *) prm_payload->payload;
     memcpy(rc_config, &config, sizeof(struct pal_st_recognition_config));
     memcpy((char *)rc_config + rc_config->data_offset,
            value, n_elements);
     rc_config->callback = NULL;
     rc_config->cookie = (void *)ses_data;
 
-    status = pal_stream_set_param(ses_data->ses_handle, PAL_PARAM_ID_RECOGNITION_CONFIG, (pal_param_payload *)rc_config);
-    pa_xfree(rc_config);
+    status = pal_stream_set_param(ses_data->ses_handle, PAL_PARAM_ID_RECOGNITION_CONFIG, prm_payload);
+    pa_xfree(prm_payload);
 
     if (status != 0) {
         pa_log_error("param PAL_PARAM_ID_START_RECOGNITION set failed\n");
@@ -957,10 +970,10 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     struct pal_voiceui_module_data *m_data = userdata;
     struct pal_stream_attributes *stream_attr = NULL;
     struct pal_voiceui_session_data *ses_data = NULL;
-    struct pal_st_sound_model sound_model;
+    pal_param_payload *prm_payload = NULL;
     struct pal_st_phrase_sound_model phrase_sound_model = {0, };
     struct pal_st_phrase_sound_model *p_sound_model = NULL;
-    struct pal_st_sound_model *common_sound_model = NULL;
+    struct pal_st_sound_model *common_sound_model = &phrase_sound_model.common;
     pal_stream_handle_t *stream_handle = NULL;
     DBusError error;
     DBusMessageIter arg_i, struct_i, struct_ii, struct_iii, array_i, sub_array_i;
@@ -988,7 +1001,7 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     }
 
     if (!pa_streq(dbus_message_get_signature(msg),
-                 "((i(uqqqay)(uqqqay))a(uuauss))ay")) {
+                 "((i(uuuu)(uqqqay)(uqqqay))a(uuauss))ay")) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
             "Invalid signature for load_sound_model");
         dbus_error_free(&error);
@@ -1007,41 +1020,52 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     dbus_message_iter_recurse(&arg_i, &struct_i);
     dbus_message_iter_recurse(&struct_i, &struct_ii);
     dbus_message_iter_get_basic(&struct_ii, &sm_type);
+    common_sound_model->type = sm_type;
 
-    sound_model.type = sm_type;
+    pa_pal_fill_default_attributes(stream_attr, &no_of_devices, devices);
+    /* read sampling rate and number of channels for pal stream & pal device */
+    dbus_message_iter_next(&struct_ii);
+    dbus_message_iter_recurse(&struct_ii, &struct_iii);
+    dbus_message_iter_get_basic(&struct_iii, &stream_attr->in_media_config.sample_rate);
+    dbus_message_iter_next(&struct_iii);
+    dbus_message_iter_get_basic(&struct_iii, &stream_attr->in_media_config.ch_info.channels);
+    dbus_message_iter_next(&struct_iii);
+    dbus_message_iter_get_basic(&struct_iii, &devices->config.sample_rate);
+    dbus_message_iter_next(&struct_iii);
+    dbus_message_iter_get_basic(&struct_iii, &devices->config.ch_info.channels);
+
     /* read sound_model uuid values */
     dbus_message_iter_next(&struct_ii);
     dbus_message_iter_recurse(&struct_ii, &struct_iii);
-    dbus_message_iter_get_basic(&struct_iii, &sound_model.uuid.timeLow);
+    dbus_message_iter_get_basic(&struct_iii, &common_sound_model->uuid.timeLow);
     dbus_message_iter_next(&struct_iii);
-    dbus_message_iter_get_basic(&struct_iii, &sound_model.uuid.timeMid);
+    dbus_message_iter_get_basic(&struct_iii, &common_sound_model->uuid.timeMid);
     dbus_message_iter_next(&struct_iii);
-    dbus_message_iter_get_basic(&struct_iii, &sound_model.uuid.timeHiAndVersion);
+    dbus_message_iter_get_basic(&struct_iii, &common_sound_model->uuid.timeHiAndVersion);
     dbus_message_iter_next(&struct_iii);
-    dbus_message_iter_get_basic(&struct_iii, &sound_model.uuid.clockSeq);
+    dbus_message_iter_get_basic(&struct_iii, &common_sound_model->uuid.clockSeq);
     dbus_message_iter_next(&struct_iii);
     dbus_message_iter_recurse(&struct_iii, &array_i);
 
     dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
-    memcpy(&sound_model.uuid.node[0], value, n_elements);
+    memcpy(&common_sound_model->uuid.node[0], value, n_elements);
 
     /* read sound_model vendor_uuid values */
     dbus_message_iter_next(&struct_ii);
     dbus_message_iter_recurse(&struct_ii, &struct_iii);
-    dbus_message_iter_get_basic(&struct_iii, &sound_model.vendor_uuid.timeLow);
+    dbus_message_iter_get_basic(&struct_iii, &common_sound_model->vendor_uuid.timeLow);
     dbus_message_iter_next(&struct_iii);
-    dbus_message_iter_get_basic(&struct_iii, &sound_model.vendor_uuid.timeMid);
+    dbus_message_iter_get_basic(&struct_iii, &common_sound_model->vendor_uuid.timeMid);
     dbus_message_iter_next(&struct_iii);
-    dbus_message_iter_get_basic(&struct_iii, &sound_model.vendor_uuid.timeHiAndVersion);
+    dbus_message_iter_get_basic(&struct_iii, &common_sound_model->vendor_uuid.timeHiAndVersion);
     dbus_message_iter_next(&struct_iii);
-    dbus_message_iter_get_basic(&struct_iii, &sound_model.vendor_uuid.clockSeq);
+    dbus_message_iter_get_basic(&struct_iii, &common_sound_model->vendor_uuid.clockSeq);
     dbus_message_iter_next(&struct_iii);
     dbus_message_iter_recurse(&struct_iii, &array_i);
 
     dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
-    memcpy(&sound_model.vendor_uuid.node[0], value, n_elements);
+    memcpy(&common_sound_model->vendor_uuid.node[0], value, n_elements);
 
-    pa_pal_fill_stream_attributes(stream_attr, &no_of_devices, devices);
     ses_data = pa_xnew0(struct pal_voiceui_session_data, 1);
     ses_data->common = (struct pal_voiceui_module_data *)userdata;
 
@@ -1056,9 +1080,7 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     }
 
     if (sm_type == PAL_SOUND_MODEL_TYPE_KEYPHRASE) {
-        memcpy(&phrase_sound_model.common, &sound_model,
-               sizeof(struct pal_st_sound_model));
-        phrase_sound_model.common.data_offset = sizeof(phrase_sound_model);
+        common_sound_model->data_offset = sizeof(phrase_sound_model);
 
         /* read phrases fields */
         dbus_message_iter_next(&struct_i);
@@ -1101,33 +1123,35 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
         dbus_message_iter_next(&arg_i);
         dbus_message_iter_recurse(&arg_i, &array_i);
         dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
-        phrase_sound_model.common.data_size = n_elements;
-        sm_data_size = sizeof(phrase_sound_model) +
-                       phrase_sound_model.common.data_size;
-        p_sound_model = (struct pal_st_phrase_sound_model *)pa_xmalloc0(sm_data_size);
-
+        common_sound_model->data_size = n_elements;
+        sm_data_size = sizeof(phrase_sound_model) + common_sound_model->data_size;
+        /* Fill parsed info into param payload */
+        prm_payload = (pal_param_payload *)pa_xmalloc0(sizeof(pal_param_payload) + sm_data_size);
+        prm_payload->payload_size = sizeof(pal_param_payload) + sm_data_size;
+        p_sound_model = (struct pal_st_phrase_sound_model *) prm_payload->payload;
         memcpy(p_sound_model, &phrase_sound_model, sizeof(phrase_sound_model));
-        memcpy((char*)p_sound_model + p_sound_model->common.data_offset,
-               value, n_elements);
-        common_sound_model = &p_sound_model->common;
+        memcpy((char*)p_sound_model + common_sound_model->data_offset, value,
+               common_sound_model->data_size);
     } else if (sm_type == PAL_SOUND_MODEL_TYPE_GENERIC) {
-        sound_model.data_offset = sizeof(sound_model);
+        common_sound_model->data_offset = sizeof(struct pal_st_sound_model);
         /*skip phrase related fields */
         dbus_message_iter_next(&arg_i);
         dbus_message_iter_recurse(&arg_i, &array_i);
         dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
-        sound_model.data_size = n_elements;
-        sm_data_size = sizeof(sound_model) + sound_model.data_size;
-
-        common_sound_model = (struct pal_st_sound_model *)pa_xmalloc0(sm_data_size);
-        memcpy(common_sound_model, &sound_model, sizeof(sound_model));
+        sm_data_size = sizeof(struct pal_st_sound_model) + n_elements;
+        prm_payload = (pal_param_payload *)pa_xmalloc0(sizeof(pal_param_payload) + sm_data_size);
+        prm_payload->payload_size = sizeof(pal_param_payload) + sm_data_size;
+        common_sound_model = (struct pal_st_sound_model *) prm_payload->payload;
+        common_sound_model->data_size = n_elements;
         memcpy((char*)common_sound_model + common_sound_model->data_offset,
-               value, n_elements);
+               value, common_sound_model->data_size);
     }
 
-    status = pal_stream_set_param(stream_handle, PAL_PARAM_ID_LOAD_SOUND_MODEL, (pal_param_payload *)common_sound_model);
+    status = pal_stream_set_param(stream_handle, PAL_PARAM_ID_LOAD_SOUND_MODEL, prm_payload);
 
-    pa_xfree(common_sound_model);
+    pa_xfree(prm_payload);
+    prm_payload = NULL;
+    p_sound_model = NULL;
     if (status != 0) {
         free(ses_data);
         ses_data = NULL;
@@ -1182,16 +1206,6 @@ int pa__init(pa_module *m) {
     m_data->obj_path = pa_sprintf_malloc("%s/%s", PAL_DBUS_OBJECT_PATH_PREFIX,
                          "primary");
 
-    if (agm_init() != 0) {
-        pa_log_error("AGM Initialization failed\n");
-        goto error;
-    }
-
-    if (pal_init() != 0) {
-        pa_log_error("PAL Initialization failed\n");
-        goto error;
-    }
-
     m_data->dbus_protocol = pa_dbus_protocol_get(m->core);
     pa_assert_se(pa_dbus_protocol_add_interface(m_data->dbus_protocol,
             m_data->obj_path, &module_interface_info, m_data) >= 0);
@@ -1225,10 +1239,6 @@ void pa__done(pa_module *m) {
 
     if (m_data->obj_path)
         pa_xfree(m_data->obj_path);
-
-    pal_deinit();
-
-    agm_deinit();
 
     if (m_data->module_name)
         pa_xfree(m_data->module_name);

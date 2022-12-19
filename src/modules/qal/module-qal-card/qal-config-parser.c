@@ -16,13 +16,19 @@
  * 02110-1301  USA
  */
 
+/*
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ */
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
 #include <pulsecore/device-port.h>
 #include <pulsecore/card.h>
 #include <pulsecore/core-util.h>
+#include <pulsecore/thread.h>
 
+#include <fcntl.h>
 #include <unistd.h>
 
 #include "qal-config-parser.h"
@@ -38,6 +44,16 @@
 #define PAL_CARD_SINK_PREFIX "Sink "
 #define PAL_CARD_SOURCE_PREFIX "Source "
 #define PAL_CARD_SND_SUFFIX "snd-card"
+
+#define MAX_RETRY 100
+#define SNDCARD_PATH "/sys/kernel/snd_card/card_state"
+#define RETRY_INTERVAL 1
+
+/** Sound card state */
+typedef enum snd_card_status_t {
+    SND_CARD_STATUS_OFFLINE = 0,
+    SND_CARD_STATUS_ONLINE  = 1,
+} snd_card_status_t;
 
 static pa_pal_sink_config* pa_pal_config_get_sink(pa_hashmap *sinks, char *name);
 static pa_pal_source_config *pa_pal_config_get_source(pa_hashmap *sources, char *name);
@@ -677,6 +693,32 @@ exit:
     return ret;
 }
 
+static int pa_pal_config_parse_pal_devicepp_config(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = NULL;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
+    int ret = 0;
+
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    config_data = state->userdata;
+    pa_assert(config_data);
+
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
+        sink->pal_devicepp_config = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: pal devicepp config is %s for sink %s", __func__, sink->pal_devicepp_config, sink->name);
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
+        source->pal_devicepp_config = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: pal devicepp config is %s for source %s", __func__, source->pal_devicepp_config, source->name);
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        ret = -1;
+    }
+
+    return ret;
+}
+
 static int pa_pal_config_parse_presence(pa_config_parser_state *state) {
     pa_pal_config_data* config_data = state->userdata;
     pa_pal_card_port_config *port;
@@ -772,6 +814,9 @@ static void pa_pal_config_free_sink(pa_pal_sink_config *sink) {
     if (sink->port_conf_string)
         pa_xstrfreev(sink->port_conf_string);
 
+    if (sink->pal_devicepp_config)
+        pa_xfree(sink->pal_devicepp_config);
+
     pa_xfree(sink);
 } /* end sink parsing related functions */
 
@@ -792,6 +837,9 @@ static void pa_pal_config_free_source(pa_pal_source_config *source) {
 
     if (source->port_conf_string)
         pa_xstrfreev(source->port_conf_string);
+
+    if (source->pal_devicepp_config)
+        pa_xfree(source->pal_devicepp_config);
 
     pa_xfree(source);
 } /* end source parsing related functions */
@@ -1140,14 +1188,58 @@ static void pa_pal_config_free_port(pa_pal_card_port_config *port) {
     pa_xfree(port);
 }
 
+static int pa_wait_for_snd_card_to_online()
+{
+    int ret = 0;
+    uint32_t retries = MAX_RETRY;
+    int fd = -1;
+    char buf[2];
+    snd_card_status_t card_status = SND_CARD_STATUS_OFFLINE;
+
+    /* wait here till snd card is registered                               */
+    /* maximum wait period = (MAX_RETRY * RETRY_INTERVAL_US) micro-seconds */
+    do {
+        if ((fd = open(SNDCARD_PATH, O_RDWR)) >= 0) {
+            memset(buf , 0 ,sizeof(buf));
+            lseek(fd,0L,SEEK_SET);
+            read(fd, buf, 1);
+            close(fd);
+            fd = -1;
+
+            buf[sizeof(buf) - 1] = '\0';
+            card_status = SND_CARD_STATUS_OFFLINE;
+            sscanf(buf , "%d", &card_status);
+
+            if (card_status == SND_CARD_STATUS_ONLINE) {
+                pa_log_info("snd sysfs node open successful");
+                break;
+            }
+        }
+        retries--;
+        sleep(RETRY_INTERVAL);
+    } while ( retries > 0);
+
+    if (0 == retries) {
+        pa_log_error("Failed to open snd sysfs node, exiting ... ");
+        ret = -1;
+    }
+
+    return ret;
+}
+
 static char *pa_pal_config_get_conf_file_name() {
     const char *cards = "/proc/asound/cards";
 
     char **items = NULL;
     char *item = NULL;
-    char *card_string;
+    char *card_string = NULL;
     char *conf_file_name = NULL;
     uint32_t i = 0;
+
+    if(0 > pa_wait_for_snd_card_to_online()) {
+        pa_log_error("Not found any SND card online\n");
+        goto exit;
+    }
 
     card_string = pa_read_line_from_file(cards);
     if (!card_string) {
@@ -1237,6 +1329,7 @@ pa_pal_config_data* pa_pal_config_parse_new(char *dir, char *conf_file_name) {
         /* common between sink and source*/
         { "type",                        pa_pal_config_parse_type,                                NULL, NULL },
         { "alternate-sample-rate",       pa_pal_config_parse_alternative_sample_rate,             NULL, NULL },
+        { "pal-devicepp-config",         pa_pal_config_parse_pal_devicepp_config,                 NULL, NULL },
 
         /* common between profile, sink and source */
         { "port-names",                  pa_pal_config_parse_port_names,                          NULL, NULL },

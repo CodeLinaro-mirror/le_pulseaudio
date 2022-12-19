@@ -25,6 +25,7 @@
 #include <pulsecore/core-format.h>
 #include <pulse/sample.h>
 #include <pulsecore/modargs.h>
+#include <pulsecore/thread.h>
 
 #include <string.h>
 
@@ -66,14 +67,6 @@ static const char* const valid_modargs[] = {
     "conf_file_name",
     NULL
 };
-
-typedef struct {
-    pa_pal_source_handle_t *handle;
-} pa_pal_card_source_info;
-
-typedef struct {
-    pa_pal_sink_handle_t *handle;
-} pa_pal_card_sink_info;
 
 struct userdata {
     pa_core *core;
@@ -455,6 +448,11 @@ int pa__init(pa_module *m) {
 
     pa_log_debug("module %s loaded", u->module_name);
 
+    ret = pa_pal_module_extn_init(u->core, u->card);
+    if(ret)
+        pa_log_error("pal extn init failed\n");
+    pa_log_debug("Pal extn module loaded successfully\n", __func__);
+
     return ret;
 
 fail:
@@ -472,6 +470,8 @@ void pa__done(pa_module *m) {
 
     if (!(u = m->userdata))
         return;
+
+    pa_pal_module_extn_deinit();
 
     if (u->sinks) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
