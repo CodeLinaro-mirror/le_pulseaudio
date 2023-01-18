@@ -17,7 +17,7 @@
  */
 
 /*
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022,2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -999,7 +999,8 @@ static int pa_pal_config_parse_port_names(pa_config_parser_state *state) {
     char *name;
     void *hashmap_state;
 
-    pa_log_error("%s", __func__);
+    pa_log_info("%s", __func__);
+
     pa_assert(config_data);
     pa_assert(state);
     pa_assert(state->rvalue);
