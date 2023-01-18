@@ -17,7 +17,7 @@
  */
 
  /*
-  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+  * Copyright (c) 2022,2023 Qualcomm Innovation Center, Inc. All rights reserved.
   */
 
 #ifdef HAVE_CONFIG_H
@@ -206,7 +206,9 @@ static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
     pa_sink_data *pa_sdata;
     struct pal_session_time stime = {0};
 
+#ifdef SINK_DEBUG
     pa_log_debug("%s", __func__);
+#endif
 
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
@@ -516,6 +518,10 @@ static void pa_pal_sink_thread_func(void *userdata) {
                 pa_log_error("%d waiting for write done event, rc is %d, out_buf.size is %d", __LINE__, rc, (int)out_buf.size);
                 out_buf.size = out_buf.size - rc;
             } else {
+#ifdef SINK_DUMP_ENABLED
+                if ((rc = write(pal_sdata->write_fd, out_buf.buffer, out_buf.size)) < 0)
+                    pa_log_error("write to fd failed %d", rc);
+#endif
                 pal_sdata->bytes_written += rc;
                 /* Mark buffer as NULL, to indicate buffer has been consumed */
                 out_buf.buffer = NULL;
