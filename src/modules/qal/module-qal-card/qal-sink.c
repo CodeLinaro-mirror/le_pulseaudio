@@ -198,7 +198,8 @@ static int pa_pal_sink_fill_info(pa_pal_sink_config *sink, pal_sink_data *pal_sd
 }
 
 static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
-    int rc, delta, bytes_rendered;
+    int rc;
+    uint64_t delta, bytes_rendered;
     int64_t latency = 0, ticks = 0;
     uint64_t cur_qtimer, abs_qtimer_time_stamp, session_time_stamp;
     uint64_t cur_session_time = 0, time_in_future = 0, time_elapsed = 0;
@@ -236,7 +237,7 @@ static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
         asm volatile("mrrc p15, 1, %Q0, %R0, c14" : "=r"(ticks));
 #endif
 
-        cur_qtimer = (uint64_t)(ticks * 10/240);
+        cur_qtimer = (uint64_t)(ticks * 10/192);
 
 #ifdef SINK_DEBUG
         pa_log_debug("%s:: ticks  %" PRId64 "us, qtimer %" PRId64 "us", __func__, ticks, (int64_t)cur_qtimer);
