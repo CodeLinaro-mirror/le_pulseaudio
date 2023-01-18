@@ -87,6 +87,9 @@ option('with-qahw',
 option('with-qsthw',
        type : 'string',
        description : 'Optional qsthw module support')
+option('with-qal',
+       type : 'string',
+       description : 'Optional qal module support')
 option('asyncns',
        type : 'feature', value : 'auto',
        description : 'Optional Async DNS support')

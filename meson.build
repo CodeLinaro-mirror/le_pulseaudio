@@ -617,6 +617,15 @@ qsthw_inc = get_option('with-qsthw')
 if qsthw_inc != ''
   cdata.set('HAVE_QSTHW', 1)
 endif
+
+qal_inc = get_option('with-qal')
+qaldatadir = ''
+if qal_inc != ''
+  cdata.set('HAVE_QAL', 1)
+  qaldatadir = join_paths(datadir, 'pulseaudio', 'qal')
+  cdata.set_quoted('QAL_CARD_DEFAULT_CONF_PATH' , join_paths(qaldatadir, 'configs'))
+endif
+
 asyncns_dep = dependency('libasyncns', version : '>= 0.1', required : get_option('asyncns'))
 if asyncns_dep.found()
   cdata.set('HAVE_LIBASYNCNS', 1)
@@ -904,6 +913,7 @@ summary = [
   'modlibexecdir:                 @0@'.format(modlibexecdir),
   'alsadatadir:                   @0@'.format(alsadatadir),
   'qahwdatadir:                   @0@'.format(qahwdatadir),
+  'qaldatadir:                    @0@'.format(qaldatadir),
   'System Runtime Path:           @0@'.format(cdata.get_unquoted('PA_SYSTEM_RUNTIME_PATH')),
   'System State Path:             @0@'.format(cdata.get_unquoted('PA_SYSTEM_STATE_PATH')),
   'System Config Path:            @0@'.format(cdata.get_unquoted('PA_SYSTEM_CONFIG_PATH')),
@@ -925,6 +935,7 @@ summary = [
   'Enable Alsa:                   @0@'.format(alsa_dep.found()),
   'Enable QAHW:                   @0@'.format(cdata.has('HAVE_QAHW')),
   'Enable QSTHW:                  @0@'.format(cdata.has('HAVE_QSTHW')),
+  'Enable QAL:                    @0@'.format(cdata.has('HAVE_QAL')),
 #  'Enable CoreAudio:              @0@'.format(${ENABLE_COREAUDIO}),
 #  'Enable Solaris:                @0@'.format(${ENABLE_SOLARIS}),
 #  'Enable WaveOut:                @0@'.format(${ENABLE_WAVEOUT}),

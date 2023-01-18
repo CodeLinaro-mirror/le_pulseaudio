@@ -119,6 +119,11 @@ endif
 if cdata.has('HAVE_QSTHW')
 # TODO: build QSTHW module
 endif
+
+if cdata.has('HAVE_QAL')
+  subdir('qal/module-qal-card')
+endif
+
 if avahi_dep.found()
   all_modules += [
     [ 'module-zeroconf-discover', 'module-zeroconf-discover.c', [], [], [avahi_dep], libavahi_wrap ],
