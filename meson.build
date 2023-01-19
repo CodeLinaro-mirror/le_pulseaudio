@@ -7,6 +7,10 @@ project('pulseaudio', 'c', 'cpp',
 meson.add_dist_script('scripts/save-tarball-version.sh', meson.project_version())
 
 pa_version_str = meson.project_version()
+if pa_version_str == ''
+  pa_version_str = get_option('pa_version')
+endif
+
 # For tarballs, the first split will do nothing, but for builds in git, we
 # split out suffixes when there are commits since the last tag
 # (e.g.: v11.99.1-3-gad14bdb24 -> v11.99.1)
