@@ -1,3 +1,6 @@
+option('pa_version',
+       type : 'string', value : '0.0',
+       description : 'pulseaudio version')
 option('daemon',
        type : 'boolean', value : true,
        description : 'Enable building and installation of pulseaudio daemon and supporting configuration files')
