@@ -78,6 +78,15 @@ option('zshcompletiondir',
 option('alsa',
        type : 'feature', value : 'auto',
        description : 'Optional ALSA support')
+option('with-qahw-api',
+       type : 'string',
+       description : 'Optional qahw api support')
+option('with-qahw',
+       type : 'string',
+       description : 'Optional qahw module support')
+option('with-qsthw',
+       type : 'string',
+       description : 'Optional qsthw module support')
 option('asyncns',
        type : 'feature', value : 'auto',
        description : 'Optional Async DNS support')
