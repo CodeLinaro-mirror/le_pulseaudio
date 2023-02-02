@@ -111,6 +111,14 @@ if alsa_dep.found()
   ]
 endif
 
+if cdata.has('HAVE_QAHW')
+# TODO: add meson.build in qahw dir to build QAHW module
+#  subdir('qahw')
+endif
+
+if cdata.has('HAVE_QSTHW')
+# TODO: build QSTHW module
+endif
 if avahi_dep.found()
   all_modules += [
     [ 'module-zeroconf-discover', 'module-zeroconf-discover.c', [], [], [avahi_dep], libavahi_wrap ],
