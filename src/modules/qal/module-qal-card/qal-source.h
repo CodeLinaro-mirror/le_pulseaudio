@@ -16,6 +16,10 @@
  * 02110-1301  USA
  */
 
+ /*
+  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+  */
+
 #ifndef foopalpasourcehfoo
 #define foopalpasourcehfoo
 
@@ -37,6 +41,7 @@ typedef struct {
 typedef struct {
     char *name;
     char *description;
+    char *pal_devicepp_config;
     int id;
     pal_stream_type_t stream_type;
     pa_sample_spec default_spec;
