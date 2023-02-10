@@ -654,8 +654,6 @@ static void qahw_source_thread_func(void *userdata) {
 #ifdef SOURCE_DUMP_ENABLED
     pa_usec_t cur_qtimer, ticks = 0;
 #endif
-    bool wait;
-    bool timer_enabled;
 
     if ((pa_sdata->source->core->realtime_scheduling)) {
         pa_log_info("%s:: Making read thread for %s as realtime with prio %d", __func__,
@@ -673,10 +671,10 @@ static void qahw_source_thread_func(void *userdata) {
         int ret = 0;
         qahw_in_buffer_t in_buf;
         void *data;
-        wait = false;
-        timer_enabled = false;
 
         memset(&in_buf, 0, sizeof(qahw_in_buffer_t));
+
+        pa_rtpoll_set_timer_disabled(qahw_sdata->qahw_thread_rtpoll);
 
         pa_memchunk_reset(&chunk);
         chunk.memblock = pa_memblock_new(pa_sdata->source->core->mempool, (size_t) qahw_sdata->source_buffer_size);
@@ -693,10 +691,8 @@ static void qahw_source_thread_func(void *userdata) {
                 pa_log_error("qahw_in_read failed, ret = %d, qahw handle %p, sleeping for %" PRIu64 "ms",
                         ret, qahw_sdata->in_handle, pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
                 ret = in_buf.bytes;
-                wait = true;
                 pa_rtpoll_set_timer_relative(qahw_sdata->qahw_thread_rtpoll,
                                     pa_bytes_to_usec(in_buf.bytes, &pa_sdata->source->sample_spec)/1000);
-                timer_enabled = true;
                 goto poll;
             }
 
@@ -714,10 +710,10 @@ static void qahw_source_thread_func(void *userdata) {
                 trace_ts(&qahw_sdata->ts_log, pa_sdata->source->name, chunk.timestamp, chunk.duration, chunk.length);
             }
             pa_atomic_store(&qahw_sdata->first_read, 1);
+            pa_rtpoll_set_timer_absolute(qahw_sdata->qahw_thread_rtpoll, pa_rtclock_now());
         } else {
             pa_memblock_release(chunk.memblock);
             pa_memblock_unref(chunk.memblock);
-            wait = true;
             pa_log_debug("%s: waiting...",__func__);
             goto poll;
         }
@@ -731,11 +727,8 @@ static void qahw_source_thread_func(void *userdata) {
         pa_asyncmsgq_post(pa_sdata->thread_mq.inq, PA_MSGOBJECT(pa_sdata->source), PA_QAHW_SOURCE_READ_EVENT_DONE, NULL, 0, &chunk,NULL);
 
 poll:
-        if ((ret = pa_rtpoll_run(qahw_sdata->qahw_thread_rtpoll, wait)) < 0)
+        if ((ret = pa_rtpoll_run(qahw_sdata->qahw_thread_rtpoll)) < 0)
             goto fail;
-
-        if (timer_enabled)
-            pa_rtpoll_set_timer_disabled(qahw_sdata->qahw_thread_rtpoll);
 
         if (ret == 0)
             goto finish;
@@ -783,7 +776,7 @@ static void pa_qahw_source_io_thread_func(void *userdata) {
         }
 
         /* nothing to do. Let's sleep */
-        if ((ret = pa_rtpoll_run(pa_sdata->rtpoll, true)) < 0)
+        if ((ret = pa_rtpoll_run(pa_sdata->rtpoll)) < 0)
             goto fail;
 
         /* Check whether timer has elapsed *

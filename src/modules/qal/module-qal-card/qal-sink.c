@@ -463,7 +463,6 @@ static void pa_pal_sink_thread_func(void *userdata) {
     memset(&chunk, 0, sizeof(pa_memchunk));
 
     void *data;
-    bool wait;
     int rc;
 
     pa_assert(userdata);
@@ -485,7 +484,7 @@ static void pa_pal_sink_thread_func(void *userdata) {
     memset(&out_buf, 0, sizeof(struct pal_buffer));
 
     while (true) {
-        wait = true;
+        pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
 
         if (pa_sdata->sink->thread_info.rewind_requested)
             pa_sink_process_rewind(pa_sdata->sink, 0);
@@ -530,7 +529,7 @@ static void pa_pal_sink_thread_func(void *userdata) {
                 pa_memblock_release(chunk.memblock);
                 pa_memblock_unref(chunk.memblock);
 
-                wait = false;
+                pa_rtpoll_set_timer_absolute(pa_sdata->rtpoll, pa_rtclock_now());
             }
         } else if (pa_sdata->sink->thread_info.state == PA_SINK_SUSPENDED) {
             /* if sink is suspended state then reset buffer otherwise it might end up sending incorrect buffer to pal_write */
@@ -538,7 +537,7 @@ static void pa_pal_sink_thread_func(void *userdata) {
             memset(&out_buf, 0, sizeof(struct pal_buffer));
         }
 
-        rc = pa_rtpoll_run(pa_sdata->rtpoll, wait);
+        rc = pa_rtpoll_run(pa_sdata->rtpoll);
 
         if (rc < 0) {
             pa_log_error("pa_rtpoll_run() returned an error: %d", rc);

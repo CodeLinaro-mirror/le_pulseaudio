@@ -314,7 +314,7 @@ static void pa_pal_source_thread_func(void *userdata) {
 
     for (;;) {
         int ret;
-        bool wait = true;
+        pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
 
         if (PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
             pa_memchunk chunk;
@@ -348,11 +348,11 @@ static void pa_pal_source_thread_func(void *userdata) {
             pa_source_post(pa_sdata->source, &chunk);
             pa_memblock_unref(chunk.memblock);
 
-            wait = false;
+            pa_rtpoll_set_timer_absolute(pa_sdata->rtpoll, pa_rtclock_now());
         }
 
         /* nothing to do. Let's sleep */
-        if ((ret = pa_rtpoll_run(pa_sdata->rtpoll, wait)) < 0)
+        if ((ret = pa_rtpoll_run(pa_sdata->rtpoll)) < 0)
             goto fail;
 
         if (ret == 0)
