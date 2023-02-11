@@ -719,6 +719,7 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
     if (status) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "stop_buffering failed");
         dbus_error_free(&error);
+        pa_mutex_unlock(ses_data->mutex);
         return;
     }
 
