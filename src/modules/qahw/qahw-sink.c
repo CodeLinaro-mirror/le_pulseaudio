@@ -454,7 +454,8 @@ static void qahw_sink_thread_func(void *userdata) {
         int ret = 0;
 
         /* nothing to do. Let's sleep */
-        if ((ret = pa_rtpoll_run(qahw_sdata->qahw_thread_rtpoll, true)) < 0)
+        pa_rtpoll_set_timer_disabled(qahw_sdata->qahw_thread_rtpoll);
+        if ((ret = pa_rtpoll_run(qahw_sdata->qahw_thread_rtpoll)) < 0)
             goto fail;
 
         if (ret == 0)
@@ -1333,7 +1334,6 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
     pa_sink_data *pa_sdata = sdata->pa_sdata;
     qahw_sink_data *qahw_sdata = sdata->qahw_sdata;
     pa_memchunk chunk;
-    bool wait;
     int rc, status;
     bool running;
     bool ts_enable = qahw_sdata->flags & QAHW_OUTPUT_FLAG_TIMESTAMP;
@@ -1350,7 +1350,7 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
     pa_memchunk_reset(&pa_sdata->pending_chunk);
 
     while (true) {
-        wait = true;
+        pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
 
         /* Render only if qahw sink is enabled */
         if (sdata->qahw_sink_opened) {
@@ -1373,7 +1373,6 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
                 if (status == -1)
                     goto poll;
                 if (status == -2) {
-                    wait = true;
                     /* wait for 1msec */
                     pa_rtpoll_set_timer_relative(pa_sdata->rtpoll, 1000);
                     goto poll;
@@ -1395,7 +1394,7 @@ static void pa_qahw_sink_io_thread_func(void *userdata) {
             }
         }
 poll:
-        rc = pa_rtpoll_run(pa_sdata->rtpoll, wait);
+        rc = pa_rtpoll_run(pa_sdata->rtpoll);
         if (rc < 0) {
             pa_log_error("pa_rtpoll_run() returned an error: %d", rc);
             goto fail;

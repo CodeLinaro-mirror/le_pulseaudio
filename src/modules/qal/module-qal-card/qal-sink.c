@@ -17,7 +17,7 @@
  */
 
  /*
-  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+  * Copyright (c) 2022,2023 Qualcomm Innovation Center, Inc. All rights reserved.
   */
 
 #ifdef HAVE_CONFIG_H
@@ -198,7 +198,8 @@ static int pa_pal_sink_fill_info(pa_pal_sink_config *sink, pal_sink_data *pal_sd
 }
 
 static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
-    int rc, delta, bytes_rendered;
+    int rc;
+    uint64_t delta, bytes_rendered;
     int64_t latency = 0, ticks = 0;
     uint64_t cur_qtimer, abs_qtimer_time_stamp, session_time_stamp;
     uint64_t cur_session_time = 0, time_in_future = 0, time_elapsed = 0;
@@ -206,7 +207,9 @@ static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
     pa_sink_data *pa_sdata;
     struct pal_session_time stime = {0};
 
+#ifdef SINK_DEBUG
     pa_log_debug("%s", __func__);
+#endif
 
     pa_assert(sdata);
     pa_assert(sdata->pa_sdata);
@@ -234,7 +237,7 @@ static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
         asm volatile("mrrc p15, 1, %Q0, %R0, c14" : "=r"(ticks));
 #endif
 
-        cur_qtimer = (uint64_t)(ticks * 10/240);
+        cur_qtimer = (uint64_t)(ticks * 10/192);
 
 #ifdef SINK_DEBUG
         pa_log_debug("%s:: ticks  %" PRId64 "us, qtimer %" PRId64 "us", __func__, ticks, (int64_t)cur_qtimer);
@@ -460,7 +463,6 @@ static void pa_pal_sink_thread_func(void *userdata) {
     memset(&chunk, 0, sizeof(pa_memchunk));
 
     void *data;
-    bool wait;
     int rc;
 
     pa_assert(userdata);
@@ -482,7 +484,7 @@ static void pa_pal_sink_thread_func(void *userdata) {
     memset(&out_buf, 0, sizeof(struct pal_buffer));
 
     while (true) {
-        wait = true;
+        pa_rtpoll_set_timer_disabled(pa_sdata->rtpoll);
 
         if (pa_sdata->sink->thread_info.rewind_requested)
             pa_sink_process_rewind(pa_sdata->sink, 0);
@@ -516,6 +518,10 @@ static void pa_pal_sink_thread_func(void *userdata) {
                 pa_log_error("%d waiting for write done event, rc is %d, out_buf.size is %d", __LINE__, rc, (int)out_buf.size);
                 out_buf.size = out_buf.size - rc;
             } else {
+#ifdef SINK_DUMP_ENABLED
+                if ((rc = write(pal_sdata->write_fd, out_buf.buffer, out_buf.size)) < 0)
+                    pa_log_error("write to fd failed %d", rc);
+#endif
                 pal_sdata->bytes_written += rc;
                 /* Mark buffer as NULL, to indicate buffer has been consumed */
                 out_buf.buffer = NULL;
@@ -523,7 +529,7 @@ static void pa_pal_sink_thread_func(void *userdata) {
                 pa_memblock_release(chunk.memblock);
                 pa_memblock_unref(chunk.memblock);
 
-                wait = false;
+                pa_rtpoll_set_timer_absolute(pa_sdata->rtpoll, pa_rtclock_now());
             }
         } else if (pa_sdata->sink->thread_info.state == PA_SINK_SUSPENDED) {
             /* if sink is suspended state then reset buffer otherwise it might end up sending incorrect buffer to pal_write */
@@ -531,7 +537,7 @@ static void pa_pal_sink_thread_func(void *userdata) {
             memset(&out_buf, 0, sizeof(struct pal_buffer));
         }
 
-        rc = pa_rtpoll_run(pa_sdata->rtpoll, wait);
+        rc = pa_rtpoll_run(pa_sdata->rtpoll);
 
         if (rc < 0) {
             pa_log_error("pa_rtpoll_run() returned an error: %d", rc);
