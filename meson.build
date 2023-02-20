@@ -7,6 +7,10 @@ project('pulseaudio', 'c', 'cpp',
 meson.add_dist_script('scripts/save-tarball-version.sh', meson.project_version())
 
 pa_version_str = meson.project_version()
+if pa_version_str == ''
+  pa_version_str = get_option('pa_version')
+endif
+
 # For tarballs, the first split will do nothing, but for builds in git, we
 # split out suffixes when there are commits since the last tag
 # (e.g.: v11.99.1-3-gad14bdb24 -> v11.99.1)
@@ -604,6 +608,28 @@ if alsa_dep.found()
   cdata.set('HAVE_ALSA_UCM', 1)
 endif
 
+qahw_api_inc = get_option('with-qahw-api')
+qahw_inc = get_option('with-qahw')
+qahwdatadir = ''
+if (qahw_api_inc != '') and (qahw_inc != '')
+  cdata.set('HAVE_QAHW', 1)
+  qahwdatadir = join_paths(datadir, 'pulseaudio', 'qahw')
+  cdata.set_quoted('QAHW_CARD_DEFAULT_CONF_PATH' , join_paths(qahwdatadir, 'configs'))
+endif
+
+qsthw_inc = get_option('with-qsthw')
+if qsthw_inc != ''
+  cdata.set('HAVE_QSTHW', 1)
+endif
+
+qal_inc = get_option('with-qal')
+qaldatadir = ''
+if qal_inc != ''
+  cdata.set('HAVE_QAL', 1)
+  qaldatadir = join_paths(datadir, 'pulseaudio', 'qal')
+  cdata.set_quoted('QAL_CARD_DEFAULT_CONF_PATH' , join_paths(qaldatadir, 'configs'))
+endif
+
 asyncns_dep = dependency('libasyncns', version : '>= 0.1', required : get_option('asyncns'))
 if asyncns_dep.found()
   cdata.set('HAVE_LIBASYNCNS', 1)
@@ -890,6 +916,8 @@ summary = [
   'localstatedir:                 @0@'.format(localstatedir),
   'modlibexecdir:                 @0@'.format(modlibexecdir),
   'alsadatadir:                   @0@'.format(alsadatadir),
+  'qahwdatadir:                   @0@'.format(qahwdatadir),
+  'qaldatadir:                    @0@'.format(qaldatadir),
   'System Runtime Path:           @0@'.format(cdata.get_unquoted('PA_SYSTEM_RUNTIME_PATH')),
   'System State Path:             @0@'.format(cdata.get_unquoted('PA_SYSTEM_STATE_PATH')),
   'System Config Path:            @0@'.format(cdata.get_unquoted('PA_SYSTEM_CONFIG_PATH')),
@@ -909,6 +937,9 @@ summary = [
   'Enable OSS Wrapper:            @0@'.format(cdata.has('HAVE_OSS_WRAPPER')),
 #  'Enable EsounD:                 @0@'.format(${ENABLE_ESOUND}),
   'Enable Alsa:                   @0@'.format(alsa_dep.found()),
+  'Enable QAHW:                   @0@'.format(cdata.has('HAVE_QAHW')),
+  'Enable QSTHW:                  @0@'.format(cdata.has('HAVE_QSTHW')),
+  'Enable QAL:                    @0@'.format(cdata.has('HAVE_QAL')),
 #  'Enable CoreAudio:              @0@'.format(${ENABLE_COREAUDIO}),
 #  'Enable Solaris:                @0@'.format(${ENABLE_SOLARIS}),
 #  'Enable WaveOut:                @0@'.format(${ENABLE_WAVEOUT}),

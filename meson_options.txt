@@ -1,3 +1,6 @@
+option('pa_version',
+       type : 'string', value : '0.0',
+       description : 'pulseaudio version')
 option('daemon',
        type : 'boolean', value : true,
        description : 'Enable building and installation of pulseaudio daemon and supporting configuration files')
@@ -78,6 +81,18 @@ option('zshcompletiondir',
 option('alsa',
        type : 'feature', value : 'auto',
        description : 'Optional ALSA support')
+option('with-qahw-api',
+       type : 'string',
+       description : 'Optional qahw api support')
+option('with-qahw',
+       type : 'string',
+       description : 'Optional qahw module support')
+option('with-qsthw',
+       type : 'string',
+       description : 'Optional qsthw module support')
+option('with-qal',
+       type : 'string',
+       description : 'Optional qal module support')
 option('asyncns',
        type : 'feature', value : 'auto',
        description : 'Optional Async DNS support')
