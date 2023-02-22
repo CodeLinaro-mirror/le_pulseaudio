@@ -65,6 +65,8 @@ all_modules = [
   [ 'module-volume-restore', 'module-volume-restore.c' ],
 ]
 
+extra_inc = []
+
 if host_machine.system() == 'windows'
   winmm_dep = meson.get_compiler('c').find_library('winmm')
   ksuser_dep = meson.get_compiler('c').find_library('ksuser')
@@ -115,11 +117,17 @@ endif
 
 if cdata.has('HAVE_QAHW')
 # TODO: add meson.build in qahw dir to build QAHW module
-#  subdir('qahw')
+  subdir('qahw')
 endif
 
 if cdata.has('HAVE_QSTHW')
 # TODO: build QSTHW module
+  libqtisoundtriggerhw = cc.find_library('qtisoundtriggerhw', required:true)
+  all_modules += [
+    [ 'module-qsthw', 'module-qsthw.c', [], [], [dbus_dep, libqtisoundtriggerhw]],
+  ]
+
+extra_inc += [include_directories(qsthw_inc)]
 endif
 
 if cdata.has('HAVE_QAL')
@@ -323,7 +331,7 @@ foreach m : all_modules
   mod = shared_module(name,
     sources,
     headers,
-    include_directories : [configinc, topinc, include_directories('.')],
+    include_directories : [configinc, topinc, include_directories('.')] + extra_inc,
     c_args : [pa_c_args, server_c_args, '-DPA_MODULE_NAME=' + name.underscorify()] + extra_flags,
     install : true,
     install_rpath : rpath_dirs,
