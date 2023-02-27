@@ -18,6 +18,8 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
+ *
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -1055,6 +1057,10 @@ static void free_qahw_sink_thread_resources(qahw_sink_data *qahw_sdata){
     }
 
     pa_thread_mq_done(&qahw_sdata->qahw_thread_mq);
+
+    if (qahw_sdata->qahw_msg)
+        pa_xfree(qahw_sdata->qahw_msg);
+
 }
 
 static int pa_qahw_sink_io_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
@@ -1610,9 +1616,6 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
                                       QAHW_SINK_MESSAGE_CLOSE_OUTPUT, &rc, 0, NULL);
         pa_log_debug("%s Ack closing qahw sink rc: %d", __func__, rc);
     }
-
-    if (qahw_sdata->qahw_msg)
-        pa_xfree(qahw_sdata->qahw_msg);
 
 #ifdef SINK_DUMP_ENABLED
     close(qahw_sdata->write_fd);
