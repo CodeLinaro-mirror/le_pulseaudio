@@ -64,3 +64,4 @@ load-module module-suspend-on-idle
 
 ### Enable positioned event sounds
 load-module module-position-event-sounds
+load-module module-qahw-card
