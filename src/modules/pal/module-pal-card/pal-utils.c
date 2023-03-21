@@ -25,7 +25,7 @@
 #include <pulsecore/core-format.h>
 #include <pulse/channelmap.h>
 
-#include "qal-utils.h"
+#include "pal-utils.h"
 
 typedef struct{
     pa_channel_position_t pa_channel_map_position;

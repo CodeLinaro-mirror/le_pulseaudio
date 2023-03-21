@@ -31,10 +31,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "qal-config-parser.h"
-#include "qal-sink.h"
-#include "qal-source.h"
-#include "qal-utils.h"
+#include "pal-config-parser.h"
+#include "pal-sink.h"
+#include "pal-source.h"
+#include "pal-utils.h"
 
 #define PAL_CARD_DEFAULT_CONF_NAME "default.conf"
 #define PAL_CARD_DEFAULT_TARGET_NAME_LENGTH 7
@@ -1281,7 +1281,7 @@ static char* pa_pal_config_parser_get_conf_file_name(char *dir, char *conf_name)
     char *conf_file_name = NULL;
 
     if (!dir)
-        dir = (char *)QAL_CARD_DEFAULT_CONF_PATH;
+        dir = (char *)PAL_CARD_DEFAULT_CONF_PATH;
 
     conf_file_name = pa_pal_config_get_conf_file_name();
     if (conf_file_name) {

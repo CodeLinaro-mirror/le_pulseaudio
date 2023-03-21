@@ -44,8 +44,8 @@
 #include <sys/time.h>
 #include <time.h>
 
-#include "qal-sink.h"
-#include "qal-utils.h"
+#include "pal-sink.h"
+#include "pal-utils.h"
 
 /* #define SINK_DEBUG */
 
