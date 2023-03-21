@@ -177,4 +177,3 @@ load-module module-filter-apply
 ### Make some devices default
 #set-default-sink output
 #set-default-source input
-load-module module-qahw-card

@@ -201,4 +201,3 @@ src/utils/pactl.c
 src/utils/padsp.c
 src/utils/pasuspender.c
 src/utils/pax11publish.c
-src/modules/qahw/module-qahw-card.c
