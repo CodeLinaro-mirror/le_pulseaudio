@@ -18,6 +18,8 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
+ *
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -947,9 +949,6 @@ static int close_qahw_source(qahw_source_data *qahw_sdata) {
         pa_log_debug("%s, Ack closing qahw source rc: %d", __func__, rc);
     }
 
-    if (qahw_sdata->qahw_msg)
-        pa_xfree(qahw_sdata->qahw_msg);
-
 #ifdef SOURCE_DUMP_ENABLED
     close(qahw_sdata->write_fd);
 #endif
@@ -1015,6 +1014,9 @@ static void free_qahw_source_thread_resources(qahw_source_data *qahw_sdata) {
 
     if (qahw_sdata->qahw_thread_rtpoll)
         pa_rtpoll_free(qahw_sdata->qahw_thread_rtpoll);
+
+    if (qahw_sdata->qahw_msg)
+        pa_xfree(qahw_sdata->qahw_msg);
 
 }
 

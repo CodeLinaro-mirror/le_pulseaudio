@@ -84,6 +84,7 @@ struct pal_doa {
     int8_t polarActivityGUI[360];
 };
 
+static void session_init(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static int unload_sm(DBusConnection *conn, struct pal_voiceui_session_data *ses_data);
 static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -97,12 +98,13 @@ static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdat
 static void get_interface_version(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 enum module_handler_index {
-    MODULE_HANDLER_LOAD_SOUND_MODEL,
+    MODULE_HANDLER_SESSION_INIT,
     MODULE_HANDLER_GET_INTERFACE_VERSION,
     MODULE_HANDLER_MAX
 };
 
 enum session_handler_index {
+    SESSION_HANDLER_LOAD_SOUND_MODEL,
     SESSION_HANDLER_UNLOAD_SOUND_MODEL,
     SESSION_HANDLER_START_RECOGNITION,
     SESSION_HANDLER_STOP_RECOGNITION,
@@ -112,6 +114,10 @@ enum session_handler_index {
     SESSION_HANDLER_REQUEST_READ_BUFFER,
     SESSION_HANDLER_GET_PARAM_DATA,
     SESSION_HANDLER_MAX
+};
+
+pa_dbus_arg_info session_init_args[] = {
+    {"object_path", "o","out"}
 };
 
 pa_dbus_arg_info load_sound_model_args[] = {
@@ -176,11 +182,11 @@ pa_dbus_arg_info stop_buffering_done_event_args[] = {
 };
 
 static pa_dbus_method_handler pal_voiceui_module_handlers[MODULE_HANDLER_MAX] = {
-    [MODULE_HANDLER_LOAD_SOUND_MODEL] = {
-        .method_name = "LoadSoundModel",
-        .arguments = load_sound_model_args,
-        .n_arguments = sizeof(load_sound_model_args)/sizeof(pa_dbus_arg_info),
-        .receive_cb = load_sound_model},
+    [MODULE_HANDLER_SESSION_INIT] = {
+        .method_name = "SessionInit",
+        .arguments = session_init_args,
+        .n_arguments = sizeof(session_init_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = session_init},
     [MODULE_HANDLER_GET_INTERFACE_VERSION] = {
         .method_name = "GetInterfaceVersion",
         .arguments = get_interface_version_args,
@@ -189,6 +195,11 @@ static pa_dbus_method_handler pal_voiceui_module_handlers[MODULE_HANDLER_MAX] = 
 };
 
 static pa_dbus_method_handler pal_voiceui_session_handlers[SESSION_HANDLER_MAX] = {
+    [SESSION_HANDLER_LOAD_SOUND_MODEL] = {
+        .method_name = "LoadSoundModel",
+        .arguments = load_sound_model_args,
+        .n_arguments = sizeof(load_sound_model_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = load_sound_model},
     [SESSION_HANDLER_UNLOAD_SOUND_MODEL] = {
         .method_name = "UnloadSoundModel",
         .arguments = unload_sound_model_args,
@@ -719,6 +730,7 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
     if (status) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "stop_buffering failed");
         dbus_error_free(&error);
+        pa_mutex_unlock(ses_data->mutex);
         return;
     }
 
@@ -967,9 +979,8 @@ static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *use
 /* implementations exposed by module global object path */
 /* Call pal_stream_open followed by pal_stream_set_param for loading sound model */
 static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata) {
-    struct pal_voiceui_module_data *m_data = userdata;
     struct pal_stream_attributes *stream_attr = NULL;
-    struct pal_voiceui_session_data *ses_data = NULL;
+    struct pal_voiceui_session_data *ses_data = (struct pal_voiceui_session_data *)userdata;
     pal_param_payload *prm_payload = NULL;
     struct pal_st_phrase_sound_model phrase_sound_model = {0, };
     struct pal_st_phrase_sound_model *p_sound_model = NULL;
@@ -979,7 +990,7 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     DBusMessageIter arg_i, struct_i, struct_ii, struct_iii, array_i, sub_array_i;
     dbus_int32_t sm_type, sm_data_size, i, j, status = 0;
     int n_elements = 0, arg_type;
-    char *value = NULL, *thread_name = NULL;
+    char *value = NULL;
     char **addr_value = &value;
     uint32_t no_of_devices = 0;
     struct pal_device *devices = NULL;
@@ -1066,8 +1077,6 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
     memcpy(&common_sound_model->vendor_uuid.node[0], value, n_elements);
 
-    ses_data = pa_xnew0(struct pal_voiceui_session_data, 1);
-    ses_data->common = (struct pal_voiceui_module_data *)userdata;
 
     rc = pal_stream_open(stream_attr, no_of_devices, devices, no_of_modifiers, modifiers, event_callback, (uint64_t)ses_data, &stream_handle);
     if (rc != 0) {
@@ -1160,9 +1169,19 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
         return;
     }
 
-   /* After successful load sound model, allocate session data */
-    ses_data->common->session_id++;
     ses_data->ses_handle = stream_handle;
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+static void session_init(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+
+    struct pal_voiceui_module_data *m_data = (struct pal_voiceui_module_data *) userdata;
+    struct pal_voiceui_session_data *ses_data = NULL;
+    char *thread_name = NULL;
+
+    ses_data = pa_xnew0(struct pal_voiceui_session_data, 1);
+    ses_data->common = (struct pal_voiceui_module_data *)userdata;
+    ses_data->common->session_id++;
     ses_data->obj_path = pa_sprintf_malloc("%s/ses_%d", m_data->obj_path, ses_data->common->session_id);
     ses_data->mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
     ses_data->cond = pa_cond_new();
@@ -1177,7 +1196,7 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     pa_xfree(thread_name);
 
     pa_assert_se(pa_dbus_protocol_add_interface(ses_data->common->dbus_protocol,
-            ses_data->obj_path, &session_interface_info, ses_data) >= 0);
+        ses_data->obj_path, &session_interface_info, ses_data) >= 0);
 
     pa_assert_se(dbus_connection_add_filter(conn, disconnection_filter_cb, ses_data, NULL));
 
