@@ -47,6 +47,7 @@ pa_pal_util_port_to_pal_device_mapping port_to_pal_device[] = {
     { (char *)"builtin-mic",      PAL_DEVICE_IN_HANDSET_MIC,       (char *)"PAL_DEVICE_IN_HANDSET_MIC" },
     { (char *)"speaker-mic",      PAL_DEVICE_IN_SPEAKER_MIC,       (char *)"PAL_DEVICE_IN_SPEAKER_MIC" },
     { (char *)"linein",           PAL_DEVICE_IN_LINE,              (char *)"PAL_DEVICE_IN_LINE" },
+    { (char *)"headset-mic",      PAL_DEVICE_IN_WIRED_HEADSET,     (char *)"PAL_DEVICE_IN_WIRED_HEADSET" },
 };
 
 pal_device_id_t pa_pal_util_device_name_to_enum(const char *device_name) {
