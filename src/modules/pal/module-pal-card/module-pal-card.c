@@ -33,10 +33,10 @@
 #include <PalDefs.h>
 #include <agm/agm_api.h>
 
-#include "qal-source.h"
-#include "qal-sink.h"
-#include "qal-card.h"
-#include "qal-config-parser.h"
+#include "pal-source.h"
+#include "pal-sink.h"
+#include "pal-card.h"
+#include "pal-config-parser.h"
 
 #define CONC(A,B) (A B)
 #define PAL_MODULE_ID_PREFIX "audio."

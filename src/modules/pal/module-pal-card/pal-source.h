@@ -30,7 +30,7 @@
 #include <PalApi.h>
 #include <PalDefs.h>
 
-#include "qal-card.h"
+#include "pal-card.h"
 
 typedef size_t pa_pal_source_handle_t;
 

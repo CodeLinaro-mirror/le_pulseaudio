@@ -41,8 +41,8 @@
 #include <pulsecore/core-format.h>
 #include <pulse/util.h>
 
-#include "qal-source.h"
-#include "qal-utils.h"
+#include "pal-source.h"
+#include "pal-utils.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
