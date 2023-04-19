@@ -4015,3 +4015,23 @@ void pa_sink_move_streams_to_default_sink(pa_core *core, pa_sink *old_sink, bool
         pa_sink_input_move_to(i, core->default_sink, false);
     }
 }
+
+/* Called from the IO thread. */
+void pa_sink_drain_complete(pa_sink *s) {
+    pa_sink_input *i;
+    uint32_t idx;
+
+    pa_assert(s);
+    pa_assert_io_context();
+
+    /* There should be only one stream in compressed mode */
+    i = pa_idxset_first(s->inputs, &idx);
+
+    /* See if the sink input is still there */
+    if (!i)
+        return;
+
+    pa_assert(pa_sink_input_is_compressed(i));
+
+    pa_sink_input_drain_complete(i);
+}

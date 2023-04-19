@@ -80,6 +80,15 @@ typedef enum pa_encoding {
      * https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/SupportedAudioFormats/
      * when adding new encodings! */
 
+    PA_ENCODING_MPEG,
+    /**< MPEG-1 or MPEG-2 (Part 3, not AAC) data. \since: FIXME */
+
+    PA_ENCODING_AAC,
+    /**< MPEG-2 or MPEG-4 AAC data. \since: FIXME */
+
+    PA_ENCODING_DSD,
+    /**< DSD data. \since: FIXME */
+
     PA_ENCODING_MAX,
     /**< Valid encoding types must be less than this value */
 
@@ -133,6 +142,23 @@ int pa_format_info_valid(const pa_format_info *f);
 /** Returns non-zero when the format info structure represents a PCM
  * (i.e.\ uncompressed data) format. \since 1.0 */
 int pa_format_info_is_pcm(const pa_format_info *f);
+
+/** Returns non-zero when the format info structure represents a compressed
+ * format which can be transmitted as a PCM-equivalent format. This primarily
+ * applies to IEC61937-encapsulated formats. \since FIXME */
+int pa_format_info_is_passthrough(const pa_format_info *f);
+
+/** Returns non-zero when the format info structure represents a compressed
+ * format which cannot be transmitted as a PCM-equivalent format. This applies
+ * to most compressed data except when encapsulated in the IEC61937 format.
+ * \since FIXME. */
+int pa_format_info_is_compressed(const pa_format_info *f);
+
+/** Returns non-zero when the format info structure represents a compressed
+ * format which cannot be transmitted as a PCM-equivalent format. This applies
+ * to most compressed data except when encapsulated in the IEC61937 format.
+ * \since FIXME. */
+int pa_format_info_is_compressed_capture(const pa_format_info *f);
 
 /** Returns non-zero if the format represented by \a first is a subset of
  * the format represented by \a second. This means that \a second must

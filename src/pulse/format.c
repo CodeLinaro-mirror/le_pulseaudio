@@ -53,6 +53,9 @@ static const char* const _encoding_str_table[]= {
     [PA_ENCODING_UNKNOWN_4X_IEC61937] = "unknown-4x-iec61937",
     [PA_ENCODING_UNKNOWN_HBR_IEC61937] = "unknown-hbr-iec61937",
     [PA_ENCODING_MAT_IEC61937] = "mat-iec61937",
+    [PA_ENCODING_MPEG] = "mpeg",
+    [PA_ENCODING_AAC] = "aac",
+    [PA_ENCODING_DSD] = "dsd",
     [PA_ENCODING_ANY] = "any",
 };
 
@@ -112,6 +115,28 @@ int pa_format_info_valid(const pa_format_info *f) {
 
 int pa_format_info_is_pcm(const pa_format_info *f) {
     return f->encoding == PA_ENCODING_PCM;
+}
+
+int pa_format_info_is_compressed(const pa_format_info *f) {
+    switch (f->encoding) {
+        case PA_ENCODING_MPEG:
+        case PA_ENCODING_AAC:
+        case PA_ENCODING_DSD:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+int pa_format_info_is_compressed_capture(const pa_format_info *f) {
+        switch (f->encoding) {
+        case PA_ENCODING_DSD:
+            return true;
+
+        default:
+            return false;
+    }
 }
 
 char *pa_format_info_snprint(char *s, size_t l, const pa_format_info *f) {
