@@ -190,6 +190,7 @@ pa_format_info_get_prop_type;
 pa_format_info_get_rate;
 pa_format_info_get_sample_format;
 pa_format_info_is_compatible;
+pa_format_info_is_compressed;
 pa_format_info_is_pcm;
 pa_format_info_new;
 pa_format_info_set_channel_map;

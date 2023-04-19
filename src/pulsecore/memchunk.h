@@ -31,6 +31,7 @@ typedef struct pa_memchunk pa_memchunk;
 struct pa_memchunk {
     pa_memblock *memblock;
     size_t index, length;
+    uint64_t timestamp, duration;
 };
 
 /* Make a memchunk writable, i.e. make sure that the caller may have

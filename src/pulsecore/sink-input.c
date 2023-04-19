@@ -1404,6 +1404,16 @@ bool pa_sink_input_is_passthrough(pa_sink_input *i) {
     return false;
 }
 
+/* Called from main or I/O context */
+bool pa_sink_input_is_compressed(pa_sink_input *i) {
+    pa_sink_input_assert_ref(i);
+
+    if (PA_UNLIKELY(pa_format_info_is_compressed(i->format)))
+        return true;
+
+    return false;
+}
+
 /* Called from main context */
 bool pa_sink_input_is_volume_readable(pa_sink_input *i) {
     pa_sink_input_assert_ref(i);
@@ -2474,4 +2484,10 @@ void pa_sink_input_set_preferred_sink(pa_sink_input *i, pa_sink *s) {
         set_preferred_sink(i, NULL);
         pa_sink_input_move_to(i, i->core->default_sink, false);
     }
+}
+
+/* Called from IO context */
+void pa_sink_input_drain_complete(pa_sink_input *i) {
+    if (i->drain_complete)
+        i->drain_complete(i);
 }

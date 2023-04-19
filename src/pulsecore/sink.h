@@ -266,9 +266,24 @@ struct pa_sink {
      * set). Makes a copy of the formats passed in. */
     bool (*set_formats)(pa_sink *s, pa_idxset *formats); /* may be NULL */
 
+    /* Called to inform the sink that a specific compressed stream will
+     * now be providing data to it, or to end such a configured state
+     * if the format is NULL. Must return success or failure value for
+     * whether such a configuration was successful.
+     */
+    bool (*set_format)(pa_sink *s, const pa_format_info *format); /* may be NULL */
+
     /* Called whenever device parameters need to be changed. Called from
      * main thread. */
     void (*reconfigure)(pa_sink *s, pa_sample_spec *spec, bool passthrough);
+
+    /* Called in compressed mode to flush any buffered data in the sink */
+    int (*flush)(pa_sink *s);
+
+    /* Called in compressed mode to drain any buffered data in the sink.
+     * The expectation is that this will be completed asynchronously,
+     * and when complete, pa_sink_drain_complete() must be called. */
+    int (*drain)(pa_sink *s);
 
     /* Contains copies of the above data so that the real-time worker
      * thread can work without access locking */
@@ -566,6 +581,7 @@ void pa_sink_set_reference_volume_direct(pa_sink *s, const pa_cvolume *volume);
  * default_sink or the sink with active_port equals PA_AVAILABLE_NO to the
  * current default_sink conditionally*/
 void pa_sink_move_streams_to_default_sink(pa_core *core, pa_sink *old_sink, bool default_sink_changed);
+void pa_sink_drain_complete(pa_sink *s);
 
 /* Verify that we called in IO context (aka 'thread context), or that
  * the sink is not yet set up, i.e. the thread not set up yet. See
