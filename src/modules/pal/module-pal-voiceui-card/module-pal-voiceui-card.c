@@ -29,7 +29,7 @@
 
 #include "PalApi.h"
 #include "PalDefs.h"
-#include "qal-voiceui-utils.h"
+#include "pal-voiceui-utils.h"
 #include "agm/agm_api.h"
 
 #define OK 0
