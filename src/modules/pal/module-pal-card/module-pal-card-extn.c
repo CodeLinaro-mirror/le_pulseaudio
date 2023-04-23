@@ -33,10 +33,10 @@
 #include <PalApi.h>
 #include <PalDefs.h>
 
-#include "qal-card.h"
-#include "qal-source.h"
-#include "qal-sink.h"
-#include "qal-config-parser.h"
+#include "pal-card.h"
+#include "pal-source.h"
+#include "pal-sink.h"
+#include "pal-config-parser.h"
 
 //to be updated in PalDefs.h
 #define PAL_PARAM_SET_CUSTOM_VOLUME_INDEX 52
@@ -50,8 +50,8 @@
 #define PAL_PARAM_KEY_VOICE_RECOGNITION "l_voice_recognition_enable"
 #define PAL_PARAM_KEY_BARGEIN "l_bargein_enable"
 
-#define QAL_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qal"
-#define QAL_DBUS_MODULE_IFACE "org.PulseAudio.Ext.Qal.Module"
+#define PAL_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qal"
+#define PAL_DBUS_MODULE_IFACE "org.PulseAudio.Ext.Qal.Module"
 
 #define OK 0
 
@@ -97,7 +97,7 @@ static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] 
 };
 
 static pa_dbus_interface_info module_interface_info = {
-	.name = QAL_DBUS_MODULE_IFACE,
+	.name = PAL_DBUS_MODULE_IFACE,
 	.method_handlers = module_method_handlers,
 	.n_method_handlers = METHOD_HANDLER_MODULE_MAX,
 	.property_handlers = NULL,
@@ -300,7 +300,7 @@ int pa_pal_module_extn_init(pa_core *core, pa_card *card)
 
 	pa_log_info("%s", __func__);
 	pal_extn_mdata = pa_xnew0(struct pal_module_extn_data, 1);
-	pal_extn_mdata->obj_path = pa_sprintf_malloc("%s", QAL_DBUS_OBJECT_PATH_PREFIX);
+	pal_extn_mdata->obj_path = pa_sprintf_malloc("%s", PAL_DBUS_OBJECT_PATH_PREFIX);
 	pal_extn_mdata->dbus_protocol = pa_dbus_protocol_get(core);
 	pal_extn_mdata->card = card;
 
