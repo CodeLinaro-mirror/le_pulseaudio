@@ -14,6 +14,10 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
+ *
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
 #ifdef HAVE_CONFIG_H
@@ -67,6 +71,77 @@ pal_device_id_t pa_pal_util_device_name_to_enum(const char *device_name) {
     return device;
 }
 
+int pa_pal_util_set_pal_metadata_from_pa_format(const pa_format_info *format) {
+    int rc = 0;
+    char *format_flag;
+
+    pa_assert(format);
+
+    switch (format->encoding) {
+        default:
+           break;
+    }
+
+    return rc;
+}
+
+/* With reference to the translation table from "Dolby Atmos to Sound Bar Product
+ * System Development Manual" */
+pa_channel_map* pa_pal_util_channel_map_init(pa_channel_map *m, unsigned channels) {
+    pa_assert(m);
+    pa_assert(pa_channels_valid(channels));
+
+    pa_channel_map_init(m);
+
+    m->channels = (uint8_t) channels;
+
+    switch (channels) {
+        case 1:
+            m->map[0] = PA_CHANNEL_POSITION_MONO;
+            return m;
+        case 7:
+            m->map[6] = PA_CHANNEL_POSITION_REAR_CENTER;
+            /* Fall through */
+        case 6:
+            m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+            m->map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+            m->map[2] = PA_CHANNEL_POSITION_FRONT_CENTER;
+            m->map[3] = PA_CHANNEL_POSITION_LFE;
+            m->map[4] = PA_CHANNEL_POSITION_SIDE_LEFT;
+            m->map[5] = PA_CHANNEL_POSITION_SIDE_RIGHT;
+            return m;
+        case 5:
+            m->map[2] = PA_CHANNEL_POSITION_FRONT_CENTER;
+            m->map[3] = PA_CHANNEL_POSITION_SIDE_LEFT;
+            m->map[4] = PA_CHANNEL_POSITION_SIDE_RIGHT;
+            /* Fall through */
+        case 2:
+            m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+            m->map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+            return m;
+        case 8:
+            m->map[3] = PA_CHANNEL_POSITION_LFE;
+            m->map[4] = PA_CHANNEL_POSITION_SIDE_LEFT;
+            m->map[5] = PA_CHANNEL_POSITION_SIDE_RIGHT;
+            m->map[6] = PA_CHANNEL_POSITION_REAR_LEFT;
+            m->map[7] = PA_CHANNEL_POSITION_REAR_RIGHT;
+            /* Fall through */
+        case 3:
+            m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+            m->map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+            m->map[2] = PA_CHANNEL_POSITION_FRONT_CENTER;
+            return m;
+        case 4:
+            m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+            m->map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+            m->map[2] = PA_CHANNEL_POSITION_SIDE_LEFT;
+            m->map[3] = PA_CHANNEL_POSITION_SIDE_RIGHT;
+            return m;
+        default:
+            return NULL;
+    }
+}
+
 static pa_pal_util_pa_pal_channel_map pa_pal_channel_map[] = {
     { PA_CHANNEL_POSITION_MONO, PAL_CHMAP_CHANNEL_MS },
     { PA_CHANNEL_POSITION_FRONT_LEFT , PAL_CHMAP_CHANNEL_FL },
@@ -91,6 +166,24 @@ static pa_pal_util_pa_pal_channel_map pa_pal_channel_map[] = {
     { PA_CHANNEL_POSITION_TOP_REAR_RIGHT, PAL_CHMAP_CHANNEL_TBR },
     { PA_CHANNEL_POSITION_TOP_REAR_CENTER, PAL_CHMAP_CHANNEL_TBC }
 };
+
+pal_audio_fmt_t pa_pal_util_get_pal_format_from_pa_encoding(pa_encoding_t pa_format, pal_snd_dec_t *pal_snd_dec) {
+    pal_audio_fmt_t pal_format = 0;
+
+    switch (pa_format) {
+        case PA_ENCODING_ANY:
+            pal_format = PAL_AUDIO_FMT_DEFAULT_PCM;
+            break;
+        case PA_ENCODING_PCM:
+            pal_format = PAL_AUDIO_FMT_PCM_S16_LE;
+            break;
+        default:
+            pa_log_error("PA format encoding not supported in PAL\n");
+            break;
+    }
+
+    return pal_format;
+}
 
 uint32_t pa_pal_get_channel_count(pa_channel_map *pa_map) {
     pa_assert(pa_map);

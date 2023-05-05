@@ -219,7 +219,7 @@ static int pa_pal_source_process_msg(pa_msgobject *o, int code, void *data, int6
     return pa_source_process_msg(o, code, data, offset, chunk);
 }
 
-static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_channel_map *map, bool passthrough) {
+static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, bool passthrough) {
     pa_pal_source_data *sdata = NULL;
     pa_source_data *pa_sdata = NULL;
     pal_source_data *pal_sdata = NULL;
@@ -255,10 +255,7 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
     }
 
     if (!PA_SOURCE_IS_OPENED(s->state)) {
-        if (map)
-            new_map = *map;
-        else
-            pa_channel_map_init_auto(&new_map, spec->channels, PA_CHANNEL_MAP_DEFAULT);
+        pa_channel_map_init_auto(&new_map, spec->channels, PA_CHANNEL_MAP_DEFAULT);
 
         old_rate = pa_sdata->source->sample_spec.rate; /*take backup*/
         pa_sdata->source->sample_spec.rate = spec->rate;

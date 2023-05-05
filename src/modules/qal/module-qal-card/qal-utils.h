@@ -14,6 +14,10 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
+ *
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
 #ifndef foopalutilsfoo
@@ -29,4 +33,7 @@
 pal_device_id_t pa_pal_util_device_name_to_enum(const char *device);
 uint32_t pa_pal_get_channel_count(pa_channel_map *pa_map);
 bool pa_pal_channel_map_to_pal(pa_channel_map *pa_map, struct pal_channel_info *pal_map);
+pal_audio_fmt_t pa_pal_util_get_pal_format_from_pa_encoding(pa_encoding_t pa_format, pal_snd_dec_t *pal_snd_dec);
+int pa_pal_util_set_pal_metadata_from_pa_format(const pa_format_info *format);
+pa_channel_map* pa_pal_util_channel_map_init(pa_channel_map *m, unsigned channels);
 #endif
