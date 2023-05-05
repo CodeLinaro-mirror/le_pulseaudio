@@ -210,8 +210,8 @@ static int pa_pal_sink_fill_info(pa_pal_sink_config *sink, pal_sink_data *pal_sd
 
 static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
     int rc;
-    uint64_t delta, bytes_rendered;
-    int64_t latency = 0, ticks = 0;
+    uint64_t bytes_rendered;
+    int64_t delta, latency = 0, ticks = 0;
     uint64_t cur_qtimer, abs_qtimer_time_stamp, session_time_stamp;
     uint64_t cur_session_time = 0, time_in_future = 0, time_elapsed = 0;
     pal_sink_data *pal_sdata;
@@ -238,7 +238,7 @@ static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
         session_time_stamp = (uint64_t)(((uint64_t)stime.session_time.value_msw << 32) | (uint64_t)stime.session_time.value_lsw);
 
 #ifdef SINK_DEBUG
-        pa_log_debug("%s: abs_qtimer_time_stamp%" PRId64 ", session_time_stamp %" PRId64 "", __func__,
+        pa_log_debug("%s: abs_qtimer_time_stamp %" PRId64 " us, session_time_stamp %" PRId64 " us", __func__,
                      abs_qtimer_time_stamp, session_time_stamp);
 #endif
 
@@ -251,7 +251,7 @@ static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
         cur_qtimer = (uint64_t)(ticks * 10/192);
 
 #ifdef SINK_DEBUG
-        pa_log_debug("%s:: ticks  %" PRId64 "us, qtimer %" PRId64 "us", __func__, ticks, (int64_t)cur_qtimer);
+        pa_log_debug("%s:: ticks %" PRId64 " us, qtimer %" PRId64 " us", __func__, ticks, (int64_t)cur_qtimer);
 #endif
 
         if (abs_qtimer_time_stamp > cur_qtimer) {
@@ -269,19 +269,19 @@ static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
         }
 
         delta = pal_sdata->bytes_written - bytes_rendered;
-        latency = pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec);
-#ifdef SINK_DEBUG
-        pa_log_debug("%s:: time_in_future %" PRId64 ", cur_session_time %" PRId64 " bytes_rendered %d,  latency %" PRId64 "", __func__,
-                     time_in_future, cur_session_time, bytes_rendered, (int64_t)latency);
-#endif
         /* bytes written should never be less than bytes rendered */
-        if (latency <= 0) {
+        if (delta <= 0) {
 #ifdef SINK_DEBUG
             pa_log_debug("latency is 0");
 #endif
             return 0;
         }
 
+        latency = pa_bytes_to_usec(delta, &pa_sdata->sink->sample_spec);
+#ifdef SINK_DEBUG
+        pa_log_debug("%s:: time_in_future %" PRId64 ", cur_session_time %" PRId64 " bytes_rendered %d, latency %" PRId64 "", __func__,
+                     time_in_future, cur_session_time, bytes_rendered, (int64_t)latency);
+#endif
     } else  {
         latency = (int64_t)(pa_bytes_to_usec(pal_sdata->bytes_written, &pa_sdata->sink->sample_spec));
 #ifdef SINK_DEBUG
