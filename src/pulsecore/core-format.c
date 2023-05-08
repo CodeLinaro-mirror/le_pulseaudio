@@ -13,6 +13,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
@@ -136,7 +140,16 @@ int pa_format_info_to_sample_spec_fake(const pa_format_info *f, pa_sample_spec *
     /* Note: When we add support for non-IEC61937 encapsulated compressed
      * formats, this function should return a non-zero values for these. */
 
-    ss->format = PA_SAMPLE_S16LE;
+    switch (f->encoding) {
+        case PA_ENCODING_PCM:
+            return -PA_ERR_INVALID;
+
+        default:
+            /* Passthrough format */
+            ss->format = PA_SAMPLE_S16LE;
+            break;
+    }
+
     if ((f->encoding == PA_ENCODING_TRUEHD_IEC61937) ||
         (f->encoding == PA_ENCODING_DTSHD_IEC61937)) {
         ss->channels = 8;
