@@ -4060,6 +4060,16 @@ void pa_sink_move_streams_to_default_sink(pa_core *core, pa_sink *old_sink, bool
 }
 
 /* Called from the IO thread. */
+int pa_sink_flush(pa_sink *s) {
+	pa_assert(s);
+	pa_assert_io_context();
+
+	if (s->flush)
+		return s->flush(s);
+	else
+		return -1;
+}
+
 void pa_sink_drain_complete(pa_sink *s) {
     pa_sink_input *i;
     uint32_t idx;
