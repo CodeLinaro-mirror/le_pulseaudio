@@ -592,6 +592,8 @@ void pa_sink_move_streams_to_default_sink(pa_core *core, pa_sink *old_sink, bool
 
 int pa_sink_flush(pa_sink *s);
 
+int pa_sink_drain(pa_sink *s);
+
 void pa_sink_drain_complete(pa_sink *s);
 
 /* Verify that we called in IO context (aka 'thread context), or that
