@@ -18,6 +18,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #include <inttypes.h>
@@ -289,6 +293,7 @@ pa_source_output_new_data* pa_source_output_new_data_init(pa_source_output_new_d
 void pa_source_output_new_data_set_sample_spec(pa_source_output_new_data *data, const pa_sample_spec *spec);
 void pa_source_output_new_data_set_channel_map(pa_source_output_new_data *data, const pa_channel_map *map);
 bool pa_source_output_new_data_is_passthrough(pa_source_output_new_data *data);
+bool pa_source_output_new_data_compressed(pa_source_output_new_data *data);
 void pa_source_output_new_data_set_volume(pa_source_output_new_data *data, const pa_cvolume *volume);
 void pa_source_output_new_data_apply_volume_factor(pa_source_output_new_data *data, const pa_cvolume *volume_factor);
 void pa_source_output_new_data_apply_volume_factor_source(pa_source_output_new_data *data, const pa_cvolume *volume_factor);
