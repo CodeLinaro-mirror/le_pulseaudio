@@ -559,6 +559,25 @@ exit:
     return ret;
 }
 
+static int pa_pal_sink_flush_cb(pa_sink *s) {
+    int rc = 0;
+    pa_pal_sink_data *sdata = (pa_pal_sink_data *)s->userdata;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pal_sdata);
+    pa_assert(sdata->pal_sdata->stream_handle);
+
+    if (!PA_SINK_IS_OPENED(s->state))
+        return rc;
+
+    pa_log_info("Func:%s", __func__);
+
+    /* stream should be in paused state during flush */
+    pal_stream_pause(sdata->pal_sdata->stream_handle);
+
+    return pal_stream_flush(sdata->pal_sdata->stream_handle);
+}
+
 static void pa_pal_sink_thread_func(void *userdata) {
     pa_pal_sink_data *sdata;
     pa_sink_data *pa_sdata;
@@ -1010,6 +1029,7 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     }
 
     pa_sdata->sink->set_format = pa_pal_sink_set_format_cb;
+    pa_sdata->sink->flush = pa_pal_sink_flush_cb;
 
     pa_sink_set_asyncmsgq(pa_sdata->sink, pa_sdata->thread_mq.inq);
     pa_sink_set_rtpoll(pa_sdata->sink, pa_sdata->rtpoll);
