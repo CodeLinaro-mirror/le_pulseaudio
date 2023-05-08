@@ -236,6 +236,7 @@ static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
     if (!rc) {
         abs_qtimer_time_stamp = (uint64_t)(((uint64_t)stime.absolute_time.value_msw << 32) | (uint64_t)stime.absolute_time.value_lsw);
         session_time_stamp = (uint64_t)(((uint64_t)stime.session_time.value_msw << 32) | (uint64_t)stime.session_time.value_lsw);
+        pa_sdata->sink->sess_time = session_time_stamp;
 
 #ifdef SINK_DEBUG
         pa_log_debug("%s: abs_qtimer_time_stamp %" PRId64 " us, session_time_stamp %" PRId64 " us", __func__,
@@ -865,6 +866,7 @@ static int close_pal_sink(pa_pal_sink_data *sdata) {
         pal_sdata->stream_handle = NULL;
         pal_sdata->bytes_written = 0;
         pal_sdata->standby = true;
+        pa_sdata->sink->sess_time = 0;
         sdata->pal_sink_opened = false;
     }
 
@@ -1062,6 +1064,7 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_sdata->sink->set_format = pa_pal_sink_set_format_cb;
     pa_sdata->sink->drain = pa_pal_sink_drain_cb;
     pa_sdata->sink->flush = pa_pal_sink_flush_cb;
+    pa_sdata->sink->sess_time = 0;
 
     pa_sink_set_asyncmsgq(pa_sdata->sink, pa_sdata->thread_mq.inq);
     pa_sink_set_rtpoll(pa_sdata->sink, pa_sdata->rtpoll);

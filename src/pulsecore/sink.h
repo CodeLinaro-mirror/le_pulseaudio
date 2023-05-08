@@ -349,6 +349,8 @@ struct pa_sink {
         int32_t volume_change_extra_delay;
     } thread_info;
 
+    pa_usec_t sess_time;
+
     void *userdata;
 };
 
