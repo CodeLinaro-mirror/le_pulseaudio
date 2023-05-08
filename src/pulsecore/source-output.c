@@ -15,6 +15,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
@@ -75,7 +79,7 @@ void pa_source_output_new_data_set_channel_map(pa_source_output_new_data *data, 
 bool pa_source_output_new_data_is_passthrough(pa_source_output_new_data *data) {
     pa_assert(data);
 
-    if (PA_LIKELY(data->format) && PA_UNLIKELY(!pa_format_info_is_pcm(data->format)))
+    if (PA_LIKELY(data->format) && PA_UNLIKELY(pa_format_info_is_passthrough(data->format)))
         return true;
 
     if (PA_UNLIKELY(data->flags & PA_SOURCE_OUTPUT_PASSTHROUGH))
@@ -1047,7 +1051,7 @@ static void set_real_ratio(pa_source_output *o, const pa_cvolume *v) {
 bool pa_source_output_is_passthrough(pa_source_output *o) {
     pa_source_output_assert_ref(o);
 
-    if (PA_UNLIKELY(!pa_format_info_is_pcm(o->format)))
+    if (PA_UNLIKELY(pa_format_info_is_passthrough(o->format)))
         return true;
 
     if (PA_UNLIKELY(o->flags & PA_SOURCE_OUTPUT_PASSTHROUGH))
