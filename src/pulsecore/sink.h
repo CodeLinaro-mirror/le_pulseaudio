@@ -589,6 +589,9 @@ void pa_sink_set_reference_volume_direct(pa_sink *s, const pa_cvolume *volume);
  * default_sink or the sink with active_port equals PA_AVAILABLE_NO to the
  * current default_sink conditionally*/
 void pa_sink_move_streams_to_default_sink(pa_core *core, pa_sink *old_sink, bool default_sink_changed);
+
+int pa_sink_flush(pa_sink *s);
+
 void pa_sink_drain_complete(pa_sink *s);
 
 /* Verify that we called in IO context (aka 'thread context), or that
