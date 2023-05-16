@@ -88,6 +88,15 @@ bool pa_source_output_new_data_is_passthrough(pa_source_output_new_data *data) {
     return false;
 }
 
+bool pa_source_output_new_data_compressed(pa_source_output_new_data *data) {
+    pa_assert(data);
+
+    if (data->format && pa_format_info_is_compressed_capture(data->format))
+        return true;
+
+    return false;
+}
+
 void pa_source_output_new_data_set_volume(pa_source_output_new_data *data, const pa_cvolume *volume) {
     pa_assert(data);
     pa_assert(data->volume_writable);
@@ -376,7 +385,13 @@ int pa_source_output_new(
     if (!data->muted_is_set)
         data->muted = false;
 
-    if (!(data->flags & PA_SOURCE_OUTPUT_VARIABLE_RATE) &&
+    if (pa_source_output_new_data_compressed(data)) {
+        // FIXME
+        // In the case of compressed offload, the format info is set to source.
+        // Source need this format information, to set the right meta-data.
+        // For example, setting of stream format information
+        pa_log_warn("TODO: Compressed capture, nothing set to actual source, missing??");
+    } else if (!(data->flags & PA_SOURCE_OUTPUT_VARIABLE_RATE) &&
         !pa_sample_spec_equal(&data->sample_spec, &data->source->sample_spec)) {
         /* try to change source format and rate. This is done before the FIXATE hook since
            module-suspend-on-idle can resume a source */
@@ -416,7 +431,8 @@ int pa_source_output_new(
         !pa_sample_spec_equal(&data->sample_spec, &data->source->sample_spec) ||
         !pa_channel_map_equal(&data->channel_map, &data->source->channel_map)) {
 
-        if (!pa_source_output_new_data_is_passthrough(data)) /* no resampler for passthrough content */
+        if (!pa_source_output_new_data_is_passthrough(data) &&
+            !pa_source_output_new_data_compressed(data)) /* no resampler for passthrough content */
             if (!(resampler = pa_resampler_new(
                         core->mempool,
                         &data->source->sample_spec, &data->source->channel_map,
