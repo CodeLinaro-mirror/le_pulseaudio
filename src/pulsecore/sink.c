@@ -359,6 +359,8 @@ pa_sink* pa_sink_new(
     s->thread_info.volume_change_extra_delay = core->deferred_volume_extra_delay_usec;
     s->thread_info.port_latency_offset = s->port_latency_offset;
 
+    s->sess_time = 0;
+
     /* FIXME: This should probably be moved to pa_sink_put() */
     pa_assert_se(pa_idxset_put(core->sinks, s, &s->index) >= 0);
 

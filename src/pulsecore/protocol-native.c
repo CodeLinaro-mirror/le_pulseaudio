@@ -149,6 +149,7 @@ typedef struct playback_stream {
     int64_t read_index, write_index;
     size_t render_memblockq_length;
     pa_usec_t current_sink_latency;
+    uint64_t current_sink_sess_time;
     uint64_t playing_for, underrun_for;
 } playback_stream;
 
@@ -1456,6 +1457,7 @@ static int sink_input_process_msg(pa_msgobject *o, int code, void *userdata, int
             s->write_index = pa_memblockq_get_write_index(s->memblockq);
             s->render_memblockq_length = pa_memblockq_get_length(s->sink_input->thread_info.render_memblockq);
             s->current_sink_latency = pa_sink_get_latency_within_thread(s->sink_input->sink, false);
+            s->current_sink_sess_time = s->sink_input->sink->sess_time;
             s->underrun_for = s->sink_input->thread_info.underrun_for;
             s->playing_for = s->sink_input->thread_info.playing_for;
 
@@ -2964,6 +2966,7 @@ static void command_get_playback_latency(pa_pdispatch *pd, uint32_t command, uin
     pa_tagstruct_put_usec(reply,
                           s->current_sink_latency +
                           pa_bytes_to_usec(s->render_memblockq_length, &s->sink_input->sink->sample_spec));
+    pa_tagstruct_put_usec(reply, s->current_sink_sess_time);
     pa_tagstruct_put_usec(reply, 0);
     pa_tagstruct_put_boolean(reply,
                              s->playing_for > 0 &&
@@ -3008,6 +3011,7 @@ static void command_get_record_latency(pa_pdispatch *pd, uint32_t command, uint3
 
     reply = reply_new(tag);
     pa_tagstruct_put_usec(reply, s->current_monitor_latency);
+    pa_tagstruct_put_usec(reply, 0);
     pa_tagstruct_put_usec(reply,
                           s->current_source_latency +
                           pa_bytes_to_usec(s->on_the_fly_snapshot, &s->source_output->sample_spec));
