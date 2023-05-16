@@ -396,6 +396,10 @@ static int pa_pal_sink_io_process_msg(pa_msgobject *o, int code, void *data, int
             *((int64_t*) data) = pa_pal_sink_get_latency(sdata);
             return 0;
 
+        case PA_QAL_SINK_MESSAGE_DRAIN_READY:
+            pa_sink_drain_complete(sdata->pa_sdata->sink);
+            return 0;
+
         default:
              break;
     }
@@ -559,6 +563,22 @@ exit:
     return ret;
 }
 
+static int pa_pal_sink_drain_cb(pa_sink *s) {
+    int rc = 0;
+    pa_pal_sink_data *sdata = (pa_pal_sink_data *)s->userdata;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pal_sdata);
+    pa_assert(sdata->pal_sdata->stream_handle);
+
+    if (!PA_SINK_IS_OPENED(s->state))
+        return rc;
+
+    pa_log_info("Func:%s", __func__);
+
+    return pal_stream_drain(sdata->pal_sdata->stream_handle, PAL_DRAIN_PARTIAL);
+}
+
 static int pa_pal_sink_flush_cb(pa_sink *s) {
     int rc = 0;
     pa_pal_sink_data *sdata = (pa_pal_sink_data *)s->userdata;
@@ -719,6 +739,17 @@ static int32_t pa_pal_out_cb(pal_stream_handle_t *stream_handle,
 #endif
             /* Wake up QAL thread */
             pa_fdsem_post(pal_sdata->pal_fdsem);
+
+            break;
+
+        case PAL_STREAM_CBK_EVENT_PARTIAL_DRAIN_READY:
+#ifdef SINK_DEBUG
+            pa_log_debug("[%d]Func:%s Received event DRAIN_READY for handle %p",
+                    __LINE__, __func__, pal_sdata->stream_handle);
+#endif
+            /* post drain complete to i/o thread */
+            pa_asyncmsgq_post(sdata->pa_sdata->thread_mq.inq, PA_MSGOBJECT(sdata->pa_sdata->sink),
+                                                PA_QAL_SINK_MESSAGE_DRAIN_READY, NULL, 0, NULL, NULL);
 
             break;
 
@@ -1029,6 +1060,7 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     }
 
     pa_sdata->sink->set_format = pa_pal_sink_set_format_cb;
+    pa_sdata->sink->drain = pa_pal_sink_drain_cb;
     pa_sdata->sink->flush = pa_pal_sink_flush_cb;
 
     pa_sink_set_asyncmsgq(pa_sdata->sink, pa_sdata->thread_mq.inq);

@@ -107,6 +107,10 @@ typedef struct {
     pa_pal_sink_handle_t *handle;
 } pa_pal_card_sink_info;
 
+typedef enum {
+    PA_QAL_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
+} pa_qal_sink_msgs_t;
+
 bool pa_pal_sink_is_supported_sample_rate(uint32_t sample_rate);
 /* create pal session and pa sink */
 int pa_pal_sink_create(pa_module *m, pa_card *card, const char *driver, const char *module_name, pa_pal_sink_config *sink, pa_pal_sink_handle_t **handle);
