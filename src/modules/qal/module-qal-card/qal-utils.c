@@ -31,10 +31,24 @@
 
 #include "qal-utils.h"
 
+#define PA_PAL_SINK_PROP_FORMAT_FLAG    "stream-format"
+
+#define AAC_AOT_PS    29
+
 typedef struct{
     pa_channel_position_t pa_channel_map_position;
     uint32_t pal_channel_map_position;
 } pa_pal_util_pa_pal_channel_map;
+
+typedef struct {
+    pal_audio_fmt_t format_flag;
+} pa_pal_util_aac_compress_metadata;
+
+typedef union {
+    pa_pal_util_aac_compress_metadata aac;
+} pa_pal_util_compress_metadata;
+
+pa_pal_util_compress_metadata compress_metadata;
 
 typedef struct {
     char *port_name;
@@ -78,6 +92,26 @@ int pa_pal_util_set_pal_metadata_from_pa_format(const pa_format_info *format) {
     pa_assert(format);
 
     switch (format->encoding) {
+        case PA_ENCODING_AAC:
+            rc = pa_format_info_get_prop_string(format,
+                 PA_PAL_SINK_PROP_FORMAT_FLAG, &format_flag);
+            if (rc) {
+                compress_metadata.aac.format_flag = PAL_AUDIO_FMT_AAC;
+                pa_log_error("%s: Failed to obtain AAC stream format", __func__);
+            } else {
+               if (pa_streq(format_flag, "adts")) {
+                   pa_log_debug("%s: adts format", __func__);
+                   compress_metadata.aac.format_flag = PAL_AUDIO_FMT_AAC_ADTS;
+               } else {
+                   pa_log_debug("%s: raw format", __func__);
+                   compress_metadata.aac.format_flag = PAL_AUDIO_FMT_AAC;
+               }
+
+               pa_xfree(format_flag);
+            }
+
+            break;
+        case PA_ENCODING_MPEG:
         default:
            break;
     }
@@ -176,6 +210,14 @@ pal_audio_fmt_t pa_pal_util_get_pal_format_from_pa_encoding(pa_encoding_t pa_for
             break;
         case PA_ENCODING_PCM:
             pal_format = PAL_AUDIO_FMT_PCM_S16_LE;
+            break;
+        case PA_ENCODING_MPEG:
+            pal_format = PAL_AUDIO_FMT_MP3;
+            break;
+        case PA_ENCODING_AAC:
+            pal_format = compress_metadata.aac.format_flag;
+            pal_snd_dec->aac_dec.audio_obj_type = AAC_AOT_PS;
+            pal_snd_dec->aac_dec.pce_bits_size = 0;
             break;
         default:
             pa_log_error("PA format encoding not supported in PAL\n");

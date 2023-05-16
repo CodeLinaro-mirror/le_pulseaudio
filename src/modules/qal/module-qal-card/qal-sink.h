@@ -123,6 +123,8 @@ static inline bool pa_pal_sink_is_supported_encoding(pa_encoding_t encoding) {
 
     switch (encoding) {
         case PA_ENCODING_PCM:
+        case PA_ENCODING_MPEG:
+        case PA_ENCODING_AAC:
             break;
 
         default :
