@@ -4070,6 +4070,18 @@ int pa_sink_flush(pa_sink *s) {
 		return -1;
 }
 
+/* Called from the IO thread. */
+int pa_sink_drain(pa_sink *s) {
+    pa_assert(s);
+    pa_assert_io_context();
+
+    if (s->drain)
+        return s->drain(s);
+    else
+        return -1;
+}
+
+/* Called from the IO thread. */
 void pa_sink_drain_complete(pa_sink *s) {
     pa_sink_input *i;
     uint32_t idx;
