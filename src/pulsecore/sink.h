@@ -19,6 +19,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #include <inttypes.h>
@@ -107,7 +111,9 @@ struct pa_sink {
     bool save_muted:1;
     bool port_changing:1;
 
-    /* Saved volume state while we're in passthrough mode */
+    /* Saved state while we're in passthrough or compressed mode */
+    pa_sample_spec saved_spec;
+    pa_channel_map saved_map;
     pa_cvolume saved_volume;
     bool saved_save_volume:1;
 
@@ -485,9 +491,10 @@ pa_sink *pa_sink_get_master(pa_sink *s);
 
 bool pa_sink_is_filter(pa_sink *s);
 
-/* Is the sink in passthrough mode? (that is, is there a passthrough sink input
- * connected to this sink? */
-bool pa_sink_is_passthrough(pa_sink *s);
+/* Is the sink in exclusive mode? (that is, is there a passthrough or
+ * compressed sink input connected to this sink?) */
+bool pa_sink_is_exclusive(pa_sink *s);
+
 /* These should be called when a sink enters/leaves passthrough mode */
 void pa_sink_enter_passthrough(pa_sink *s);
 void pa_sink_leave_passthrough(pa_sink *s);
@@ -526,6 +533,7 @@ void pa_sink_move_all_fail(pa_queue *q);
  * https://bugs.freedesktop.org/show_bug.cgi?id=71924 */
 pa_idxset* pa_sink_get_formats(pa_sink *s);
 
+bool pa_sink_set_format(pa_sink *s, pa_format_info *format);
 bool pa_sink_set_formats(pa_sink *s, pa_idxset *formats);
 bool pa_sink_check_format(pa_sink *s, pa_format_info *f);
 pa_idxset* pa_sink_check_formats(pa_sink *s, pa_idxset *in_formats);

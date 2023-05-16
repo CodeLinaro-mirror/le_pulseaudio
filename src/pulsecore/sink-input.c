@@ -91,7 +91,7 @@ static void sink_input_free(pa_object *o);
 static void set_real_ratio(pa_sink_input *i, const pa_cvolume *v);
 
 static int check_passthrough_connection(bool passthrough, pa_sink *dest) {
-    if (pa_sink_is_passthrough(dest)) {
+    if (pa_sink_is_exclusive(dest)) {
         pa_log_warn("Sink is already connected to PASSTHROUGH input");
         return -PA_ERR_BUSY;
     }
@@ -135,6 +135,18 @@ void pa_sink_input_new_data_set_channel_map(pa_sink_input_new_data *data, const 
         data->channel_map = *map;
 }
 
+bool pa_sink_input_new_data_is_pcm(pa_sink_input_new_data *data) {
+    pa_assert(data);
+
+    if (data->format && pa_format_info_is_pcm(data->format))
+        return true;
+
+    if (!data->format)
+        return true;
+
+    return false;
+}
+
 bool pa_sink_input_new_data_is_passthrough(pa_sink_input_new_data *data) {
     pa_assert(data);
 
@@ -142,6 +154,15 @@ bool pa_sink_input_new_data_is_passthrough(pa_sink_input_new_data *data) {
         return true;
 
     if (PA_UNLIKELY(data->flags & PA_SINK_INPUT_PASSTHROUGH))
+        return true;
+
+    return false;
+}
+
+bool pa_sink_input_new_data_is_compressed(pa_sink_input_new_data *data) {
+    pa_assert(data);
+
+    if (data->format && pa_format_info_is_compressed(data->format))
         return true;
 
     return false;
@@ -377,7 +398,7 @@ int pa_sink_input_new(
 
     /* Routing is done. We have a sink and a format. */
 
-    if (data->volume_is_set && !pa_sink_input_new_data_is_passthrough(data)) {
+    if (data->volume_is_set && pa_sink_input_new_data_is_pcm(data)) {
         /* If volume is set, we need to save the original data->channel_map,
          * so that we can remap the volume from the original channel map to the
          * final channel map of the stream in case data->channel_map gets
@@ -404,7 +425,7 @@ int pa_sink_input_new(
 
     /* Don't restore (or save) stream volume for passthrough streams and
      * prevent attenuation/gain */
-    if (pa_sink_input_new_data_is_passthrough(data)) {
+    if (!pa_sink_input_new_data_is_pcm(data)) {
         data->volume_is_set = true;
         pa_cvolume_reset(&data->volume, data->sample_spec.channels);
         data->volume_is_absolute = true;
@@ -428,13 +449,22 @@ int pa_sink_input_new(
     if (!data->muted_is_set)
         data->muted = false;
 
-    if (!(data->flags & PA_SINK_INPUT_VARIABLE_RATE) &&
-        !pa_sample_spec_equal(&data->sample_spec, &data->sink->sample_spec)) {
-        /* try to change sink format and rate. This is done before the FIXATE hook since
-           module-suspend-on-idle can resume a sink */
+    if (!pa_sink_input_new_data_is_compressed(data)) {
+        if ((!(data->flags & PA_SINK_INPUT_VARIABLE_RATE) &&
+            !pa_sample_spec_equal(&data->sample_spec, &data->sink->sample_spec)) ||
+            pa_sink_input_new_data_is_passthrough(data)) {
+            /* try to change sink format and rate. This is done before the FIXATE hook since
+            module-suspend-on-idle can resume a sink */
 
-        pa_log_info("Trying to change sample spec");
-        pa_sink_reconfigure(data->sink, &data->sample_spec, pa_sink_input_new_data_is_passthrough(data));
+            pa_log_info("Trying to change sample spec");
+            pa_sink_reconfigure(data->sink, &data->sample_spec, pa_sink_input_new_data_is_passthrough(data));
+        }
+    } else {
+        /* Set the compressed format on the sink */
+        if (!pa_sink_set_format(data->sink, data->format)) {
+            pa_log_info("Could not configure sink for: %s", pa_format_info_snprint(fmt, sizeof(fmt), data->format));
+            return -PA_ERR_NOTSUPPORTED;
+        }
     }
 
     if (pa_sink_input_new_data_is_passthrough(data) &&
@@ -469,7 +499,7 @@ int pa_sink_input_new(
         !pa_channel_map_equal(&data->channel_map, &data->sink->channel_map)) {
 
         /* Note: for passthrough content we need to adjust the output rate to that of the current sink-input */
-        if (!pa_sink_input_new_data_is_passthrough(data)) /* no resampler for passthrough content */
+        if (pa_sink_input_new_data_is_pcm(data)) /* no resampler for passthrough/compressed content */
             if (!(resampler = pa_resampler_new(
                           core->mempool,
                           &data->sample_spec, &data->channel_map,
@@ -627,6 +657,7 @@ static void sink_input_set_state(pa_sink_input *i, pa_sink_input_state_t state) 
 
     if (i->sink) {
         if (i->state == PA_SINK_INPUT_CORKED && state == PA_SINK_INPUT_RUNNING && pa_sink_used_by(i->sink) == 0 &&
+            !pa_sink_input_is_compressed(i) &&
             !pa_sample_spec_equal(&i->sample_spec, &i->sink->sample_spec)) {
             /* We were uncorked and the sink was not playing anything -- let's try
              * to update the sample format and rate to avoid resampling */
@@ -733,8 +764,14 @@ void pa_sink_input_unlink(pa_sink_input *i) {
     reset_callbacks(i);
 
     if (i->sink) {
-        if (PA_SINK_IS_LINKED(i->sink->state))
+        if (PA_SINK_IS_LINKED(i->sink->state)) {
             pa_sink_update_status(i->sink);
+
+            if (pa_sink_input_is_compressed(i)) {
+                if (!pa_sink_set_format(i->sink, NULL))
+                    pa_log_warn("Sink could not exit compressed mode");
+            }
+        }
 
         i->sink = NULL;
     }
@@ -1396,6 +1433,19 @@ static void set_real_ratio(pa_sink_input *i, const pa_cvolume *v) {
 }
 
 /* Called from main or I/O context */
+bool pa_sink_input_is_pcm(pa_sink_input *i) {
+    pa_sink_input_assert_ref(i);
+
+    if (PA_UNLIKELY(pa_format_info_is_passthrough(i->format) || pa_format_info_is_compressed(i->format)))
+        return false;
+
+    if (PA_UNLIKELY(i->flags & PA_SINK_INPUT_PASSTHROUGH))
+        return false;
+
+    return true;
+}
+
+/* Called from main or I/O context */
 bool pa_sink_input_is_passthrough(pa_sink_input *i) {
     pa_sink_input_assert_ref(i);
 
@@ -1943,8 +1993,10 @@ int pa_sink_input_finish_move(pa_sink_input *i, pa_sink *dest, bool save) {
         return -PA_ERR_NOTSUPPORTED;
     }
 
-    if (!(i->flags & PA_SINK_INPUT_VARIABLE_RATE) &&
-        !pa_sample_spec_equal(&i->sample_spec, &dest->sample_spec)) {
+    if ((!(i->flags & PA_SINK_INPUT_VARIABLE_RATE) &&
+         !pa_sink_input_is_compressed(i) &&
+         !pa_sample_spec_equal(&i->sample_spec, &dest->sample_spec)) ||
+         pa_sink_input_is_passthrough(i)) {
         /* try to change dest sink format and rate if possible without glitches.
            module-suspend-on-idle resumes destination sink with
            SINK_INPUT_MOVE_FINISH hook */
