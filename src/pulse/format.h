@@ -20,6 +20,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #include <pulse/cdecl.h>
@@ -106,6 +110,8 @@ typedef enum pa_encoding {
 #define PA_ENCODING_MPEG2_AAC_IEC61937 PA_ENCODING_MPEG2_AAC_IEC61937
 #define PA_ENCODING_TRUEHD_IEC61937 PA_ENCODING_TRUEHD_IEC61937
 #define PA_ENCODING_DTSHD_IEC61937 PA_ENCODING_DTSHD_IEC61937
+#define PA_ENCODING_MPEG PA_ENCODING_MPEG
+#define PA_ENCODING_AAC PA_ENCODING_AAC
 #define PA_ENCODING_MAX PA_ENCODING_MAX
 #define PA_ENCODING_INVALID PA_ENCODING_INVALID
 /** \endcond */
