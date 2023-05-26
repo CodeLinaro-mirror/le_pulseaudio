@@ -312,7 +312,7 @@ static int pa_pal_sink_start(pa_pal_sink_data *sdata) {
                 pa_log_error("pal sink open failed, error %d", rc);
                 pa_xfree(sdata->pal_sdata);
                 sdata->pal_sdata = NULL;
-                goto finish;
+                return rc;
             }
         }
 
@@ -320,22 +320,26 @@ static int pa_pal_sink_start(pa_pal_sink_data *sdata) {
              rc = pa_pal_set_param(pal_sdata, PAL_PARAM_ID_CODEC_CONFIGURATION);
              if (rc) {
                 pa_log_error("pa_pal_set_param failed, error %d\n", rc);
-                goto finish;
+                goto cleanup;
             }
         }
 
         rc = pal_stream_start(pal_sdata->stream_handle);
         if (rc) {
             pa_log_error("pal_stream_start failed, error %d\n", rc);
-            goto finish;
+            goto cleanup;
         }
-
-        pal_sdata->standby = false;
     } else {
         pa_log_debug("pal_stream already started");
     }
 
-finish:
+    pal_sdata->standby = false;
+
+    return 0;
+
+cleanup:
+    if (close_pal_sink(sdata))
+        pa_log_error("could not close sink handle %p", sdata->pal_sdata->stream_handle);
     return rc;
 }
 
@@ -351,7 +355,7 @@ static int pa_pal_sink_standby(pa_pal_sink_data *sdata) {
     if (sdata->pal_sink_opened) {
         rc = close_pal_sink(sdata);
         if (PA_UNLIKELY(rc))
-            pa_log_error(" could not close sink handle %p, error %d", sdata->pal_sdata->stream_handle, rc);
+            pa_log_error("could not close sink handle %p, error %d", sdata->pal_sdata->stream_handle, rc);
     } else {
         pa_log_debug("pal_stream already in standby");
     }
@@ -545,7 +549,7 @@ static bool pa_pal_sink_set_format_cb(pa_sink *s, const pa_format_info *format) 
               pa_channel_map_snprint(ch_map_buf, sizeof(ch_map_buf), &map));
 
        port_device_data = PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port);
-       
+
        if (restart_pal_sink(s, encoding, &pa_sdata->sink->sample_spec, &map, port_device_data,
                                 pal_sdata->stream_attributes->type, pal_sdata->index, sdata,
                                 (uint32_t)pal_sdata->buffer_size, pal_sdata->buffer_count)) {
@@ -806,8 +810,6 @@ static int open_pal_sink(pa_pal_sink_data *sdata) {
         goto exit;
     }
 
-    sdata->pal_sink_opened = true;
-
     pa_log_debug("pal sink opened %p", pal_sdata->stream_handle);
 
     /* FIXME: Update it by calling pal_stream_get_buffer_size */
@@ -820,6 +822,8 @@ static int open_pal_sink(pa_pal_sink_data *sdata) {
         pa_log_error("pal_stream_set_buffer_size failed\n");
         goto exit;
     }
+
+    sdata->pal_sink_opened = true;
 
 #ifdef SINK_DUMP_ENABLED
     file_name = pa_sprintf_malloc("/data/pcmdump_sink_%d", pal_sdata->index);
