@@ -20,6 +20,12 @@
   * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
   */
 
+ /*
+  * Changes from Qualcomm Innovation Center are provided under the following license:
+  * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  * SPDX-License-Identifier: BSD-3-Clause-Clear
+  */
+
 #ifndef foopalpasinkfoo
 #define foopalpasinkfoo
 
@@ -70,6 +76,11 @@ typedef struct {
     int index;
 
     bool standby;
+
+    pa_fdsem *pal_fdsem;
+    pa_encoding_t encoding;
+    bool compressed;
+    pal_snd_dec_t *pal_snd_dec;
 } pal_sink_data;
 
 typedef struct {
@@ -85,6 +96,7 @@ typedef struct {
     pal_sink_data *pal_sdata;
     pa_sink_data *pa_sdata;
     struct userdata *u;
+    bool pal_sink_opened; /* set when PAL session is to enabled */
 
     pa_fdsem *fdsem; /* common resource between pa and pal sink */
 } pa_pal_sink_data;
@@ -94,6 +106,10 @@ typedef size_t pa_pal_sink_handle_t;
 typedef struct {
     pa_pal_sink_handle_t *handle;
 } pa_pal_card_sink_info;
+
+typedef enum {
+    PA_QAL_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
+} pa_qal_sink_msgs_t;
 
 bool pa_pal_sink_is_supported_sample_rate(uint32_t sample_rate);
 /* create pal session and pa sink */
@@ -107,6 +123,8 @@ static inline bool pa_pal_sink_is_supported_encoding(pa_encoding_t encoding) {
 
     switch (encoding) {
         case PA_ENCODING_PCM:
+        case PA_ENCODING_MPEG:
+        case PA_ENCODING_AAC:
             break;
 
         default :

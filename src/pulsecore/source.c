@@ -16,6 +16,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
@@ -1256,8 +1260,8 @@ bool pa_source_is_passthrough(pa_source *s) {
 
     pa_source_assert_ref(s);
 
-    /* NB Currently only monitor sources support passthrough mode */
-    return (s->monitor_of && pa_sink_is_passthrough(s->monitor_of));
+    /* Check if we're a monitor source and sink is in exclusive mode */
+    return (s->monitor_of && pa_sink_is_exclusive(s->monitor_of));
 }
 
 /* Called from main context */

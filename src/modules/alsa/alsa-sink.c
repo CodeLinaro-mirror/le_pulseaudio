@@ -16,6 +16,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
@@ -1164,7 +1168,7 @@ static int unsuspend(struct userdata *u, bool recovering) {
 
     pa_log_info("Trying resume...");
 
-    if ((is_iec958(u) || is_hdmi(u)) && pa_sink_is_passthrough(u->sink)) {
+    if ((is_iec958(u) || is_hdmi(u)) && pa_sink_is_exclusive(u->sink)) {
         /* Need to open device in NONAUDIO mode */
         int len = strlen(u->device_name) + 8;
 

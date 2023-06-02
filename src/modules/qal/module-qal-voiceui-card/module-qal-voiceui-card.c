@@ -1252,6 +1252,7 @@ void pa__done(pa_module *m) {
     if (m_data->modargs)
         pa_modargs_free(m_data->modargs);
 
+    pa_shared_remove(m->core, "voice-ui-session");
     pa_xfree(m_data->pal);
     pa_xfree(m_data);
     m->userdata = NULL;

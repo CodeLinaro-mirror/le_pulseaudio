@@ -19,6 +19,10 @@
 
   You should have received a copy of the GNU Lesser General Public
   License along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #include <inttypes.h>
@@ -693,6 +697,9 @@ typedef struct pa_timing_info {
     /**< Time in usecs a sample takes to be played on the sink. For
      * playback streams and record streams connected to a monitor
      * source. */
+
+    pa_usec_t sink_sess_usec;
+    /** Value of the current sink session time. */
 
     pa_usec_t source_usec;
     /**< Time in usecs a sample takes from being recorded to being
