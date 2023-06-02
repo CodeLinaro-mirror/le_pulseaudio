@@ -19,6 +19,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #include <inttypes.h>
@@ -231,6 +235,11 @@ struct pa_sink_input {
      * mute status changes. Called from main context */
     void (*mute_changed)(pa_sink_input *i); /* may be NULL */
 
+    /* If non-NULL this function is called when for a compressed
+     * stream, a drain was called and the sink has completed the
+     * drain request */
+    void (*drain_complete)(pa_sink_input *i); /* may be NULL */
+
     struct {
         pa_sink_input_state_t state;
 
@@ -328,7 +337,9 @@ typedef struct pa_sink_input_new_data {
 pa_sink_input_new_data* pa_sink_input_new_data_init(pa_sink_input_new_data *data);
 void pa_sink_input_new_data_set_sample_spec(pa_sink_input_new_data *data, const pa_sample_spec *spec);
 void pa_sink_input_new_data_set_channel_map(pa_sink_input_new_data *data, const pa_channel_map *map);
+bool pa_sink_input_new_data_is_pcm(pa_sink_input_new_data *data);
 bool pa_sink_input_new_data_is_passthrough(pa_sink_input_new_data *data);
+bool pa_sink_input_new_data_is_compressed(pa_sink_input_new_data *data);
 void pa_sink_input_new_data_set_volume(pa_sink_input_new_data *data, const pa_cvolume *volume);
 void pa_sink_input_new_data_add_volume_factor(pa_sink_input_new_data *data, const char *key, const pa_cvolume *volume_factor);
 void pa_sink_input_new_data_add_volume_factor_sink(pa_sink_input_new_data *data, const char *key, const pa_cvolume *volume_factor);
@@ -374,7 +385,9 @@ void pa_sink_input_kill(pa_sink_input*i);
 
 pa_usec_t pa_sink_input_get_latency(pa_sink_input *i, pa_usec_t *sink_latency);
 
+bool pa_sink_input_is_pcm(pa_sink_input *i);
 bool pa_sink_input_is_passthrough(pa_sink_input *i);
+bool pa_sink_input_is_compressed(pa_sink_input *i);
 bool pa_sink_input_is_volume_readable(pa_sink_input *i);
 void pa_sink_input_set_volume(pa_sink_input *i, const pa_cvolume *volume, bool save, bool absolute);
 void pa_sink_input_add_volume_factor(pa_sink_input *i, const char *key, const pa_cvolume *volume_factor);
@@ -420,6 +433,9 @@ pa_usec_t pa_sink_input_set_requested_latency_within_thread(pa_sink_input *i, pa
 
 bool pa_sink_input_safe_to_remove(pa_sink_input *i);
 bool pa_sink_input_process_underrun(pa_sink_input *i);
+
+/* Used by compressed sinks to signal end of drain */
+void pa_sink_input_drain_complete(pa_sink_input *i);
 
 pa_memchunk* pa_sink_input_get_silence(pa_sink_input *i, pa_memchunk *ret);
 

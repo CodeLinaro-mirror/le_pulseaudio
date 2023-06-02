@@ -17,6 +17,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
@@ -53,6 +57,9 @@ static const char* const _encoding_str_table[]= {
     [PA_ENCODING_UNKNOWN_4X_IEC61937] = "unknown-4x-iec61937",
     [PA_ENCODING_UNKNOWN_HBR_IEC61937] = "unknown-hbr-iec61937",
     [PA_ENCODING_MAT_IEC61937] = "mat-iec61937",
+    [PA_ENCODING_MPEG] = "mpeg",
+    [PA_ENCODING_AAC] = "aac",
+    [PA_ENCODING_DSD] = "dsd",
     [PA_ENCODING_ANY] = "any",
 };
 
@@ -112,6 +119,47 @@ int pa_format_info_valid(const pa_format_info *f) {
 
 int pa_format_info_is_pcm(const pa_format_info *f) {
     return f->encoding == PA_ENCODING_PCM;
+}
+
+int pa_format_info_is_passthrough(const pa_format_info *f) {
+    switch (f->encoding) {
+        case PA_ENCODING_AC3_IEC61937:
+        case PA_ENCODING_EAC3_IEC61937:
+        case PA_ENCODING_MPEG_IEC61937:
+        case PA_ENCODING_DTS_IEC61937:
+        case PA_ENCODING_MPEG2_AAC_IEC61937:
+        case PA_ENCODING_TRUEHD_IEC61937:
+        case PA_ENCODING_UNKNOWN_IEC61937:
+        case PA_ENCODING_UNKNOWN_4X_IEC61937:
+        case PA_ENCODING_UNKNOWN_HBR_IEC61937:
+        case PA_ENCODING_MAT_IEC61937:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+int pa_format_info_is_compressed(const pa_format_info *f) {
+    switch (f->encoding) {
+        case PA_ENCODING_MPEG:
+        case PA_ENCODING_AAC:
+        case PA_ENCODING_DSD:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+int pa_format_info_is_compressed_capture(const pa_format_info *f) {
+        switch (f->encoding) {
+        case PA_ENCODING_DSD:
+            return true;
+
+        default:
+            return false;
+    }
 }
 
 char *pa_format_info_snprint(char *s, size_t l, const pa_format_info *f) {

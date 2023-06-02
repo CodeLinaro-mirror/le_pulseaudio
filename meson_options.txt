@@ -93,6 +93,9 @@ option('with-qsthw',
 option('with-qal',
        type : 'string',
        description : 'Optional qal module support')
+option('with-qal-voiceui',
+       type : 'string',
+       description : 'Optional qal voiceui module support')
 option('asyncns',
        type : 'feature', value : 'auto',
        description : 'Optional Async DNS support')

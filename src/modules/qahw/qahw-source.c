@@ -1093,9 +1093,9 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_proplist_setf(new_data.proplist, "buffer-size", "%lu", (long unsigned)source_data->qahw_sdata->source_buffer_size);
 
     if (avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_ALL)
-        new_data.avoid_processing = true;
+        new_data.avoid_resampling = true;
     else
-        new_data.avoid_processing = false;
+        new_data.avoid_resampling = false;
 
     if (proplist)
         pa_proplist_update(new_data.proplist, PA_UPDATE_REPLACE, proplist);

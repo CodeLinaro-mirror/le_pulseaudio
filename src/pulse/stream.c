@@ -16,6 +16,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
@@ -1742,6 +1746,13 @@ static pa_usec_t calc_time(const pa_stream *s, bool ignore_transport) {
     pa_assert(s->direction != PA_STREAM_PLAYBACK || !s->timing_info.read_index_corrupt);
     pa_assert(s->direction != PA_STREAM_RECORD || !s->timing_info.write_index_corrupt);
 
+    /* Get a time value (rather than bytes) for compressed streams */
+    if (s->format && pa_format_info_is_compressed(s->format)) {
+        if ((usec = s->timing_info.sink_sess_usec) > 0) {
+            goto finish;
+        }
+    }
+
     if (s->direction == PA_STREAM_PLAYBACK) {
         /* The last byte that was written into the output device
          * had this time value associated */
@@ -1789,6 +1800,7 @@ static pa_usec_t calc_time(const pa_stream *s, bool ignore_transport) {
         }
     }
 
+finish:
     return usec;
 }
 
@@ -1819,6 +1831,7 @@ static void stream_get_timing_info_callback(pa_pdispatch *pd, uint32_t command, 
     } else {
 
         if (pa_tagstruct_get_usec(t, &i->sink_usec) < 0 ||
+            pa_tagstruct_get_usec(t, &i->sink_sess_usec) < 0 ||
             pa_tagstruct_get_usec(t, &i->source_usec) < 0 ||
             pa_tagstruct_get_boolean(t, &playing) < 0 ||
             pa_tagstruct_get_timeval(t, &local) < 0 ||

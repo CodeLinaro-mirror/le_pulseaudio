@@ -16,6 +16,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
@@ -38,6 +42,7 @@
 #include <pulsecore/i18n.h>
 #include <pulsecore/sink-input.h>
 #include <pulsecore/namereg.h>
+#include <pulsecore/core-format.h>
 #include <pulsecore/core-util.h>
 #include <pulsecore/sample-util.h>
 #include <pulsecore/mix.h>
@@ -353,6 +358,8 @@ pa_sink* pa_sink_new(
     s->thread_info.volume_change_safety_margin = core->deferred_volume_safety_margin_usec;
     s->thread_info.volume_change_extra_delay = core->deferred_volume_extra_delay_usec;
     s->thread_info.port_latency_offset = s->port_latency_offset;
+
+    s->sess_time = 0;
 
     /* FIXME: This should probably be moved to pa_sink_put() */
     pa_assert_se(pa_idxset_put(core->sinks, s, &s->index) >= 0);
@@ -1538,7 +1545,7 @@ void pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, bool passthrough) {
             desired_spec.rate = default_rate;
     }
 
-    if (pa_sample_spec_equal(&desired_spec, &s->sample_spec) && passthrough == pa_sink_is_passthrough(s))
+    if (pa_sample_spec_equal(&desired_spec, &s->sample_spec) && passthrough == pa_sink_is_exclusive(s))
         return;
 
     if (!passthrough && pa_sink_used_by(s) > 0)
@@ -1662,17 +1669,17 @@ bool pa_sink_is_filter(pa_sink *s) {
 }
 
 /* Called from main context */
-bool pa_sink_is_passthrough(pa_sink *s) {
+bool pa_sink_is_exclusive(pa_sink *s) {
     pa_sink_input *alt_i;
     uint32_t idx;
 
     pa_sink_assert_ref(s);
 
-    /* one and only one PASSTHROUGH input can possibly be connected */
+    /* one and only one passthrough or compressed input can possibly be connected */
     if (pa_idxset_size(s->inputs) == 1) {
         alt_i = pa_idxset_first(s->inputs, &idx);
 
-        if (pa_sink_input_is_passthrough(alt_i))
+        if (!pa_sink_input_is_pcm(alt_i))
             return true;
     }
 
@@ -2099,10 +2106,10 @@ void pa_sink_set_volume(
     pa_assert(volume || pa_sink_flat_volume_enabled(s));
     pa_assert(!volume || volume->channels == 1 || pa_cvolume_compatible(volume, &s->sample_spec));
 
-    /* make sure we don't change the volume when a PASSTHROUGH input is connected ...
+    /* make sure we don't change the volume when a passthrough or compressed input is connected ...
      * ... *except* if we're being invoked to reset the volume to ensure 0 dB gain */
-    if (pa_sink_is_passthrough(s) && (!volume || !pa_cvolume_is_norm(volume))) {
-        pa_log_warn("Cannot change volume, Sink is connected to PASSTHROUGH input");
+    if (pa_sink_is_exclusive(s) && (!volume || !pa_cvolume_is_norm(volume))) {
+        pa_log_warn("Cannot change volume, Sink is connected to exclusive input");
         return;
     }
 
@@ -3838,6 +3845,44 @@ pa_idxset* pa_sink_get_formats(pa_sink *s) {
 }
 
 /* Called from the main thread */
+/* Configures the sink for this specific (compressed) format */
+bool pa_sink_set_format(pa_sink *s, pa_format_info *f) {
+    pa_channel_map old_map;
+    bool ret;
+
+    pa_assert(s);
+
+    if (!s->set_format)
+        return false;
+
+    old_map = s->channel_map;
+
+    if (f) {
+        s->saved_spec = s->sample_spec;
+        s->saved_map = s->channel_map;
+
+        pa_format_info_to_sample_spec_fake(f, &s->sample_spec, &s->channel_map);
+    } else {
+        s->sample_spec = s->saved_spec;
+        s->channel_map = s->saved_map;
+
+        /* Invalidate to make sure we don't reuse this unexpectedly */
+        pa_sample_spec_init(&s->saved_spec);
+        pa_channel_map_init(&s->saved_map);
+    }
+
+    /* Fixup volumes to be valid */
+    pa_cvolume_remap(&s->reference_volume, &old_map, &s->channel_map);
+    pa_cvolume_remap(&s->real_volume, &old_map, &s->channel_map);
+    pa_cvolume_remap(&s->soft_volume, &old_map, &s->channel_map);
+
+    /* Set the format on the sink */
+    ret = s->set_format(s, f);
+
+    return ret;
+}
+
+/* Called from the main thread */
 /* Allows an external source to set what formats a sink supports if the sink
  * permits this. The function makes a copy of the formats on success. */
 bool pa_sink_set_formats(pa_sink *s, pa_idxset *formats) {
@@ -4014,4 +4059,46 @@ void pa_sink_move_streams_to_default_sink(pa_core *core, pa_sink *old_sink, bool
 
         pa_sink_input_move_to(i, core->default_sink, false);
     }
+}
+
+/* Called from the IO thread. */
+int pa_sink_flush(pa_sink *s) {
+	pa_assert(s);
+	pa_assert_io_context();
+
+	if (s->flush)
+		return s->flush(s);
+	else
+		return -1;
+}
+
+/* Called from the IO thread. */
+int pa_sink_drain(pa_sink *s) {
+    pa_assert(s);
+    pa_assert_io_context();
+
+    if (s->drain)
+        return s->drain(s);
+    else
+        return -1;
+}
+
+/* Called from the IO thread. */
+void pa_sink_drain_complete(pa_sink *s) {
+    pa_sink_input *i;
+    uint32_t idx;
+
+    pa_assert(s);
+    pa_assert_io_context();
+
+    /* There should be only one stream in compressed mode */
+    i = pa_idxset_first(s->inputs, &idx);
+
+    /* See if the sink input is still there */
+    if (!i)
+        return;
+
+    pa_assert(pa_sink_input_is_compressed(i));
+
+    pa_sink_input_drain_complete(i);
 }

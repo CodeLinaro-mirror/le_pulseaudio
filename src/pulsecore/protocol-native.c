@@ -16,6 +16,10 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+
+  Changes from Qualcomm Innovation Center are provided under the following license:
+  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
@@ -145,6 +149,7 @@ typedef struct playback_stream {
     int64_t read_index, write_index;
     size_t render_memblockq_length;
     pa_usec_t current_sink_latency;
+    uint64_t current_sink_sess_time;
     uint64_t playing_for, underrun_for;
 } playback_stream;
 
@@ -248,6 +253,7 @@ static void sink_input_process_rewind_cb(pa_sink_input *i, size_t nbytes);
 static void sink_input_update_max_rewind_cb(pa_sink_input *i, size_t nbytes);
 static void sink_input_update_max_request_cb(pa_sink_input *i, size_t nbytes);
 static void sink_input_send_event_cb(pa_sink_input *i, const char *event, pa_proplist *pl);
+static void sink_input_drain_complete_cb(pa_sink_input *i);
 
 static void native_connection_send_memblock(pa_native_connection *c);
 static void playback_stream_request_bytes(struct playback_stream*s);
@@ -1064,6 +1070,7 @@ static playback_stream* playback_stream_new(
     s->sink_input->moving = sink_input_moving_cb;
     s->sink_input->suspend = sink_input_suspend_cb;
     s->sink_input->send_event = sink_input_send_event_cb;
+    s->sink_input->drain_complete = sink_input_drain_complete_cb;
     s->sink_input->userdata = s;
 
     start_index = ssync ? pa_memblockq_get_read_index(ssync->memblockq) : 0;
@@ -1404,7 +1411,35 @@ static int sink_input_process_msg(pa_msgobject *o, int code, void *userdata, int
                 handle_seek(ssync, windex);
             }
 
-            if (code == SINK_INPUT_MESSAGE_DRAIN) {
+            /* For compressed streams, we need to send the flush all the way to
+             * the sink so that it can drop any buffered data if possible. */
+            if (pa_sink_input_is_compressed(i)) {
+                switch (code) {
+                    case SINK_INPUT_MESSAGE_FLUSH:
+                        if (pa_sink_flush(i->sink) < 0)
+                            pa_log_warn("Unable to flush sink");
+                        break;
+
+                    case SINK_INPUT_MESSAGE_DRAIN:
+                        s->drain_tag = PA_PTR_TO_UINT(userdata);
+
+                        if (!pa_memblockq_is_readable(s->memblockq)) {
+                            if (pa_sink_drain(i->sink) < 0) {
+                                pa_log_warn("Unable to drain sink");
+                                /* We're not going to get an ack from the sink,
+                                 * tell the clientto not wait */
+                                pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, userdata, 0, NULL, NULL);
+                            }
+                        } else {
+                            /* Schedule the drain for when the buffer runs empty */
+                            s->drain_request = true;
+                        }
+
+                    default:
+                        break;
+                }
+            } else if (code == SINK_INPUT_MESSAGE_DRAIN) {
+                /* Handle drains for non-compressed streams */
                 if (!pa_memblockq_is_readable(s->memblockq))
                     pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, userdata, 0, NULL, NULL);
                 else {
@@ -1422,6 +1457,7 @@ static int sink_input_process_msg(pa_msgobject *o, int code, void *userdata, int
             s->write_index = pa_memblockq_get_write_index(s->memblockq);
             s->render_memblockq_length = pa_memblockq_get_length(s->sink_input->thread_info.render_memblockq);
             s->current_sink_latency = pa_sink_get_latency_within_thread(s->sink_input->sink, false);
+            s->current_sink_sess_time = s->sink_input->sink->sess_time;
             s->underrun_for = s->sink_input->thread_info.underrun_for;
             s->playing_for = s->sink_input->thread_info.playing_for;
 
@@ -1476,12 +1512,26 @@ static bool handle_input_underrun(playback_stream *s, bool force) {
         pa_log_debug("%s %s of '%s'", force ? "Actual" : "Implicit",
             s->drain_request ? "drain" : "underrun", pa_strnull(pa_proplist_gets(s->sink_input->proplist, PA_PROP_MEDIA_NAME)));
 
-    send_drain = s->drain_request && (force || pa_sink_input_safe_to_remove(s->sink_input));
+    send_drain = s->drain_request && (force || pa_sink_input_safe_to_remove(s->sink_input) || pa_sink_input_is_compressed(s->sink_input));
 
     if (send_drain) {
-         s->drain_request = false;
-         pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
-         pa_log_debug("Drain acknowledged of '%s'", pa_strnull(pa_proplist_gets(s->sink_input->proplist, PA_PROP_MEDIA_NAME)));
+         if (!pa_sink_input_is_compressed(s->sink_input)) {
+             s->drain_request = false;
+             pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
+             pa_log_debug("Drain acknowledged of '%s'", pa_strnull(pa_proplist_gets(s->sink_input->proplist, PA_PROP_MEDIA_NAME)));
+         } else {
+             /* Now trigger a drain on the (compressed) sink as well */
+             if (pa_sink_drain(s->sink_input->sink) < 0) {
+                 s->drain_request = false;
+                 pa_log_warn("Unable to drain sink");
+                 /* We're not going to get an ack from the sink, tell the
+                  * client to not wait */
+                 pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
+             } else {
+                 /* s->drain_request is still true, and will get cleared on
+                  * completion of the drain */
+             }
+         }
     } else if (!s->is_underrun) {
          pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_UNDERFLOW, NULL, pa_memblockq_get_read_index(s->memblockq), NULL, NULL);
     }
@@ -1616,6 +1666,24 @@ static void sink_input_send_event_cb(pa_sink_input *i, const char *event, pa_pro
     pa_tagstruct_puts(t, event);
     pa_tagstruct_put_proplist(t, pl);
     pa_pstream_send_tagstruct(s->connection->pstream, t);
+}
+
+/* Called from thread context */
+static void sink_input_drain_complete_cb(pa_sink_input *i)
+{
+    playback_stream *s;
+
+    pa_sink_input_assert_ref(i);
+    s = PLAYBACK_STREAM(i->userdata);
+    playback_stream_assert_ref(s);
+
+    /* This can happen if a sink was in the middle of a drain, a sink-input
+     * went away, and a new one came in */
+    if (!s->drain_request)
+        return;
+
+    pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
+    pa_log_debug("Drain acknowledged of '%s'", pa_strnull(pa_proplist_gets(s->sink_input->proplist, PA_PROP_MEDIA_NAME)));
 }
 
 /* Called from main context */
@@ -2898,6 +2966,7 @@ static void command_get_playback_latency(pa_pdispatch *pd, uint32_t command, uin
     pa_tagstruct_put_usec(reply,
                           s->current_sink_latency +
                           pa_bytes_to_usec(s->render_memblockq_length, &s->sink_input->sink->sample_spec));
+    pa_tagstruct_put_usec(reply, s->current_sink_sess_time);
     pa_tagstruct_put_usec(reply, 0);
     pa_tagstruct_put_boolean(reply,
                              s->playing_for > 0 &&
@@ -2942,6 +3011,7 @@ static void command_get_record_latency(pa_pdispatch *pd, uint32_t command, uint3
 
     reply = reply_new(tag);
     pa_tagstruct_put_usec(reply, s->current_monitor_latency);
+    pa_tagstruct_put_usec(reply, 0);
     pa_tagstruct_put_usec(reply,
                           s->current_source_latency +
                           pa_bytes_to_usec(s->on_the_fly_snapshot, &s->source_output->sample_spec));

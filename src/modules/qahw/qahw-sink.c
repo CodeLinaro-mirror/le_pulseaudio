@@ -1780,9 +1780,9 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
 
     if (avoid_config_processing & PA_QAHW_CARD_AVOID_PROCESSING_FOR_ALL)
-        new_data.avoid_processing = true;
+        new_data.avoid_resampling = true;
     else
-        new_data.avoid_processing = false;
+        new_data.avoid_resampling = false;
 
     if (proplist)
         pa_proplist_update(new_data.proplist, PA_UPDATE_REPLACE, proplist);

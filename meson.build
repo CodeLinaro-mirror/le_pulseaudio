@@ -630,6 +630,14 @@ if qal_inc != ''
   cdata.set_quoted('QAL_CARD_DEFAULT_CONF_PATH' , join_paths(qaldatadir, 'configs'))
 endif
 
+qal_voiceui_inc = get_option('with-qal-voiceui')
+qaldatadir = ''
+if qal_voiceui_inc != ''
+  cdata.set('HAVE_QAL_VOICEUI', 1)
+  qaldatadir = join_paths(datadir, 'pulseaudio', 'qal')
+  cdata.set_quoted('QAL_CARD_DEFAULT_CONF_PATH' , join_paths(qaldatadir, 'configs'))
+endif
+
 asyncns_dep = dependency('libasyncns', version : '>= 0.1', required : get_option('asyncns'))
 if asyncns_dep.found()
   cdata.set('HAVE_LIBASYNCNS', 1)
@@ -940,6 +948,7 @@ summary = [
   'Enable QAHW:                   @0@'.format(cdata.has('HAVE_QAHW')),
   'Enable QSTHW:                  @0@'.format(cdata.has('HAVE_QSTHW')),
   'Enable QAL:                    @0@'.format(cdata.has('HAVE_QAL')),
+  'Enable QAL VOICEUI:            @0@'.format(cdata.has('HAVE_QAL_VOICEUI')),
 #  'Enable CoreAudio:              @0@'.format(${ENABLE_COREAUDIO}),
 #  'Enable Solaris:                @0@'.format(${ENABLE_SOLARIS}),
 #  'Enable WaveOut:                @0@'.format(${ENABLE_WAVEOUT}),
