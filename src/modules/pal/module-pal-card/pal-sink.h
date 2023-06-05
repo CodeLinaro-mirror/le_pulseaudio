@@ -32,7 +32,7 @@
 #include <PalApi.h>
 #include <PalDefs.h>
 
-#include "qal-card.h"
+#include "pal-card.h"
 
 typedef struct {
     char *name;
