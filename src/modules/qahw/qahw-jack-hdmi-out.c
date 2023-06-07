@@ -14,6 +14,10 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
+ *
+ * Changes from Qualcomm Innovation Center are provided under the following license:
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
 #ifdef HAVE_CONFIG_H
@@ -162,12 +166,19 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
             j++;
         }
 
-        if ((switch_name != NULL) && ((switch_state != NULL) || (dp_switch_state != NULL))) {
+        if (switch_name != NULL) {
             if (pa_strneq(switch_name, EXT_HDMI_DISPLAY_SWITCH_NAME, strlen(EXT_HDMI_DISPLAY_SWITCH_NAME))) {
-                if ((atoi(switch_state) == 1) || (atoi(dp_switch_state) == 1))
-                    hdmi_out_flag = 1;
-                else if ((atoi(switch_state) == 0) && (atoi(dp_switch_state) == 0))
-                    hdmi_out_flag = -1;
+                if (switch_state != NULL) {
+                    if (atoi(switch_state) == 1)
+                        hdmi_out_flag = 1;
+                    else if (atoi(switch_state) == 0)
+                        hdmi_out_flag = -1;
+                } else if (dp_switch_state != NULL) {
+                    if (atoi(dp_switch_state) == 1)
+                        hdmi_out_flag = 1;
+                    else if (atoi(dp_switch_state) == 0)
+                        hdmi_out_flag = -1;
+                }
             }
         }
 
