@@ -41,7 +41,7 @@ typedef struct{
 } pa_pal_util_pa_pal_channel_map;
 
 typedef struct {
-    pal_audio_fmt_t format_flag;
+    pal_audio_fmt_t stream_format;
 } pa_pal_util_aac_compress_metadata;
 
 typedef union {
@@ -87,33 +87,33 @@ pal_device_id_t pa_pal_util_device_name_to_enum(const char *device_name) {
 
 int pa_pal_util_set_pal_metadata_from_pa_format(const pa_format_info *format) {
     int rc = 0;
-    char *format_flag;
+    char *stream_format;
 
     pa_assert(format);
 
     switch (format->encoding) {
         case PA_ENCODING_AAC:
             rc = pa_format_info_get_prop_string(format,
-                 PA_PAL_SINK_PROP_FORMAT_FLAG, &format_flag);
+                 PA_PAL_SINK_PROP_FORMAT_FLAG, &stream_format);
             if (rc) {
-                compress_metadata.aac.format_flag = PAL_AUDIO_FMT_AAC;
                 pa_log_error("%s: Failed to obtain AAC stream format", __func__);
             } else {
-               if (pa_streq(format_flag, "adts")) {
+               if (pa_streq(stream_format, "adts")) {
                    pa_log_debug("%s: adts format", __func__);
-                   compress_metadata.aac.format_flag = PAL_AUDIO_FMT_AAC_ADTS;
+                   compress_metadata.aac.stream_format = PAL_AUDIO_FMT_AAC_ADTS;
                } else {
                    pa_log_debug("%s: raw format", __func__);
-                   compress_metadata.aac.format_flag = PAL_AUDIO_FMT_AAC;
+                   compress_metadata.aac.stream_format = PAL_AUDIO_FMT_AAC;
                }
 
-               pa_xfree(format_flag);
+               pa_xfree(stream_format);
             }
 
             break;
+
         case PA_ENCODING_MPEG:
         default:
-           break;
+            break;
     }
 
     return rc;
@@ -215,7 +215,7 @@ pal_audio_fmt_t pa_pal_util_get_pal_format_from_pa_encoding(pa_encoding_t pa_for
             pal_format = PAL_AUDIO_FMT_MP3;
             break;
         case PA_ENCODING_AAC:
-            pal_format = compress_metadata.aac.format_flag;
+            pal_format = compress_metadata.aac.stream_format;
             pal_snd_dec->aac_dec.audio_obj_type = AAC_AOT_PS;
             pal_snd_dec->aac_dec.pce_bits_size = 0;
             break;
