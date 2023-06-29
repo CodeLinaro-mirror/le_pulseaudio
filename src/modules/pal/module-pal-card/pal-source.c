@@ -41,8 +41,8 @@
 #include <pulsecore/core-format.h>
 #include <pulse/util.h>
 
-#include "qal-source.h"
-#include "qal-utils.h"
+#include "pal-source.h"
+#include "pal-utils.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
@@ -127,14 +127,14 @@ static int pa_pal_source_fill_info(pa_pal_source_config *source, pal_source_data
     return 0;
 }
 
-static int pa_pal_source_start(pa_pal_source_data *sdata) {
+static int pa_pal_source_start(pa_pal_source_data *sdata, pa_sink_state_t new_state) {
     int rc = 0;
     pa_assert(sdata);
     pa_assert(sdata->pal_sdata);
     pal_source_data *pal_sdata = sdata->pal_sdata;
     pa_log_debug("%s", __func__);
 
-    if (pal_sdata->standby) {
+    if (PA_SINK_IS_RUNNING(new_state) && pal_sdata->standby) {
         rc = open_pal_source(sdata->pal_sdata);
         if (rc) {
             pa_log_error("open_pal_source failed, error %d", rc);
@@ -142,12 +142,18 @@ static int pa_pal_source_start(pa_pal_source_data *sdata) {
 	    sdata->pal_sdata = NULL;
             return rc;
         }
+
         rc = pal_stream_start(pal_sdata->stream_handle);
+        if (rc) {
+            pa_log_error("pal sink start failed, error %d", rc);
+            pa_xfree(sdata->pal_sdata);
+            sdata->pal_sdata = NULL;
+            return rc;
+        }
         pa_log_debug("pal_stream_start returned %d", rc);
         pal_sdata->standby = false;
-    } else {
-        pa_log_debug("pal_stream already started");
     }
+
     return rc;
 }
 
@@ -155,11 +161,11 @@ static int pa_pal_source_standby(pal_source_data *pal_sdata) {
     int rc = 0;
 
     pa_assert(pal_sdata);
-    pa_assert(pal_sdata->stream_handle);
 
     pa_log_debug("%s",__func__);
 
     if (!pal_sdata->standby) {
+        pa_assert(pal_sdata->stream_handle);
         rc = pal_stream_stop(pal_sdata->stream_handle);
         pa_log_debug("pal_stream_stop returned %d\n", rc);
         rc = pal_stream_close(pal_sdata->stream_handle);
@@ -189,7 +195,9 @@ static int pa_pal_source_set_state_in_io_thread_cb(pa_source *s, pa_source_state
     pa_log_debug("New state is: %d", new_state);
 
     if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(s->thread_info.state))
-        r = pa_pal_source_start(source_data);
+        r = pa_pal_source_start(source_data, new_state);
+    else if (PA_SINK_IS_RUNNING(new_state) && (s->thread_info.state == PA_SINK_IDLE))
+        r = pa_pal_source_start(source_data, new_state);
     else if (new_state == PA_SOURCE_SUSPENDED)
         r = pa_pal_source_standby(source_data->pal_sdata);
 
@@ -316,7 +324,7 @@ static void pa_pal_source_thread_func(void *userdata) {
         int ret;
         bool wait = true;
 
-        if (PA_SOURCE_IS_OPENED(pa_sdata->source->thread_info.state)) {
+        if (PA_SOURCE_IS_RUNNING(pa_sdata->source->thread_info.state)) {
             pa_memchunk chunk;
             void *data;
             struct pal_buffer in_buf;

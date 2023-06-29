@@ -40,8 +40,8 @@ endif
 if HAVE_QAHW
 qahwconfsetsdir=$(datadir)/pulseaudio/qahw/configs
 endif
-if HAVE_QAL
-qalconfsetsdir=$(datadir)/pulseaudio/qal/configs
+if HAVE_PAL
+palconfsetsdir=$(datadir)/pulseaudio/pal/configs
 endif
 
 ###################################
@@ -58,7 +58,7 @@ AM_CPPFLAGS = \
 	-DPA_BUILDDIR=\"$(abs_builddir)\" \
 	-DPULSE_LOCALEDIR=\"$(localedir)\" \
 	-DQAHW_CARD_DEFAULT_CONF_PATH=\"$(qahwconfsetsdir)\" \
-	-DQAL_CARD_DEFAULT_CONF_PATH=\"$(qalconfsetsdir)\"
+	-DPAL_CARD_DEFAULT_CONF_PATH=\"$(palconfsetsdir)\"
 
 AM_CFLAGS = -std=gnu11 \
 	$(PTHREAD_CFLAGS)
@@ -1416,6 +1416,7 @@ modlibexec_LTLIBRARIES += module-qahw-card.la
 
 dist_qahwconfsets_DATA = \
       modules/qahw/configs/kona-iot-snd-card.conf \
+      modules/qahw/configs/lahaina-yupikiot-snd-card.conf \
       modules/qahw/configs/bengal-qrd-snd-card.conf \
       modules/qahw/configs/sm6150-tavil-snd-card.conf \
       modules/qahw/configs/sm6150-idp-snd-card.conf \
@@ -1423,17 +1424,17 @@ dist_qahwconfsets_DATA = \
       modules/qahw/configs/bengal-scubaqrd-snd-card.conf
 endif
 
-if HAVE_QAL
-modlibexec_LTLIBRARIES += module-qal-card.la
-modlibexec_LTLIBRARIES += module-qal-voiceui-card.la
+if HAVE_PAL
+modlibexec_LTLIBRARIES += module-pal-card.la
+modlibexec_LTLIBRARIES += module-pal-voiceui-card.la
 
-dist_qalconfsets_DATA = \
-      modules/qal/module-qal-card/configs/kona-mtp-snd-card.conf \
-      modules/qal/module-qal-card/configs/kona-xrfusionult-snd-card.conf \
-      modules/qal/module-qal-card/configs/kona-arglass-snd-card.conf \
-      modules/qal/module-qal-card/configs/neo-idp-sg-snd-card.conf \
-      modules/qal/module-qal-card/configs/neo-idp-snd-card.conf \
-      modules/qal/module-qal-card/configs/neo-qxr-snd-card.conf
+dist_palconfsets_DATA = \
+      modules/pal/module-pal-card/configs/kona-mtp-snd-card.conf \
+      modules/pal/module-pal-card/configs/kona-xrfusionult-snd-card.conf \
+      modules/pal/module-pal-card/configs/kona-arglass-snd-card.conf \
+      modules/pal/module-pal-card/configs/neo-idp-sg-snd-card.conf \
+      modules/pal/module-pal-card/configs/neo-idp-snd-card.conf \
+      modules/pal/module-pal-card/configs/neo-qxr-snd-card.conf
 endif
 
 if HAVE_QSTHW
@@ -1698,22 +1699,22 @@ module_qsthw_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_qsthw_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lqtisoundtriggerhw
 endif
 
-if HAVE_QAL
-module_qal_card_la_SOURCES = \
-        modules/qal/module-qal-card/module-qal-card.c modules/qal/module-qal-card/qal-card.h \
-        modules/qal/module-qal-card/qal-sink.c modules/qal/module-qal-card/qal-sink.h \
-        modules/qal/module-qal-card/qal-source.c modules/qal/module-qal-card/qal-source.h \
-        modules/qal/module-qal-card/qal-utils.c modules/qal/module-qal-card/qal-utils.h \
-        modules/qal/module-qal-card/qal-config-parser.c modules/qal/module-qal-card/qal-config-parser.h \
-        modules/qal/module-qal-card/module-qal-card-extn.c
-module_qal_card_la_CFLAGS = $(QAL_CFLAGS) $(AGM_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -DPA_MODULE_NAME=module_qal_card
-module_qal_card_la_LDFLAGS = $(MODULE_LDFLAGS) -lcutils
-module_qal_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lpal -lagm
+if HAVE_PAL
+module_pal_card_la_SOURCES = \
+        modules/pal/module-pal-card/module-pal-card.c modules/pal/module-pal-card/pal-card.h \
+        modules/pal/module-pal-card/pal-sink.c modules/pal/module-pal-card/pal-sink.h \
+        modules/pal/module-pal-card/pal-source.c modules/pal/module-pal-card/pal-source.h \
+        modules/pal/module-pal-card/pal-utils.c modules/pal/module-pal-card/pal-utils.h \
+        modules/pal/module-pal-card/pal-config-parser.c modules/pal/module-pal-card/pal-config-parser.h \
+        modules/pal/module-pal-card/module-pal-card-extn.c
+module_pal_card_la_CFLAGS = $(PAL_CFLAGS) $(AGM_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -DPA_MODULE_NAME=module_pal_card
+module_pal_card_la_LDFLAGS = $(MODULE_LDFLAGS) -lcutils
+module_pal_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lpal -lagm
 
-module_qal_voiceui_card_la_SOURCES = modules/qal/module-qal-voiceui-card/module-qal-voiceui-card.c
-module_qal_voiceui_card_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) $(QAL_CFLAGS) $(AGM_CFLAGS) -DPA_MODULE_NAME=module_qal_voiceui_card
-module_qal_voiceui_card_la_LDFLAGS = $(MODULE_LDFLAGS)
-module_qal_voiceui_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lpal -lagm
+module_pal_voiceui_card_la_SOURCES = modules/pal/module-pal-voiceui-card/module-pal-voiceui-card.c
+module_pal_voiceui_card_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS) $(PAL_CFLAGS) $(AGM_CFLAGS) -DPA_MODULE_NAME=module_pal_voiceui_card
+module_pal_voiceui_card_la_LDFLAGS = $(MODULE_LDFLAGS)
+module_pal_voiceui_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lpal -lagm
 endif
 
 

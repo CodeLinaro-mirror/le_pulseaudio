@@ -44,8 +44,8 @@
 #include <sys/time.h>
 #include <time.h>
 
-#include "qal-sink.h"
-#include "qal-utils.h"
+#include "pal-sink.h"
+#include "pal-utils.h"
 
 /* #define SINK_DEBUG */
 
@@ -283,14 +283,14 @@ static uint64_t pa_pal_sink_get_latency(pa_pal_sink_data *sdata) {
     return (uint64_t)latency;
 }
 
-static int pa_pal_sink_start(pa_pal_sink_data *sdata) {
+static int pa_pal_sink_start(pa_pal_sink_data *sdata, pa_sink_state_t new_state) {
     int rc = 0;
     pa_assert(sdata);
     pa_assert(sdata->pal_sdata);
     pal_sink_data *pal_sdata = sdata->pal_sdata;
     pa_log_debug("%s %d", __func__, pal_sdata->standby);
 
-    if (pal_sdata->standby) {
+    if (PA_SINK_IS_RUNNING(new_state) && pal_sdata->standby) {
         rc = open_pal_sink(sdata->pal_sdata);
         if (rc) {
             pa_log_error("pal sink open failed, error %d", rc);
@@ -298,12 +298,18 @@ static int pa_pal_sink_start(pa_pal_sink_data *sdata) {
             sdata->pal_sdata = NULL;
             return rc;
         }
+
         rc = pal_stream_start(pal_sdata->stream_handle);
+        if (rc) {
+            pa_log_error("pal sink start failed, error %d", rc);
+            pa_xfree(sdata->pal_sdata);
+            sdata->pal_sdata = NULL;
+            return rc;
+        }
         pa_log_debug("pal_stream_start returned %d", rc);
         pal_sdata->standby = false;
-    } else {
-        pa_log_debug("pal_stream already started");
     }
+
     return rc;
 }
 
@@ -311,11 +317,11 @@ static int pa_pal_sink_standby(pal_sink_data *pal_sdata) {
     int rc = 0;
 
     pa_assert(pal_sdata);
-    pa_assert(pal_sdata->stream_handle);
 
     pa_log_debug("%s",__func__);
 
     if (!pal_sdata->standby) {
+        pa_assert(pal_sdata->stream_handle);
         rc = pal_stream_stop(pal_sdata->stream_handle);
         pa_log_debug("pal_stream_stop returned %d\n", rc);
         rc = pal_stream_close(pal_sdata->stream_handle);
@@ -345,7 +351,9 @@ static int pa_pal_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new
     pa_log_debug("Sink new state is: %d", new_state);
 
     if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(s->thread_info.state))
-        r = pa_pal_sink_start(sdata);
+        r = pa_pal_sink_start(sdata, new_state);
+    else if (PA_SINK_IS_RUNNING(new_state) && (s->thread_info.state == PA_SINK_IDLE))
+        r = pa_pal_sink_start(sdata, new_state);
     else if (new_state == PA_SINK_SUSPENDED)
         r = pa_pal_sink_standby(sdata->pal_sdata);
 
@@ -487,7 +495,7 @@ static void pa_pal_sink_thread_func(void *userdata) {
         if (pa_sdata->sink->thread_info.rewind_requested)
             pa_sink_process_rewind(pa_sdata->sink, 0);
 
-        if ((PA_SINK_IS_OPENED(pa_sdata->sink->thread_info.state))) {
+        if ((PA_SINK_IS_RUNNING(pa_sdata->sink->thread_info.state))) {
 
             /* Check if we need to resend previous buffer */
             if (!out_buf.buffer) {
