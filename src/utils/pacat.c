@@ -109,6 +109,7 @@ static bool channel_map_set = false;
 static pa_encoding_t encoding;
 static bool encoding_set = false;
 pa_format_info *formats[1] = { NULL, };
+static char *stream_format = "raw";
 
 static sf_count_t (*readf_function)(SNDFILE *_sndfile, void *ptr, sf_count_t frames) = NULL;
 static sf_count_t (*writef_function)(SNDFILE *_sndfile, const void *ptr, sf_count_t frames) = NULL;
@@ -713,6 +714,7 @@ static void help(const char *argv0) {
              "                                        (defaults to 2)\n"
              "      --channel-map=CHANNELMAP          Channel map to use instead of the default\n"
              "      --encoding=ENCODING               Encoding to use for non-PCM audio\n"
+             "      --stream-format=FLAG              Stream format flag to use for non-PCM audio\n"
              "      --fix-format                      Take the sample format from the sink/source the stream is\n"
              "                                        being connected to.\n"
              "      --fix-rate                        Take the sampling rate from the sink/source the stream is\n"
@@ -743,6 +745,7 @@ enum {
     ARG_CHANNELS,
     ARG_CHANNELMAP,
     ARG_ENCODING,
+    ARG_STREAM_FORMAT,
     ARG_FIX_FORMAT,
     ARG_FIX_RATE,
     ARG_FIX_CHANNELS,
@@ -785,6 +788,7 @@ int main(int argc, char *argv[]) {
         {"channels",     1, NULL, ARG_CHANNELS},
         {"channel-map",  1, NULL, ARG_CHANNELMAP},
         {"encoding",     1, NULL, ARG_ENCODING},
+        {"stream-format", 1, NULL, ARG_STREAM_FORMAT},
         {"fix-format",   0, NULL, ARG_FIX_FORMAT},
         {"fix-rate",     0, NULL, ARG_FIX_RATE},
         {"fix-channels", 0, NULL, ARG_FIX_CHANNELS},
@@ -945,6 +949,10 @@ int main(int argc, char *argv[]) {
                 encoding_set = true;
                 break;
 
+            case ARG_STREAM_FORMAT:
+                stream_format = pa_locale_to_utf8(optarg);
+                break;
+
             case ARG_FIX_CHANNELS:
                 flags |= PA_STREAM_FIX_CHANNELS;
                 break;
@@ -1053,6 +1061,7 @@ int main(int argc, char *argv[]) {
         formats[0] = pa_format_info_new();
 
         formats[0]->encoding = encoding;
+        pa_format_info_set_prop_string(formats[0], "stream-format", stream_format);
         pa_format_info_set_rate(formats[0], sample_spec.rate);
         pa_format_info_set_channels(formats[0], sample_spec.channels);
         if (!pa_format_info_valid(formats[0])) {
