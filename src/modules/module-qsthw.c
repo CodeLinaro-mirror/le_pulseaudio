@@ -37,6 +37,11 @@
 #define QSTHW_DBUS_SESSION_IFACE "org.PulseAudio.Ext.Qsthw.Session"
 #define PA_DBUS_QSTHW_MODULE_IFACE_VERSION 0x101
 
+PA_MODULE_AUTHOR("QTI");
+PA_MODULE_DESCRIPTION("qsthw card module");
+PA_MODULE_VERSION(PACKAGE_VERSION);
+PA_MODULE_LOAD_ONCE(true);
+
 static const char* const valid_modargs[] = {
     "module",
     NULL,

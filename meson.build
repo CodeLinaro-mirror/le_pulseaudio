@@ -631,11 +631,8 @@ if qal_inc != ''
 endif
 
 qal_voiceui_inc = get_option('with-qal-voiceui')
-qaldatadir = ''
 if qal_voiceui_inc != ''
   cdata.set('HAVE_QAL_VOICEUI', 1)
-  qaldatadir = join_paths(datadir, 'pulseaudio', 'qal')
-  cdata.set_quoted('QAL_CARD_DEFAULT_CONF_PATH' , join_paths(qaldatadir, 'configs'))
 endif
 
 asyncns_dep = dependency('libasyncns', version : '>= 0.1', required : get_option('asyncns'))
