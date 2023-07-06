@@ -75,6 +75,7 @@ typedef struct {
     pa_pal_card_usecase_id_t usecase_id;
     pa_sample_spec default_spec;
     pa_channel_map default_map;
+    bool is_connected;
 } pa_pal_card_port_device_data;
 
 #endif

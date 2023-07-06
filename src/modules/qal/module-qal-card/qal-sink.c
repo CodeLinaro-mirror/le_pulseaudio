@@ -363,6 +363,82 @@ static int pa_pal_sink_standby(pa_pal_sink_data *sdata) {
     return 0;
 }
 
+static int pa_pal_set_device(pal_stream_handle_t *stream_handle,
+                          pa_pal_card_port_device_data *param_device_connection) {
+    struct pal_device device_connect;
+    int no_of_devices = 1;
+    int ret = 0;
+
+    device_connect.id = param_device_connection->device;
+
+    ret = pal_stream_set_device(stream_handle, no_of_devices, &device_connect);
+    if(ret)
+        pa_log_error("qal sink switch device %d failed %d", device_connect.id, ret);
+    return ret;
+}
+
+static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
+    pa_pal_card_port_device_data *port_device_data;
+    pa_pal_card_port_device_data *active_port_device_data;
+    pa_pal_sink_data *sdata = (pa_pal_sink_data *)s->userdata;
+    pal_param_device_connection_t param_device_connection;
+    int no_of_devices = 1;
+    int ret = 0;
+    bool port_changed = false;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pal_sdata);
+    if (PA_SINK_IS_OPENED(s->state))
+        pa_assert(sdata->pal_sdata->stream_handle);
+
+    port_device_data = PA_DEVICE_PORT_DATA(p);
+    pa_assert(port_device_data);
+
+    active_port_device_data = PA_DEVICE_PORT_DATA(s->active_port);
+    pa_assert(active_port_device_data);
+
+    /* For HDMI-out device, need set connect state */
+    if (port_device_data->device == PAL_DEVICE_OUT_AUX_DIGITAL |
+          active_port_device_data->device == PAL_DEVICE_OUT_AUX_DIGITAL) {
+        param_device_connection.device_config.dp_config.controller = 0;
+        param_device_connection.device_config.dp_config.stream = 0;
+        param_device_connection.id = PAL_DEVICE_OUT_AUX_DIGITAL;
+
+        if (port_device_data->device == PAL_DEVICE_OUT_AUX_DIGITAL) {
+            param_device_connection.connection_state = true;
+            if(port_device_data->is_connected != param_device_connection.connection_state)
+                port_changed = true;
+            port_device_data->is_connected = param_device_connection.connection_state;
+        }
+        else if (active_port_device_data->device == PAL_DEVICE_OUT_AUX_DIGITAL) {
+            param_device_connection.connection_state = false;
+            if(active_port_device_data->is_connected != param_device_connection.connection_state)
+                port_changed = true;
+            active_port_device_data->is_connected = param_device_connection.connection_state;
+        }
+
+        if (port_changed) {
+            ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION,
+                (void*)&param_device_connection,
+                sizeof(pal_param_device_connection_t));
+            if (ret != 0)
+                pa_log_error("qal sink set device %d connect status failed %d",
+                  PAL_DEVICE_OUT_AUX_DIGITAL, ret);
+        }
+    }
+
+    param_device_connection.id = port_device_data->device;
+    sdata->pal_sdata->pal_device->id = port_device_data->device;
+
+    if (PA_SINK_IS_OPENED(s->state)) {
+        ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
+        if (ret != 0)
+            pa_log_error("qal sink switch device failed %d", ret);
+    }
+
+    return ret;
+}
+
 static int pa_pal_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state, pa_suspend_cause_t new_suspend_cause PA_GCC_UNUSED)
 {
     pa_pal_sink_data *sdata = NULL;
@@ -1051,7 +1127,7 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_sdata->sink->userdata = (void *)sdata;
     pa_sdata->sink->parent.process_msg = pa_pal_sink_io_process_msg;
     pa_sdata->sink->set_state_in_io_thread = pa_pal_sink_set_state_in_io_thread_cb;
-    pa_sdata->sink->set_port = NULL;
+    pa_sdata->sink->set_port = pa_pal_sink_set_port_cb;
     pa_sdata->sink->reconfigure = pa_pal_sink_reconfigure_cb;
 
     if (pa_idxset_size(formats) > 0 ) {
