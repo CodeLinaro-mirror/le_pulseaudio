@@ -628,6 +628,11 @@ if qal_inc != ''
   cdata.set('HAVE_QAL', 1)
   qaldatadir = join_paths(datadir, 'pulseaudio', 'qal')
   cdata.set_quoted('QAL_CARD_DEFAULT_CONF_PATH' , join_paths(qaldatadir, 'configs'))
+
+  pal_service_enable = get_option('enable-pal-service')
+  if pal_service_enable == 'yes'
+    cdata.set('ENABLE_PAL_SERVICE', true)
+  endif
 endif
 
 qal_voiceui_inc = get_option('with-qal-voiceui')
