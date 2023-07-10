@@ -29,8 +29,8 @@
 #include <pthread.h>
 #include <stdbool.h>
 
-#include "qahw-jack-common.h"
-#include "qahw-jack-format.h"
+#include "qal-jack-common.h"
+#include "qal-jack-format.h"
 
 #define SOCKET_BUFFER_SIZE 64 * 1024
 #define UEVENT_MSG_LEN 4 * 1024
@@ -40,12 +40,12 @@ typedef struct {
     int fd;
     pa_io_event *io;
     pa_hook event_hook;
-    pa_qahw_jack_type_t jack_type;
-    pa_qahw_jack_event_t jack_plugin_status;
-    pa_qahw_jack_in_config *jack_in_config;
-} pa_qahw_hdmi_out_jack_data_t;
+    pa_pal_jack_type_t jack_type;
+    pa_pal_jack_event_t jack_plugin_status;
+    pa_pal_jack_in_config *jack_in_config;
+} pa_pal_hdmi_out_jack_data_t;
 
-static int poll_data_event_init(pa_qahw_jack_type_t jack_type) {
+static int poll_data_event_init(pa_pal_jack_type_t jack_type) {
     struct sockaddr_nl sock_addr;
     int sz = SOCKET_BUFFER_SIZE;
     int soc = -1;
@@ -74,7 +74,7 @@ static int poll_data_event_init(pa_qahw_jack_type_t jack_type) {
     return soc;
 }
 
-static void set_default_config(pa_qahw_jack_out_config *config) {
+static void set_default_config(pa_pal_jack_out_config *config) {
     config->preemph_status = 0;
     config->ss.format = PA_SAMPLE_S16LE;
     config->encoding = PA_ENCODING_PCM;
@@ -84,55 +84,55 @@ static void set_default_config(pa_qahw_jack_out_config *config) {
     pa_channel_map_init_auto(&(config->map), 2, PA_CHANNEL_MAP_DEFAULT);
 }
 
-static void check_hdmi_out_connection (pa_qahw_hdmi_out_jack_data_t *hdmi_out_jdata) {
+static void check_hdmi_out_connection (pa_pal_hdmi_out_jack_data_t *hdmi_out_jdata) {
     const char *path = NULL;
     int hdmi_tx_state = 0;
-    pa_qahw_jack_event_data_t event_data;
-    pa_qahw_jack_out_config config;
+    pa_pal_jack_event_data_t event_data;
+    pa_pal_jack_out_config config;
     int audio_path_value = -1;
 
     pa_assert(hdmi_out_jdata);
     pa_assert(hdmi_out_jdata->jack_in_config->jack_sys_path.hdmi_tx_state);
 
     /* Ignore events if audio_path is 1 */
-    pa_qahw_format_detection_get_value_from_path(hdmi_out_jdata->jack_in_config->jack_sys_path.audio_path, &audio_path_value);
+    pa_pal_format_detection_get_value_from_path(hdmi_out_jdata->jack_in_config->jack_sys_path.audio_path, &audio_path_value);
     if (audio_path_value == 1)
         return;
 
-    hdmi_out_jdata->jack_plugin_status = PA_QAHW_JACK_UNAVAILABLE;
+    hdmi_out_jdata->jack_plugin_status = PA_PAL_JACK_UNAVAILABLE;
     path = hdmi_out_jdata->jack_in_config->jack_sys_path.hdmi_tx_state;
 
-    pa_qahw_format_detection_get_value_from_path(path, &hdmi_tx_state);
+    pa_pal_format_detection_get_value_from_path(path, &hdmi_tx_state);
 
     if (hdmi_tx_state) {
         /* Raise jack available event */
         event_data.jack_type = hdmi_out_jdata->jack_type;
-        event_data.event = PA_QAHW_JACK_AVAILABLE;
-        pa_log_info("qahw jack type %d available", hdmi_out_jdata->jack_type);
+        event_data.event = PA_PAL_JACK_AVAILABLE;
+        pa_log_info("qal jack type %d available", hdmi_out_jdata->jack_type);
         pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
-        hdmi_out_jdata->jack_plugin_status = PA_QAHW_JACK_AVAILABLE;
+        hdmi_out_jdata->jack_plugin_status = PA_PAL_JACK_AVAILABLE;
 
         /* Set default config */
         set_default_config(&config);
 
         /* generate jack config update event */
-        event_data.pa_qahw_jack_info = &config;
-        event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
+        event_data.pa_pal_jack_info = &config;
+        event_data.event = PA_PAL_JACK_CONFIG_UPDATE;
         pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
     }
 }
 
 static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_event_flags_t io_events, void *userdata) {
-    pa_qahw_hdmi_out_jack_data_t *hdmi_out_jdata = userdata;
+    pa_pal_hdmi_out_jack_data_t *hdmi_out_jdata = userdata;
 
     char buffer[UEVENT_MSG_LEN+2];
     int count, j = 0;
-    pa_qahw_jack_event_data_t event_data;
+    pa_pal_jack_event_data_t event_data;
     int hdmi_out_flag = 0;
     char *switch_state = NULL;
     char *dp_switch_state = NULL;
     char *switch_name = NULL;
-    pa_qahw_jack_out_config config;
+    pa_pal_jack_out_config config;
 
     pa_assert(hdmi_out_jdata);
     event_data.jack_type = hdmi_out_jdata->jack_type;
@@ -163,53 +163,46 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
             j++;
         }
 
-        if (switch_name != NULL) {
+        if ((switch_name != NULL) && ((switch_state != NULL) || (dp_switch_state != NULL))) {
             if (pa_strneq(switch_name, EXT_HDMI_DISPLAY_SWITCH_NAME, strlen(EXT_HDMI_DISPLAY_SWITCH_NAME))) {
-                if (switch_state != NULL) {
-                    if (atoi(switch_state) == 1)
-                        hdmi_out_flag = 1;
-                    else if (atoi(switch_state) == 0)
-                        hdmi_out_flag = -1;
-                } else if (dp_switch_state != NULL) {
-                    if (atoi(dp_switch_state) == 1)
-                        hdmi_out_flag = 1;
-                    else if (atoi(dp_switch_state) == 0)
-                        hdmi_out_flag = -1;
-                }
+                if (( switch_state && atoi(switch_state) == 1) || ( dp_switch_state && atoi(dp_switch_state) == 1))
+                    hdmi_out_flag = 1;
+                else if ((switch_state && atoi(switch_state) == 0) && ( switch_state && atoi(dp_switch_state) == 0))
+                    hdmi_out_flag = -1;
             }
         }
 
-        if ((hdmi_out_flag == 1) && (hdmi_out_jdata->jack_plugin_status != PA_QAHW_JACK_AVAILABLE)) {
+        if ((hdmi_out_flag == 1) && (hdmi_out_jdata->jack_plugin_status != PA_PAL_JACK_AVAILABLE)) {
             event_data.jack_type = hdmi_out_jdata->jack_type;
-            event_data.event = PA_QAHW_JACK_AVAILABLE;
-            pa_log_info("qahw jack type %d available", hdmi_out_jdata->jack_type);
+            event_data.event = PA_PAL_JACK_AVAILABLE;
+            pa_log_info("qal jack type %d available", hdmi_out_jdata->jack_type);
             pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
-            hdmi_out_jdata->jack_plugin_status = PA_QAHW_JACK_AVAILABLE;
+            hdmi_out_jdata->jack_plugin_status = PA_PAL_JACK_AVAILABLE;
 
             /* Set default config */
             set_default_config(&config);
 
             /* generate jack config update event */
-            event_data.pa_qahw_jack_info = &config;
-            event_data.event = PA_QAHW_JACK_CONFIG_UPDATE;
+            event_data.pa_pal_jack_info = &config;
+            event_data.event = PA_PAL_JACK_CONFIG_UPDATE;
             pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
-        } else if ((hdmi_out_flag == -1) && (hdmi_out_jdata->jack_plugin_status != PA_QAHW_JACK_UNAVAILABLE)) {
+        } else if ((hdmi_out_flag == -1) && (hdmi_out_jdata->jack_plugin_status != PA_PAL_JACK_UNAVAILABLE)) {
             /* Raise jack unavailable event */
             event_data.jack_type = hdmi_out_jdata->jack_type;
-            event_data.event = PA_QAHW_JACK_UNAVAILABLE;
-            pa_log_info("qahw jack type %d unavailable", hdmi_out_jdata->jack_type);
+            event_data.event = PA_PAL_JACK_UNAVAILABLE;
+            pa_log_info("qal jack type %d unavailable", hdmi_out_jdata->jack_type);
             pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
-            hdmi_out_jdata->jack_plugin_status = PA_QAHW_JACK_UNAVAILABLE;
+            hdmi_out_jdata->jack_plugin_status = PA_PAL_JACK_UNAVAILABLE;
         }
     }
 }
 
-struct pa_qahw_jack_data* pa_qahw_hdmi_out_jack_detection_enable(pa_qahw_jack_type_t jack_type, pa_module *m,
-                                               pa_hook_slot **hook_slot, pa_qahw_jack_callback_t callback,
-                                                pa_qahw_jack_in_config *jack_in_config, void *client_data) {
-    struct pa_qahw_jack_data *jdata = NULL;
+struct pa_pal_jack_data* pa_pal_hdmi_out_jack_detection_enable(pa_pal_jack_type_t jack_type, pa_module *m,
+                                               pa_hook_slot **hook_slot, pa_pal_jack_callback_t callback,
+                                                pa_pal_jack_in_config *jack_in_config, void *client_data) {
+    struct pa_pal_jack_data *jdata = NULL;
     int sock_event_fd = -1;
-    pa_qahw_hdmi_out_jack_data_t *hdmi_out_jdata = NULL;
+    pa_pal_hdmi_out_jack_data_t *hdmi_out_jdata = NULL;
 
     sock_event_fd = poll_data_event_init(jack_type);
     if (sock_event_fd <= 0) {
@@ -217,9 +210,9 @@ struct pa_qahw_jack_data* pa_qahw_hdmi_out_jack_detection_enable(pa_qahw_jack_ty
         return NULL;
     }
 
-    jdata = pa_xnew0(struct pa_qahw_jack_data, 1);
+    jdata = pa_xnew0(struct pa_pal_jack_data, 1);
 
-    hdmi_out_jdata = pa_xnew0(pa_qahw_hdmi_out_jack_data_t, 1);
+    hdmi_out_jdata = pa_xnew0(pa_pal_hdmi_out_jack_data_t, 1);
     jdata->prv_data = hdmi_out_jdata;
 
     jdata->jack_type = jack_type;
@@ -241,12 +234,12 @@ struct pa_qahw_jack_data* pa_qahw_hdmi_out_jack_detection_enable(pa_qahw_jack_ty
     return jdata;
 }
 
-void pa_qahw_hdmi_out_jack_detection_disable(struct pa_qahw_jack_data *jdata, pa_module *m) {
-    pa_qahw_hdmi_out_jack_data_t *hdmi_out_jdata;
+void pa_pal_hdmi_out_jack_detection_disable(struct pa_pal_jack_data *jdata, pa_module *m) {
+    pa_pal_hdmi_out_jack_data_t *hdmi_out_jdata;
 
     pa_assert(jdata);
 
-    hdmi_out_jdata = (pa_qahw_hdmi_out_jack_data_t *)jdata->prv_data;
+    hdmi_out_jdata = (pa_pal_hdmi_out_jack_data_t *)jdata->prv_data;
 
     if (hdmi_out_jdata->io)
         m->core->mainloop->io_free(hdmi_out_jdata->io);

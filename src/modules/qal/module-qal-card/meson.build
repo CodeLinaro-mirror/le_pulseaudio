@@ -7,6 +7,9 @@ sources = [
   'qal-utils.c',
   'qal-config-parser.c',
   'module-qal-card-extn.c',
+  'qal-jack-hdmi-out.c',
+  'qal-jack.c',
+  'qal-format-detection.c',
 ]
 
 headers = [
@@ -15,6 +18,9 @@ headers = [
   'qal-source.h',
   'qal-utils.h',
   'qal-config-parser.h',
+  'qal-jack-common.h',
+  'qal-jack.h',
+  'qal-jack-format.h',
 ]
 
 extra_inc = [include_directories(qal_inc)]

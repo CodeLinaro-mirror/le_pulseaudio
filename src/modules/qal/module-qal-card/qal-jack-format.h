@@ -15,31 +15,26 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
+ *
  */
 
-#ifndef fooqahwjackformathfoo
-#define fooqahwjackformathfoo
+#ifndef fooqaljackformathfoo
+#define fooqaljackformathfoo
 
 #include <pulsecore/core-util.h>
 
-#include "qahw-jack.h"
+#include <pulsecore/thread.h>
+#include "qal-jack.h"
 
-typedef struct pa_qahw_jack_config {
+typedef struct pa_pal_jack_config {
     pa_encoding_t encoding;
     pa_sample_spec ss;
     pa_channel_map map;
-    pa_qahw_jack_type_t active_jack;
+    pa_pal_jack_type_t active_jack;
     int32_t preemph_status;
     uint32_t dsd_rate;
-} pa_qahw_jack_out_config;
+} pa_pal_jack_out_config;
 
-bool pa_qahw_format_detection_get_value_from_path(const char* path, int *node_value);
-
-int pa_qahw_hdmi_in_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys_path sys_path,
-                                                          pa_qahw_jack_out_config *jack_config);
-
-int pa_qahw_spdif_jack_get_config(pa_qahw_jack_type_t jack_type, pa_qahw_jack_sys_path sys_path,
-                                                           pa_qahw_jack_out_config *jack_config);
-
+bool pa_pal_format_detection_get_value_from_path(const char* path, int *node_value);
 #endif
 

@@ -15,6 +15,7 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
+ *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -34,27 +35,28 @@
 #include <pulsecore/namereg.h>
 #include <pulsecore/core-util.h>
 
-#include "qahw-jack.h"
-#include "qahw-jack-common.h"
-#include "qahw-utils.h"
+#include <pulsecore/thread.h>
+#include "qal-jack.h"
+#include "qal-jack-common.h"
+#include "qal-utils.h"
 
 struct userdata {
-    struct pa_qahw_jack_data **jdata;
+    struct pa_pal_jack_data **jdata;
     int jack_count;
 };
 
 static unsigned int enabled_jacks = 0x0;
 static pa_hashmap *registered_jacks = NULL;
 
-static void toggle_jack_status_bits(pa_qahw_jack_type_t jack_type) {
+static void toggle_jack_status_bits(pa_pal_jack_type_t jack_type) {
     enabled_jacks ^= jack_type;
 }
 
-static bool is_jack_enabled(pa_qahw_jack_type_t jack_type) {
+static bool is_jack_enabled(pa_pal_jack_type_t jack_type) {
     return (enabled_jacks & jack_type);
 }
 
-static bool pa_qahw_jack_check_enable_status(struct pa_qahw_jack_data *jdata, const char *port_name, pa_qahw_jack_type_t jack_type) {
+static bool pa_pal_jack_check_enable_status(struct pa_pal_jack_data *jdata, const char *port_name, pa_pal_jack_type_t jack_type) {
     bool status = true;
 
     if (!jdata) {
@@ -69,10 +71,10 @@ static bool pa_qahw_jack_check_enable_status(struct pa_qahw_jack_data *jdata, co
     return status;
 }
 
-pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t jack_type, pa_qahw_jack_callback_t callback, pa_module *m,
-                         pa_qahw_jack_in_config *jack_in_config, void *client_data, bool is_external, qahw_module_handle_t *module_handle) {
+pa_pal_jack_handle_t *pa_pal_jack_register_event_callback(pa_pal_jack_type_t jack_type, pa_pal_jack_callback_t callback, pa_module *m,
+                         pa_pal_jack_in_config *jack_in_config, void *client_data, bool is_external) {
     struct jack_userdata *u;
-    struct pa_qahw_jack_data *jdata = NULL;
+    struct pa_pal_jack_data *jdata = NULL;
     const char *port_name = NULL;
 
     pa_assert(m);
@@ -82,10 +84,10 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
 
     u = pa_xnew0(struct jack_userdata, 1);
 
-    if ((jack_type == PA_QAHW_JACK_TYPE_LINEOUT) || (jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADPHONE))
-        jack_type = PA_QAHW_JACK_TYPE_WIRED_HEADSET;
+    if ((jack_type == PA_PAL_JACK_TYPE_LINEOUT) || (jack_type == PA_PAL_JACK_TYPE_WIRED_HEADPHONE))
+        jack_type = PA_PAL_JACK_TYPE_WIRED_HEADSET;
 
-    port_name = pa_qahw_util_get_port_name_from_jack_type(jack_type);
+    port_name = pa_pal_util_get_port_name_from_jack_type(jack_type);
     if (!port_name)
         goto fail;
 
@@ -93,32 +95,11 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
         pa_log_info("jack_type %d", jack_type);
         u->jack_type = jack_type;
 
-        if ((jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADSET) || (jack_type ==  PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS)) {
-            jdata = pa_qahw_evdev_jack_device_open(jack_type, m, &(u->hook_slot), callback, client_data);
-        }  else if  ((jack_type ==  PA_QAHW_JACK_TYPE_HDMI_IN) || (jack_type ==  PA_QAHW_JACK_TYPE_HDMI_ARC)) {
-            if (!is_external)
-                jdata = pa_qahw_hdmi_in_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data);
-            else
-                jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
-        } else if  (jack_type == PA_QAHW_JACK_TYPE_BTA2DP_OUT) {
-            jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
-        } else if  (jack_type ==  PA_QAHW_JACK_TYPE_BTA2DP_IN) {
-            jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
-        } else if  (jack_type == PA_QAHW_JACK_TYPE_SPDIF) {
-            if (!is_external)
-                jdata = pa_qahw_spdif_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data,
-                                                                                                                   module_handle);
-            else
-                jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
-        } else if (jack_type == PA_QAHW_JACK_TYPE_BTSCO_IN) {
-            jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
-        } else if (jack_type == PA_QAHW_JACK_TYPE_BTSCO_OUT) {
-            jdata = pa_qahw_external_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, client_data);
-        } else if (jack_type == PA_QAHW_JACK_TYPE_HDMI_OUT) {
-            jdata = pa_qahw_hdmi_out_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data);
+       if (jack_type == PA_PAL_JACK_TYPE_HDMI_OUT) {
+            jdata = pa_pal_hdmi_out_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data);
         }
 
-        if (!(pa_qahw_jack_check_enable_status(jdata, port_name, jack_type)))
+        if (!(pa_pal_jack_check_enable_status(jdata, port_name, jack_type)))
             goto fail;
     } else {
         u->jack_type = jack_type;
@@ -127,7 +108,7 @@ pa_qahw_jack_handle_t *pa_qahw_jack_register_event_callback(pa_qahw_jack_type_t 
         jdata->ref_count++;
     }
 
-    return (pa_qahw_jack_handle_t *)u;
+    return (pa_pal_jack_handle_t *)u;
 
 fail:
     pa_log_info("Unsupported jack type");
@@ -135,8 +116,8 @@ fail:
     return NULL;
 }
 
-bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *jack_handle, pa_module *m, bool is_external) {
-    struct pa_qahw_jack_data *jdata = NULL;
+bool pa_pal_jack_deregister_event_callback(pa_pal_jack_handle_t *jack_handle, pa_module *m, bool is_external) {
+    struct pa_pal_jack_data *jdata = NULL;
     struct jack_userdata *u = NULL;
     const char *port_name = NULL;
 
@@ -145,7 +126,7 @@ bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *jack_handle, 
 
     u = (struct jack_userdata *)jack_handle;
 
-    port_name = pa_qahw_util_get_port_name_from_jack_type(u->jack_type);
+    port_name = pa_pal_util_get_port_name_from_jack_type(u->jack_type);
     jdata = pa_hashmap_get(registered_jacks, (char *)port_name);
     if (!jdata)
         return false;
@@ -156,44 +137,11 @@ bool pa_qahw_jack_deregister_event_callback(pa_qahw_jack_handle_t *jack_handle, 
 
     if (jdata->ref_count == 0) {
         pa_log_info("%s: dergister jack type %d",__func__, jdata->jack_type);
-        if ((jdata->jack_type ==  PA_QAHW_JACK_TYPE_WIRED_HEADSET) || (jdata->jack_type == PA_QAHW_JACK_TYPE_WIRED_HEADSET_BUTTONS)) {
+
+        if (jdata->jack_type & PA_PAL_JACK_TYPE_HDMI_OUT) {
             pa_hashmap_remove(registered_jacks, port_name);
-            pa_qahw_evdev_jack_device_close(jdata, m);
-            toggle_jack_status_bits(jdata->jack_type);
-        } else if ((jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI_IN) || (jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI_ARC)) {
-            pa_hashmap_remove(registered_jacks, port_name);
-            if (!is_external)
-                pa_qahw_hdmi_in_jack_detection_disable(jdata, m);
-            else
-                pa_qahw_external_jack_detection_disable(jdata, m);
-            toggle_jack_status_bits(jdata->jack_type);
-        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_BTA2DP_OUT) {
-            pa_hashmap_remove(registered_jacks, port_name);
-            pa_qahw_external_jack_detection_disable(jdata, m);
-            toggle_jack_status_bits(PA_QAHW_JACK_TYPE_BTA2DP_OUT);
-        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_BTA2DP_IN) {
-            pa_hashmap_remove(registered_jacks, port_name);
-            pa_qahw_external_jack_detection_disable(jdata, m);
-            toggle_jack_status_bits(PA_QAHW_JACK_TYPE_BTA2DP_IN);
-        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_SPDIF) {
-            pa_hashmap_remove(registered_jacks, port_name);
-            if (!is_external)
-                pa_qahw_spdif_jack_detection_disable(jdata, m);
-            else
-                pa_qahw_external_jack_detection_disable(jdata, m);
-            toggle_jack_status_bits(PA_QAHW_JACK_TYPE_SPDIF);
-        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_BTSCO_IN) {
-            pa_hashmap_remove(registered_jacks, port_name);
-            pa_qahw_external_jack_detection_disable(jdata, m);
-            toggle_jack_status_bits(PA_QAHW_JACK_TYPE_BTSCO_IN);
-        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_BTSCO_OUT) {
-            pa_hashmap_remove(registered_jacks, port_name);
-            pa_qahw_external_jack_detection_disable(jdata, m);
-            toggle_jack_status_bits(PA_QAHW_JACK_TYPE_BTSCO_OUT);
-        } else if (jdata->jack_type & PA_QAHW_JACK_TYPE_HDMI_OUT) {
-            pa_hashmap_remove(registered_jacks, port_name);
-            pa_qahw_hdmi_out_jack_detection_disable(jdata, m);
-            toggle_jack_status_bits(PA_QAHW_JACK_TYPE_HDMI_OUT);
+            pa_pal_hdmi_out_jack_detection_disable(jdata, m);
+            toggle_jack_status_bits(PA_PAL_JACK_TYPE_HDMI_OUT);
         }
     }
 

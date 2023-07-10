@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -15,9 +16,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
  *
- * Changes from Qualcomm Innovation Center are provided under the following license:
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
 #ifdef HAVE_CONFIG_H
@@ -56,6 +54,11 @@ typedef struct {
     char *pal_device_name;
 } pa_pal_util_port_to_pal_device_mapping;
 
+typedef struct {
+    pa_pal_jack_type_t jack_type;
+    char *port_name;
+} pa_pal_util_jack_type_to_port_name;
+
 pa_pal_util_port_to_pal_device_mapping port_to_pal_device[] = {
     { (char *)"speaker",          PAL_DEVICE_OUT_SPEAKER,          (char *)"PAL_DEVICE_OUT_SPEAKER" },
     { (char *)"lineout",          PAL_DEVICE_OUT_LINE,             (char *)"PAL_DEVICE_OUT_LINE" },
@@ -65,6 +68,35 @@ pa_pal_util_port_to_pal_device_mapping port_to_pal_device[] = {
     { (char *)"builtin-mic",      PAL_DEVICE_IN_HANDSET_MIC,       (char *)"PAL_DEVICE_IN_HANDSET_MIC" },
     { (char *)"speaker-mic",      PAL_DEVICE_IN_SPEAKER_MIC,       (char *)"PAL_DEVICE_IN_SPEAKER_MIC" },
     { (char *)"linein",           PAL_DEVICE_IN_LINE,              (char *)"PAL_DEVICE_IN_LINE" },
+    { (char *)"hdmi-out",         PAL_DEVICE_OUT_AUX_DIGITAL,      (char *)"PAL_DEVICE_OUT_AUX_DIGITAL" },
+};
+
+pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
+    { PA_PAL_JACK_TYPE_WIRED_HEADSET, (char*)"headset" },
+    { PA_PAL_JACK_TYPE_WIRED_HEADSET_BUTTONS, (char*)"headset-mic" },
+    { PA_PAL_JACK_TYPE_WIRED_HEADPHONE, (char*)"headphone" },
+    { PA_PAL_JACK_TYPE_LINEOUT, (char*)"lineout"},
+    { PA_PAL_JACK_TYPE_HDMI_IN, (char*)"hdmi-in" },
+    { PA_PAL_JACK_TYPE_BTA2DP_OUT, (char*)"bta2dp-out" },
+    { PA_PAL_JACK_TYPE_BTA2DP_IN, (char*)"bta2dp-in" },
+    { PA_PAL_JACK_TYPE_HDMI_ARC, (char *)"hdmi-arc"},
+    { PA_PAL_JACK_TYPE_SPDIF, (char *)"spdif-in"},
+    { PA_PAL_JACK_TYPE_BTSCO_IN, (char *)"btsco-in"},
+    { PA_PAL_JACK_TYPE_BTSCO_OUT, (char *)"btsco-out"},
+    { PA_PAL_JACK_TYPE_HDMI_OUT, (char *)"hdmi-out"},
+    { PA_PAL_JACK_TYPE_SPDIF_OUT_OPTICAL, (char *)"spdif-out-optical"},
+    { PA_PAL_JACK_TYPE_SPDIF_OUT_COAXIAL, (char *)"spdif-out-coaxial"},
+};
+
+static pa_channel_position_t pa_pal_be_channel_map[] = {
+    PAL_PCM_CHANNEL_FL,
+    PAL_PCM_CHANNEL_FR,
+    PAL_PCM_CHANNEL_LFE,
+    PAL_PCM_CHANNEL_FC,
+    PAL_PCM_CHANNEL_LS,
+    PAL_PCM_CHANNEL_RS,
+    PAL_PCM_CHANNEL_LB,
+    PAL_PCM_CHANNEL_RB
 };
 
 pal_device_id_t pa_pal_util_device_name_to_enum(const char *device_name) {
@@ -258,4 +290,109 @@ bool pa_pal_channel_map_to_pal(pa_channel_map *pa_map, struct pal_channel_info *
     }
 
     return true;
+}
+
+pa_pal_jack_type_t pa_pal_util_get_jack_type_from_port_name(const char *port_name) {
+    uint32_t count;
+
+    for (count = 0; count < ARRAY_SIZE(jack_type_to_port_name); count++) {
+        if (pa_streq(jack_type_to_port_name[count].port_name, port_name))
+            return jack_type_to_port_name[count].jack_type;
+    }
+
+    return PA_PAL_JACK_TYPE_INVALID;
+}
+
+const char* pa_pal_util_get_port_name_from_jack_type(pa_pal_jack_type_t jack_type) {
+    uint32_t count;
+
+    for (count = 0; count < ARRAY_SIZE(jack_type_to_port_name); count++) {
+        if (jack_type_to_port_name[count].jack_type == jack_type)
+            return jack_type_to_port_name[count].port_name;
+    }
+
+    return NULL;
+}
+
+/*
+ * This Function will remove the invalid channels in case of invalid channels passed
+ * in hdmi non-2ch and non-ch usecases ultimately to derive map w.r.t be channel map.
+ */
+pa_channel_map pa_pal_map_remove_invalid_channels(pa_channel_map *def_map_with_inval_ch) {
+    uint32_t i=0, j=0;
+    pa_channel_map pa_map;
+    pa_assert(def_map_with_inval_ch);
+
+    while(i < ARRAY_SIZE(pa_pal_be_channel_map)) {
+        if (def_map_with_inval_ch->map[i] != PA_CHANNEL_POSITION_INVALID) {
+            pa_map.map[j] = def_map_with_inval_ch->map[i];
+            j++;
+        }
+        i++;
+    }
+    pa_map.channels = def_map_with_inval_ch->channels;
+    return pa_map;
+}
+
+void pa_pal_util_get_jack_sys_path(pa_pal_card_port_config *config_port, pa_pal_jack_in_config *jack_in_config) {
+    pa_assert(config_port);
+    pa_assert(jack_in_config);
+
+    if (config_port->state_node_path)
+        jack_in_config->jack_sys_path.audio_state = config_port->state_node_path;
+
+    if (config_port->sample_format_node_path)
+        jack_in_config->jack_sys_path.audio_format = config_port->sample_format_node_path;
+
+    if (config_port->sample_rate_node_path)
+        jack_in_config->jack_sys_path.audio_rate = config_port->sample_rate_node_path;
+
+    if (config_port->sample_layout_node_path)
+        jack_in_config->jack_sys_path.audio_layout = config_port->sample_layout_node_path;
+
+    if (config_port->sample_channel_node_path)
+        jack_in_config->jack_sys_path.audio_channel = config_port->sample_channel_node_path;
+
+    if (config_port->sample_channel_alloc_node_path)
+        jack_in_config->jack_sys_path.audio_channel_alloc = config_port->sample_channel_alloc_node_path;
+
+    if (config_port->linkon0_node_path)
+        jack_in_config->jack_sys_path.linkon_0 = config_port->linkon0_node_path;
+
+    if (config_port->poweron_node_path)
+        jack_in_config->jack_sys_path.power_on = config_port->poweron_node_path;
+
+    if (config_port->audio_path_node_path)
+        jack_in_config->jack_sys_path.audio_path = config_port->audio_path_node_path;
+
+    if (config_port->arc_enable_node_path)
+        jack_in_config->jack_sys_path.arc_enable = config_port->arc_enable_node_path;
+
+    if (config_port->earc_enable_node_path)
+        jack_in_config->jack_sys_path.earc_enable = config_port->earc_enable_node_path;
+
+    if (config_port->arc_state_node_path)
+        jack_in_config->jack_sys_path.arc_audio_state = config_port->arc_state_node_path;
+
+    if (config_port->arc_sample_format_node_path)
+        jack_in_config->jack_sys_path.arc_audio_format = config_port->arc_sample_format_node_path;
+
+    if (config_port->arc_sample_rate_node_path)
+        jack_in_config->jack_sys_path.arc_audio_rate = config_port->arc_sample_rate_node_path;
+
+    if (config_port->audio_preemph_node_path)
+        jack_in_config->jack_sys_path.audio_preemph = config_port->audio_preemph_node_path;
+
+    if (config_port->arc_audio_preemph_node_path)
+        jack_in_config->jack_sys_path.arc_audio_preemph = config_port->arc_audio_preemph_node_path;
+
+    if (config_port->dsd_rate_node_path)
+        jack_in_config->jack_sys_path.dsd_rate = config_port->dsd_rate_node_path;
+
+    if (config_port->hdmi_tx_state_path)
+        jack_in_config->jack_sys_path.hdmi_tx_state = config_port->hdmi_tx_state_path;
+
+    if (config_port->channel_status_path)
+        jack_in_config->jack_sys_path.channel_status = config_port->channel_status_path;
+
 }

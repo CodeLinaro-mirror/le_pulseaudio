@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -15,10 +16,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
  */
-
- /*
-  * Copyright (c) 2022,2023 Qualcomm Innovation Center, Inc. All rights reserved.
-  */
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -855,6 +852,40 @@ static int pa_pal_set_param(pal_sink_data *pal_sdata, uint32_t param_id) {
     free(param_payload);
 
     return rc;
+}
+
+int pa_pal_sink_get_media_config(pa_pal_sink_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
+    pa_pal_sink_data *sdata = (pa_pal_sink_data *)handle;
+    pa_format_info *f;
+
+    uint32_t i;
+    int ret = -1;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->sink);
+
+    *ss = sdata->pa_sdata->sink->sample_spec;
+    *map = sdata->pa_sdata->sink->channel_map;
+
+    PA_IDXSET_FOREACH(f, sdata->pa_sdata->formats, i) {
+        /* currently a sink supports single format */
+        *encoding = f->encoding;
+        ret = 0;
+        break;
+    }
+
+    return ret;
+}
+
+pa_idxset* pa_pal_sink_get_config(pa_pal_sink_handle_t *handle) {
+    pa_pal_sink_data *sdata = (pa_pal_sink_data *)handle;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->sink);
+
+    return pa_pal_sink_get_formats(sdata->pa_sdata->sink);
 }
 
 static int open_pal_sink(pa_pal_sink_data *sdata) {

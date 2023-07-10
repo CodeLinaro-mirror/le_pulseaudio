@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -15,10 +16,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
  */
-
- /*
-  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
-  */
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -655,6 +652,40 @@ bool pa_pal_source_is_supported_sample_rate(uint32_t sample_rate) {
     }
 
     return supported;
+}
+
+pa_idxset* pa_pal_source_get_config(pa_pal_source_handle_t *handle) {
+    pa_pal_source_data *sdata = (pa_pal_source_data *)handle;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->source);
+
+    return pa_pal_source_get_formats(sdata->pa_sdata->source);
+}
+
+int pa_pal_source_get_media_config(pa_pal_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
+    pa_pal_source_data *sdata = (pa_pal_source_data *)handle;
+    pa_format_info *f;
+
+    uint32_t i;
+    int ret = -1;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->source);
+
+    *ss = sdata->pa_sdata->source->sample_spec;
+    *map = sdata->pa_sdata->source->channel_map;
+
+    PA_IDXSET_FOREACH(f, sdata->pa_sdata->formats, i) {
+        /* currently a source supports single format */
+        *encoding = f->encoding;
+        ret = 0;
+        break;
+    }
+
+    return ret;
 }
 
 int pa_pal_source_create(pa_module *m, pa_card *card, const char *driver, const char *module_name, pa_pal_source_config *source,
