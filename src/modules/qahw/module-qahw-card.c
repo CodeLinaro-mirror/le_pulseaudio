@@ -348,6 +348,11 @@ static void pa_qahw_card_add_dynamic_source(pa_device_port *port, pa_qahw_jack_o
     if (compr_stream_format)
         pa_idxset_put(requested_formats, compr_stream_format, NULL);
 
+    if (!pa_channel_map_valid(&config->map)) {
+        pa_log_error("%s: invalid config map, Avoid source creation", __func__);
+        goto exit;
+    }
+
     new_source = *source;
     new_source.def_map_with_inval_ch = config->map;
     new_source.default_map = pa_map_remove_invalid_channels(&(config->map));

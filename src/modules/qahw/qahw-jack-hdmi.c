@@ -276,14 +276,13 @@ static void check_hdmi_arc_state(pa_qahw_hdmi_jack_data_t *hdmi_jdata) {
             pa_qahw_hdmi_jack_raise_event(PA_QAHW_JACK_TYPE_HDMI_ARC, PA_QAHW_JACK_AVAILABLE, NULL, hdmi_jdata, false);
 
         if (!pa_qahw_hdmi_in_jack_get_config(hdmi_jdata->active_valid_port_type, hdmi_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
-            if (new_port_config.active_jack == PA_QAHW_JACK_TYPE_HDMI_ARC) {
+            if (pa_qahw_jack_can_raise_request(new_port_config.active_jack,hdmi_jdata) &&
+                (new_port_config.active_jack == PA_QAHW_JACK_TYPE_HDMI_ARC)) {
                 /* Raise PA_QAHW_JACK_CONFIG_UPDATE for HDMI-ARC */
+                pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
                 memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
-                if(pa_qahw_jack_can_raise_request(new_port_config.active_jack,hdmi_jdata)) {
-                    pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
-                    hdmi_jdata->active_port_type = PA_QAHW_JACK_TYPE_HDMI_ARC;
-                    hdmi_jdata->active_valid_port_type = hdmi_jdata->active_port_type;
-                }
+                hdmi_jdata->active_port_type = PA_QAHW_JACK_TYPE_HDMI_ARC;
+                hdmi_jdata->active_valid_port_type = hdmi_jdata->active_port_type;
             }
         }
     }
@@ -323,7 +322,6 @@ static void check_hdmi_connection(pa_qahw_hdmi_jack_data_t *hdmi_jdata) {
         if (!pa_qahw_hdmi_in_jack_get_config(hdmi_jdata->active_valid_port_type, hdmi_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
             if ((new_port_config.active_jack != PA_QAHW_JACK_TYPE_INVALID) ||
                 (new_port_config.preemph_status != curr_hdmi_jack_config.preemph_status)) {
-                memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
 
                 if (new_port_config.active_jack != hdmi_jdata->port_type) {
                     if (hdmi_jdata->jack_in_config->linked_ports) {
@@ -344,8 +342,10 @@ static void check_hdmi_connection(pa_qahw_hdmi_jack_data_t *hdmi_jdata) {
                     if(pa_qahw_jack_can_raise_request(new_port_config.active_jack,hdmi_jdata)) {
                         if (is_hdmi_no_stream_event_valid(hdmi_jdata))
                             pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_NO_VALID_STREAM, NULL, hdmi_jdata, false);
-                        else
+                        else {
                             pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
+                            memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
+                        }
                     }
                 } else {
                     /* Check whether the audio_state is invalid *
@@ -479,7 +479,6 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
             if (!pa_qahw_hdmi_in_jack_get_config(hdmi_jdata->active_valid_port_type, hdmi_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
                 if ((new_port_config.active_jack != PA_QAHW_JACK_TYPE_INVALID) ||
                     (new_port_config.preemph_status != curr_hdmi_jack_config.preemph_status)) {
-                    memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
 
                     if (new_port_config.active_jack != hdmi_jdata->port_type) {
                         if (hdmi_jdata->jack_in_config->linked_ports) {
@@ -502,8 +501,10 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
                         if(pa_qahw_jack_can_raise_request(new_port_config.active_jack,hdmi_jdata)) {
                             if (is_hdmi_no_stream_event_valid(hdmi_jdata))
                                 pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_NO_VALID_STREAM, NULL, hdmi_jdata, false);
-                            else
+                            else {
                                 pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
+                                memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
+                            }
                         }
                     } else {
                         /* Check whether the audio_state is invalid *
@@ -591,10 +592,8 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
                 if(pa_qahw_jack_can_raise_request(new_port_config.active_jack,hdmi_jdata)) {
                     if (is_hdmi_no_stream_event_valid(hdmi_jdata)) {
                         pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_NO_VALID_STREAM, NULL, hdmi_jdata, false);
-                    } else {
-                        if (is_hdmi_config_update_event_valid(new_port_config, hdmi_jdata))
-                            pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
-
+                    } else if (is_hdmi_config_update_event_valid(new_port_config, hdmi_jdata)) {
+                        pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
                         memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
                     }
                 }
@@ -609,15 +608,14 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
                     pa_qahw_hdmi_jack_raise_event(PA_QAHW_JACK_TYPE_HDMI_ARC, PA_QAHW_JACK_AVAILABLE, NULL, hdmi_jdata, false);
 
                 if (!pa_qahw_hdmi_in_jack_get_config(hdmi_jdata->active_valid_port_type, hdmi_jdata->jack_in_config->jack_sys_path, &new_port_config)) {
-                    if ((new_port_config.active_jack == PA_QAHW_JACK_TYPE_HDMI_ARC) ||
-                        (new_port_config.preemph_status != curr_hdmi_jack_config.preemph_status)) {
+                    if (pa_qahw_jack_can_raise_request(new_port_config.active_jack,hdmi_jdata) &&
+                        ((new_port_config.active_jack == PA_QAHW_JACK_TYPE_HDMI_ARC) ||
+                        (new_port_config.preemph_status != curr_hdmi_jack_config.preemph_status))) {
                         /* Raise PA_QAHW_JACK_CONFIG_UPDATE for HDMI-ARC */
+                        pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
                         memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
-                        if(pa_qahw_jack_can_raise_request(new_port_config.active_jack,hdmi_jdata)) {
-                           pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
-                           hdmi_jdata->active_port_type = PA_QAHW_JACK_TYPE_HDMI_ARC;
-                           hdmi_jdata->active_valid_port_type = hdmi_jdata->active_port_type;
-                        }
+                        hdmi_jdata->active_port_type = PA_QAHW_JACK_TYPE_HDMI_ARC;
+                        hdmi_jdata->active_valid_port_type = hdmi_jdata->active_port_type;
                     }
                 }
             } else if (arc_enable_state == -1) {
@@ -631,14 +629,13 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
                 /* Proceed only if corresponding jack is available */
                 if ((hdmi_jdata->active_port_type == PA_QAHW_JACK_TYPE_HDMI_ARC) &&
                     (!pa_qahw_hdmi_in_jack_get_config(hdmi_jdata->active_valid_port_type, hdmi_jdata->jack_in_config->jack_sys_path, &new_port_config))) {
-                    if ((new_port_config.active_jack == PA_QAHW_JACK_TYPE_HDMI_ARC) ||
-                        (new_port_config.preemph_status != curr_hdmi_jack_config.preemph_status)) {
+                    if (pa_qahw_jack_can_raise_request(new_port_config.active_jack,hdmi_jdata) &&
+                        is_hdmi_config_update_event_valid(new_port_config, hdmi_jdata) &&
+                        ((new_port_config.active_jack == PA_QAHW_JACK_TYPE_HDMI_ARC) ||
+                        (new_port_config.preemph_status != curr_hdmi_jack_config.preemph_status))) {
                         /* Raise PA_QAHW_JACK_CONFIG_UPDATE for HDMI-ARC */
-                        if (is_hdmi_config_update_event_valid(new_port_config, hdmi_jdata)) {
-                            memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
-                            if(pa_qahw_jack_can_raise_request(new_port_config.active_jack,hdmi_jdata))
-                                pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
-                        }
+                        pa_qahw_hdmi_jack_raise_event(new_port_config.active_jack, PA_QAHW_JACK_CONFIG_UPDATE, &new_port_config, hdmi_jdata, false);
+                        memcpy(&curr_hdmi_jack_config, &new_port_config, sizeof(pa_qahw_jack_out_config));
                     }
                 }
             }
