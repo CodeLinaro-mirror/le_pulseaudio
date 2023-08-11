@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
 
-DEVPATH=="/devices/platform/soc/soc:spf_core_platform/soc:spf_core_platform:sound/sound/card0", ENV{PULSE_IGNORE}="1"
+DEVPATH=="/devices/platform/soc/soc:spf_core_platform/soc:spf_core_platform:sound/sound/card*", ENV{PULSE_IGNORE}="1"
 
 SUBSYSTEM!="sound", GOTO="pulseaudio_end"
 ACTION!="change", GOTO="pulseaudio_end"
