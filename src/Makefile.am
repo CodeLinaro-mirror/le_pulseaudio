@@ -1417,6 +1417,7 @@ modlibexec_LTLIBRARIES += module-qahw-card.la
 dist_qahwconfsets_DATA = \
       modules/qahw/configs/kona-iot-snd-card.conf \
       modules/qahw/configs/lahaina-yupikiot-snd-card.conf \
+      modules/qahw/configs/lahaina-yupikidp-snd-card.conf \
       modules/qahw/configs/bengal-qrd-snd-card.conf \
       modules/qahw/configs/sm6150-tavil-snd-card.conf \
       modules/qahw/configs/sm6150-idp-snd-card.conf \
