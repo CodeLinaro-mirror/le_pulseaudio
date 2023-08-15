@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -14,6 +15,7 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
+ *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -37,6 +39,11 @@
 #include "qal-sink.h"
 #include "qal-card.h"
 #include "qal-config-parser.h"
+
+#include "qal-jack.h"
+#include "qal-jack-format.h"
+
+#include "qal-utils.h"
 
 #define CONC(A,B) (A B)
 #define PAL_MODULE_ID_PREFIX "audio."
@@ -82,12 +89,20 @@ struct userdata {
 
     pa_hashmap *sinks;
     pa_hashmap *sources;
+    pa_hashmap *jacks;
 
     pa_pal_config_data *config_data;
     char *conf_dir_name;
     char *conf_file_name;
 };
 
+
+typedef struct {
+    pa_pal_jack_handle_t *handle;
+    pa_pal_jack_type_t jack_type;
+    pa_pal_jack_out_config jack_curr_config;
+    pa_pal_jack_out_config jack_prev_config;
+} pa_pal_card_jack_info;
 /* internal functions */
 
 static int pa_pal_card_add_source(pa_module *module, pa_card *card, const char *driver, char *module_name, pa_pal_source_config *source,
@@ -372,6 +387,576 @@ static void pa_pal_card_free_sinks(struct userdata *u, const char *profile_name)
     }
 }
 
+static pa_pal_card_source_info *pa_pal_card_is_dynamic_source_present_for_port(const char *port_name,
+                                                                            struct userdata *u) {
+    pa_pal_card_sink_info *source_info = NULL;
+    pa_pal_sink_config *source;
+    void *state;
+
+    pa_assert(port_name);
+    pa_assert(u);
+
+    /* check if any source is already created on same port */
+    PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
+        if ((source->usecase_type == PA_PAL_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(source->ports, port_name))) {
+            source_info = pa_hashmap_get(u->sources, source->name);
+            if (source_info) {
+                pa_log_info("%s: Found an existing dynamic source %s for port %s", __func__, source->name, port_name);
+                break;
+            }
+        }
+    }
+
+    return source_info;
+}
+
+static pa_pal_card_sink_info *pa_pal_card_is_dynamic_sink_present_for_port(const char *port_name, struct userdata *u) {
+    pa_pal_card_sink_info *sink_info = NULL;
+    pa_pal_sink_config *sink;
+    void *state;
+
+    pa_assert(port_name);
+    pa_assert(u);
+
+    /* check if any sink is already created on same port */
+    PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
+        if ((sink->usecase_type == PA_PAL_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(sink->ports, port_name))) {
+            sink_info = pa_hashmap_get(u->sinks, sink->name);
+            if (sink_info) {
+                pa_log_info("%s: Found an existing dynamic sink %s for port %s", __func__, sink->name, port_name);
+                break;
+            }
+        }
+    }
+
+    return sink_info;
+}
+
+static void pa_pal_card_remove_dynamic_source(pa_device_port *port, struct userdata *u) {
+    pa_pal_source_config *source = NULL;
+    pa_pal_card_source_info *source_info = NULL;
+    void *state;
+
+    pa_assert(port);
+
+    pa_log_debug("%s:", __func__);
+
+    /*find a dynamic source which supports give a port, currently assumption is that one dynamic source is supported for a port */
+    PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
+        if ((source->usecase_type == PA_PAL_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(source->ports, port->name))) {
+            /* check if this source supports required encoding */
+            pa_log_info("%s: Found a dynamic source %s for port %s", __func__, source->name, port->name);
+            source_info = pa_hashmap_get(u->sources, source->name);
+            if (!source_info)
+                continue;
+
+            break;
+        }
+    }
+
+    if (!source_info) {
+        pa_log_error("%s: no dynamic usecase present, skip removal of source ", __func__);
+        goto exit;
+    }
+
+    pa_pal_source_close(source_info->handle);
+
+    pa_hashmap_remove(u->sources, source->name);
+    pa_xfree(source_info);
+
+exit:
+    return;
+}
+
+static void pa_pal_card_add_dynamic_source(pa_device_port *port, pa_pal_jack_out_config *config, struct userdata *u) {
+    int rc;
+
+    pa_pal_card_source_info *source_info = NULL;
+
+    pa_pal_source_config *source;
+    pa_pal_source_config new_source;
+
+    pa_idxset *requested_formats;
+    pa_format_info *requested_format;
+
+    pa_format_info *current_format;
+    pa_format_info *config_format = NULL;
+
+    pa_idxset *current_formats;
+
+    pa_sample_spec ss;
+    pa_channel_map map;
+    pa_encoding_t encoding;
+
+    char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
+    char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
+
+    void *state;
+    uint32_t i;
+
+    pa_assert(port);
+    pa_assert(config);
+    pa_assert(u);
+
+    pa_log_debug("%s:", __func__);
+
+    requested_format = pa_format_info_new();
+    requested_format->encoding = config->encoding;
+
+    if (config->encoding != PA_ENCODING_PCM) {
+        pa_format_info_set_rate(requested_format, config->ss.rate);
+
+        if (config->encoding == PA_ENCODING_DSD) {
+            pa_format_info_set_channels(requested_format, config->ss.channels);
+        }
+    }
+
+    pa_log_info("%s: requested source with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &config->ss));
+
+    /* check if any dynamic source is already created on same port */
+    source_info = pa_pal_card_is_dynamic_source_present_for_port(port->name, u);
+
+    /* check if reconfigure is needed if yes then close free existing source and recreate new source */
+    if (source_info) {
+        /* For pcm get the media config as pcm source doesn't only add encoding in format*/
+        if ((config->encoding == PA_ENCODING_PCM) || (config->encoding == PA_ENCODING_DSD)) {
+            rc = pa_pal_source_get_media_config(source_info->handle, &ss, &map, &encoding);
+            if (rc) {
+                pa_log_error("%s: pa_pal_source_get_media_config failed, error %d", __func__, rc);
+                goto exit;
+            }
+        } else {
+            current_formats = pa_pal_source_get_config(source_info->handle);
+            if (!current_formats || (pa_idxset_size(current_formats) != 1)) {  /* dynamic source should have single format */
+                pa_log_error("%s: pa_pal_source_get_config failed", __func__);
+                goto exit;
+            }
+
+            current_format = pa_idxset_first(current_formats, NULL);
+            encoding = current_format->encoding;
+
+            pa_log_info("%s: existing source format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), current_format));
+
+            pa_format_info_to_sample_spec(current_format, &ss, &map);
+
+            pa_idxset_free(current_formats, (pa_free_cb_t) pa_format_info_free);
+        }
+
+        pa_log_info("%s: closing current source and createing new one", __func__);
+        pa_pal_card_remove_dynamic_source(port, u);
+    }
+
+    /* find a dynamic source which supports requested port and encoding */
+    PA_HASHMAP_FOREACH(source, u->config_data->sources, state) {
+        if ((source->usecase_type == PA_PAL_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(source->ports, port->name))) {
+            PA_IDXSET_FOREACH(config_format, source->formats, i) {
+                if (pa_format_info_is_compatible(config_format, requested_format)) {
+                    break;
+                }
+            }
+        }
+        /* check if this source supports requested format */
+        if (config_format) {
+            pa_log_info("%s: found a dynamic source %s for port %s with requested capablity", __func__, source->name, port->name);
+            break;
+        }
+    }
+
+    if (!config_format) {
+        pa_log_error("%s: dynamic source for requested format is not supported for port %s", __func__, port->name);
+        goto exit;
+    }
+
+    requested_formats = pa_idxset_new(NULL, NULL);
+    pa_idxset_put(requested_formats, requested_format, NULL);
+
+    new_source = *source;
+    new_source.default_spec = config->ss;
+    new_source.default_map = pa_pal_map_remove_invalid_channels(&(config->map));
+    new_source.formats = requested_formats;
+    new_source.default_encoding = config->encoding;
+
+    source_info = pa_xnew0(pa_pal_card_source_info, 1);
+    rc = pa_pal_card_add_source(u->module, u->card, u->driver, u->module_name, &new_source, &(source_info->handle));
+    if (rc) {
+        pa_log_error("%s: source %s create failed for port %s, error %d ", __func__, source->name, port->name, rc);
+        source_info->handle = NULL;
+    } else {
+        pa_hashmap_put(u->sources, new_source.name, source_info);
+    }
+
+    pa_idxset_free(requested_formats, (pa_free_cb_t) pa_format_info_free);
+exit:
+   return;
+}
+
+static void pa_pal_card_set_sink_param(pa_device_port *port, struct userdata *u, const char *jack_param) {
+/* FIXME: implement function when required */
+    pa_log_error("%s: not implement now", __func__);
+}
+
+static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *u, const char *jack_param) {
+/* FIXME: implement function when required */
+    pa_log_error("%s: not implement now", __func__);
+}
+
+static void pa_pal_card_remove_dynamic_sink(pa_device_port *port, struct userdata *u) {
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_card_sink_info *sink_info = NULL;
+    void *state;
+
+    pa_assert(port);
+
+    pa_log_debug("%s:", __func__);
+
+    /*find a dynamic sink which supports give a port, currently assumption is that one dynamic sink is supported for a port */
+    PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
+        if ((sink->usecase_type == PA_PAL_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(sink->ports, port->name))) {
+            /* check if this sink supports required encoding */
+            pa_log_info("%s: Found a dynamic sink %s for port %s", __func__, sink->name, port->name);
+            sink_info = pa_hashmap_get(u->sinks, sink->name);
+            if (!sink_info)
+                continue;
+
+            break;
+        }
+    }
+
+    if (!sink_info) {
+        pa_log_error("%s: no dynamic usecase present, skip removal of sink ", __func__);
+        goto exit;
+    }
+
+    pa_pal_sink_close(sink_info->handle);
+
+    pa_hashmap_remove(u->sinks, sink->name);
+    pa_xfree(sink_info);
+
+exit:
+    return;
+}
+
+static void pa_pal_card_add_dynamic_sink(pa_device_port *port, pa_pal_jack_out_config *config, struct userdata *u) {
+    int rc;
+    bool reconfigure = false;
+
+    pa_pal_card_sink_info *sink_info = NULL;
+
+    pa_pal_sink_config *sink;
+    pa_pal_sink_config new_sink;
+
+    pa_idxset *requested_formats;
+    pa_format_info *requested_format;
+
+    pa_format_info *current_format;
+    pa_format_info *config_format;
+
+    pa_idxset *current_formats;
+
+    pa_sample_spec ss;
+    pa_channel_map map;
+    pa_encoding_t encoding;
+
+    char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
+    char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
+
+    void *state;
+    uint32_t i;
+
+    pa_assert(port);
+    pa_assert(config);
+    pa_assert(u);
+
+    pa_log_debug("%s:", __func__);
+
+    requested_format = pa_format_info_new();
+    requested_format->encoding = config->encoding;
+
+    if (config->encoding != PA_ENCODING_PCM)
+        pa_format_info_set_rate(requested_format, config->ss.rate);
+
+    pa_log_info("%s: requested sink with ss %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &config->ss));
+
+    /* check if any dynamic sink is already created on same port */
+    sink_info = pa_pal_card_is_dynamic_sink_present_for_port(port->name, u);
+
+    /* check if reconfigure is needed if yes then close free existing sink and recreate new sink */
+    if (sink_info) {
+        /* For pcm get the media config as pcm sink doesn't only add encoding in format*/
+        if (config->encoding == PA_ENCODING_PCM) {
+            rc = pa_pal_sink_get_media_config(sink_info->handle, &ss, &map, &encoding);
+            if (rc) {
+                pa_log_error("%s: pa_pal_sink_get_media_config failed, error %d", __func__, rc);
+                goto exit;
+            }
+        } else {
+            current_formats = pa_pal_sink_get_config(sink_info->handle);
+            if (!current_formats || (pa_idxset_size(current_formats) != 1)) {  /* dynamic sink should have single format */
+                pa_log_error("%s: pa_pal_sink_get_config failed", __func__);
+                goto exit;
+            }
+
+            current_format = pa_idxset_first(current_formats, NULL);
+            encoding = current_format->encoding;
+
+            pa_log_info("%s: existing sink format = %s", __func__, pa_format_info_snprint(fmt, sizeof(fmt), current_format));
+
+            pa_format_info_to_sample_spec(current_format, &ss, &map);
+
+            pa_idxset_free(current_formats, (pa_free_cb_t) pa_format_info_free);
+
+        }
+
+       if (requested_format->encoding != encoding)
+            reconfigure = true;
+        else if ((requested_format->encoding == PA_ENCODING_PCM) && (!pa_sample_spec_equal(&config->ss, &ss)) && (!pa_channel_map_equal(&config->map, &map)))
+            reconfigure = true;
+
+        if (reconfigure) {
+            pa_log_info("%s: sink reconfiguraiton needed, closing current sink and createing new one", __func__);
+            pa_pal_card_remove_dynamic_sink(port, u);
+        } else {
+            pa_log_info("%s: sink already exits", __func__);
+            goto exit;
+        }
+    }
+
+    /* find a dynamic sink which supports requested port and encoding */
+    PA_HASHMAP_FOREACH(sink, u->config_data->sinks, state) {
+        if ((sink->usecase_type == PA_PAL_CARD_USECASE_TYPE_DYNAMIC) && (pa_hashmap_get(sink->ports, port->name))) {
+            PA_IDXSET_FOREACH(config_format, sink->formats, i) {
+                if (pa_format_info_is_compatible(config_format, requested_format)) {
+                    break;
+                }
+            }
+        }
+        /* check if this sink supports requested format */
+        if (config_format) {
+            pa_log_info("%s: found a dynamic sink %s for port %s with requested capablity", __func__, sink->name, port->name);
+            break;
+        }
+    }
+
+    if (!config_format) {
+        pa_log_error("%s: dynamic sink for requested format is not supported for port %s", __func__, port->name);
+        goto exit;
+    }
+
+    requested_formats = pa_idxset_new(NULL, NULL);
+    pa_idxset_put(requested_formats, requested_format, NULL);
+
+    new_sink = *sink;
+    new_sink.default_spec = config->ss;
+    new_sink.default_map = config->map;
+    new_sink.formats = requested_formats;
+    new_sink.default_encoding = config->encoding;
+
+    sink_info = pa_xnew0(pa_pal_card_sink_info, 1);
+    rc = pa_pal_card_add_sink(u->module, u->card, u->driver, u->module_name, &new_sink, &(sink_info->handle));
+
+    if (rc) {
+        pa_log_error("%s: sink %s create failed for port %s, error %d ", __func__, sink->name, port->name, rc);
+        sink_info->handle = NULL;
+    } else {
+        pa_hashmap_put(u->sinks, new_sink.name, sink_info);
+    }
+
+    pa_idxset_free(requested_formats, (pa_free_cb_t) pa_format_info_free);
+exit:
+   return;
+}
+
+static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused)), pa_pal_jack_event_data_t *event_data, void *prv_data) {
+    const char *port_name = NULL;
+    pa_available_t status = PA_AVAILABLE_UNKNOWN;
+    pa_device_port *port;
+    struct userdata *u;
+    pa_pal_jack_event_t event;
+    pa_pal_card_jack_info *jack_info;
+    const char *jack_param = NULL;
+
+    pa_assert(event_data);
+    pa_assert(prv_data);
+
+    u  = (struct userdata *)prv_data;
+
+    event = event_data->event;
+    if ((event != PA_PAL_JACK_AVAILABLE) && (event != PA_PAL_JACK_UNAVAILABLE) && (event != PA_PAL_JACK_CONFIG_UPDATE) &&
+        (event != PA_PAL_JACK_NO_VALID_STREAM) && (event != PA_PAL_JACK_SET_PARAM)) {
+        pa_log_error("%s: unsupport pal jack event %d",__func__, event);
+        return PA_HOOK_CANCEL;
+    }
+
+    if (event_data->jack_type == PA_PAL_JACK_TYPE_WIRED_HEADSET_BUTTONS) {
+        pa_log_info("PA_PAL_JACK_TYPE_WIRED_HEADSET_BUTTONS not supported currently");
+        return PA_HOOK_CANCEL;
+    }
+
+    if (event == PA_PAL_JACK_AVAILABLE)
+        status = PA_AVAILABLE_YES;
+    else if (event == PA_PAL_JACK_UNAVAILABLE)
+        status = PA_AVAILABLE_NO;
+
+    port_name = pa_pal_util_get_port_name_from_jack_type(event_data->jack_type);
+    if (port_name != NULL) {
+        pa_log_info("port %s satus %d event %x", port_name, status, event);
+        port = pa_hashmap_get(u->card->ports, port_name);
+        if (port) {
+            if (event == PA_PAL_JACK_AVAILABLE) {
+                pa_device_port_set_available(port, status);
+            } else if (event == PA_PAL_JACK_UNAVAILABLE) {
+                pa_device_port_set_available(port, status);
+
+                if (port->direction == PA_DIRECTION_INPUT) {
+                    pa_pal_card_remove_dynamic_source(port, u);
+                } else if (port->direction == PA_DIRECTION_OUTPUT) {
+                    pa_pal_card_remove_dynamic_sink(port, u);
+                }
+
+            } else if ((event == PA_PAL_JACK_CONFIG_UPDATE) && (port->available == PA_AVAILABLE_YES)) {
+                if (port->direction == PA_DIRECTION_INPUT) {
+                    jack_info = pa_hashmap_get(u->jacks, port_name);
+                    jack_info->jack_curr_config = *((pa_pal_jack_out_config *)event_data->pa_pal_jack_info);
+
+                    pa_pal_card_add_dynamic_source(port, (pa_pal_jack_out_config *)event_data->pa_pal_jack_info, u);
+                } else if (port->direction == PA_DIRECTION_OUTPUT) {
+                    jack_info = pa_hashmap_get(u->jacks, port_name);
+                    jack_info->jack_curr_config = *((pa_pal_jack_out_config *)event_data->pa_pal_jack_info);
+
+                    pa_pal_card_add_dynamic_sink(port, (pa_pal_jack_out_config *)event_data->pa_pal_jack_info, u);
+                }
+            } else if ((event == PA_PAL_JACK_NO_VALID_STREAM) && (port->available == PA_AVAILABLE_YES)) {
+                if (port->direction == PA_DIRECTION_INPUT) {
+                    pa_pal_card_remove_dynamic_source(port, u);
+                } else if (port->direction == PA_DIRECTION_OUTPUT) {
+                    pa_pal_card_remove_dynamic_sink(port, u);
+                }
+            } else if ((event == PA_PAL_JACK_SET_PARAM) && (port->available == PA_AVAILABLE_YES)) {
+                jack_param = (const char *)event_data->pa_pal_jack_info;
+
+                if (port->direction == PA_DIRECTION_INPUT)
+                    pa_pal_card_set_source_param(port, u, jack_param);
+                else if (port->direction == PA_DIRECTION_OUTPUT)
+                    pa_pal_card_set_sink_param(port, u, jack_param);
+
+            } else {
+                pa_log_error("unsupported event %d", event);
+            }
+        } else {
+            pa_log_error("unsupported port %s", port_name);
+        }
+
+        if (pa_streq(port_name, "headset")) {
+            port = pa_hashmap_get(u->card->ports, "headset-mic");
+            if (port)
+                pa_device_port_set_available(port, status);
+        }
+    } else {
+        pa_log_error("unsupport jack type %d", event_data->jack_type);
+    }
+
+    return PA_HOOK_OK;
+}
+
+static void pa_qal_card_enable_jack_detection(struct userdata *u) {
+    pa_pal_jack_handle_t *jack_handle = NULL;
+    pa_pal_jack_type_t jack_types = PA_PAL_JACK_TYPE_INVALID;
+    pa_pal_card_jack_info *jack_info = NULL;
+    pa_pal_card_jack_info *secondary_jack_info = NULL;
+    pa_pal_card_port_config *config_port = NULL;
+    pa_pal_card_port_config *secondary_config_port = NULL;
+
+    pa_device_port *port;
+    void *state;
+    pa_pal_jack_in_config *jack_in_config = NULL;
+    char *port_name = NULL;
+    int i = 0;
+    bool external_jack = false;
+
+    u->jacks = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+
+    /* register for jack detection for dynamic port, PA_AVAILABLE_NO means its dynamic port */
+    PA_HASHMAP_FOREACH(port, u->card->ports, state) {
+        external_jack = false;
+
+        config_port = pa_hashmap_get(u->config_data->ports, port->name);
+        if (!config_port)
+            continue;
+
+        if (config_port->detection) {
+            if (pa_streq(config_port->detection, "external"))
+                external_jack = true;
+        }
+
+        if ((port->available == PA_AVAILABLE_NO) || (config_port->format_detection))
+            jack_types = pa_pal_util_get_jack_type_from_port_name(port->name);
+        else
+            continue;
+
+        /* If external jack, no need to pass any input configs */
+        if (config_port->format_detection && !external_jack) {
+            jack_in_config = pa_xnew0(pa_pal_jack_in_config, 1);
+            pa_pal_util_get_jack_sys_path(config_port, jack_in_config);
+        }
+
+        /* Allocate memory for jack */
+        jack_info = pa_xnew0(pa_pal_card_jack_info, 1);
+        jack_info->jack_type = jack_types;
+        pa_hashmap_put(u->jacks, port->name, jack_info);
+
+        jack_handle = pa_pal_jack_register_event_callback(jack_types, pa_pal_jack_callback,
+                       u->module, jack_in_config, (void *)u, external_jack);
+        if (!jack_handle) {
+            pa_log_error("%s: Enable pal jack failed for port %s\n", __func__, port->name);
+
+            /* Free memory associated with jack */
+            pa_hashmap_remove(u->jacks, port->name);
+            pa_xfree(jack_info);
+        } else {
+            jack_info->handle = jack_handle;
+        }
+
+        jack_info = NULL;
+        secondary_jack_info = NULL;
+    }
+}
+
+static void pa_qal_card_disable_jack_detection(struct userdata *u, pa_module *m) {
+    pa_pal_card_jack_info *jack_info;
+    pa_pal_card_port_config *config_port = NULL;
+    const char *port_name = NULL;
+    void *state;
+    bool external_jack = false;
+
+    pa_assert(u);
+    pa_assert(u->jacks);
+
+    PA_HASHMAP_FOREACH(jack_info, u->jacks, state) {
+        external_jack = false;
+        port_name = pa_pal_util_get_port_name_from_jack_type(jack_info->jack_type);
+        config_port = pa_hashmap_get(u->config_data->ports, port_name);
+
+        if (config_port->detection) {
+            if (pa_streq(config_port->detection, "external"))
+                external_jack = true;
+        }
+
+        if (config_port->port_type) {
+            /* no need to deregister secondary port */
+            if (pa_streq(config_port->port_type, "secondary") && !external_jack)
+                continue;
+        }
+
+        if (pa_pal_jack_deregister_event_callback(jack_info->handle, m, external_jack))
+            pa_log_info("Jack event callback deregister successful for jack %d\n", jack_info->jack_type);
+        else
+            pa_log_error("Jack event callback deregister failed for jack %d\n",  jack_info->jack_type);
+    }
+
+    pa_hashmap_free(u->jacks);
+    u->jacks = NULL;;
+}
+
 int pa__init(pa_module *m) {
     struct userdata *u;
     pa_modargs *ma;
@@ -453,6 +1038,8 @@ int pa__init(pa_module *m) {
         pa_log_error("pal extn init failed\n");
     pa_log_debug("Pal extn module loaded successfully\n", __func__);
 
+    pa_qal_card_enable_jack_detection(u);
+
     return ret;
 
 fail:
@@ -488,6 +1075,8 @@ void pa__done(pa_module *m) {
 
         pa_hashmap_free(u->sources);
     }
+
+    pa_qal_card_disable_jack_detection(u, m);
 
     pal_deinit();
 
