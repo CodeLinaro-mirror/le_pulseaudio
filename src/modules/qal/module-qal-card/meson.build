@@ -30,6 +30,12 @@ extra_deps = [ dbus_dep,
                meson.get_compiler('c').find_library('pal'),
                meson.get_compiler('c').find_library('agm')
              ]
+if get_option('enable-pal-service') == 'yes'
+extra_deps += [ meson.get_compiler('c').find_library('palserverwrapper'),
+                meson.get_compiler('c').find_library('utils'),
+                meson.get_compiler('c').find_library('binder')
+              ]
+endif
 extra_libs = []
 
 # build shared module

@@ -46,6 +46,8 @@
 #define SNDCARD_PATH "/sys/kernel/snd_card/card_state"
 #define RETRY_INTERVAL 1
 
+#define MAX_BUF_SIZE 256
+
 /** Sound card state */
 typedef enum snd_card_status_t {
     SND_CARD_STATUS_OFFLINE = 0,
@@ -1230,32 +1232,40 @@ static char *pa_pal_config_get_conf_file_name() {
 
     char **items = NULL;
     char *item = NULL;
-    char *card_string = NULL;
+    char *card_string[MAX_BUF_SIZE];
     char *conf_file_name = NULL;
+    FILE *pf;
     uint32_t i = 0;
 
-    if(0 > pa_wait_for_snd_card_to_online()) {
+    if (0 > pa_wait_for_snd_card_to_online()) {
         pa_log_error("Not found any SND card online\n");
         goto exit;
     }
 
-    card_string = pa_read_line_from_file(cards);
-    if (!card_string) {
-        pa_log_error("%s: can't open %s file to get list of sound cards", __func__, cards);
+    if (!(pf = pa_fopen_cloexec(cards, "rb"))) {
+        pa_log_error("Open %s failed\n", cards);
         goto exit;
     }
 
-    items = pa_split_spaces_strv(card_string);
-    if (!items) {
-        pa_log_error("%s: invalid sound card name %s", __func__, card_string);
-        goto exit;
-    }
+    while (fgets(card_string, MAX_BUF_SIZE - 1, pf) != NULL) {
+        pa_strip_nl(card_string);
 
-    while ((item = items[i++])) {
-        if (strstr(item, PAL_CARD_SND_SUFFIX)) {
-            conf_file_name = pa_xstrdup(item);
-            break;
+        items = pa_split_spaces_strv(card_string);
+        if (!items) {
+            pa_log_error("%s: invalid sound card name %s", __func__, card_string);
+            goto exit;
         }
+
+        i = 0;
+        while ((item = items[i++])) {
+            if (strstr(item, PAL_CARD_SND_SUFFIX)) {
+                conf_file_name = pa_xstrdup(item);
+                break;
+            }
+        }
+
+        if (conf_file_name)
+            break;
     }
 
     if (!item) {
@@ -1266,10 +1276,10 @@ static char *pa_pal_config_get_conf_file_name() {
     pa_log_info("%s: confile file name is  %s", __func__, conf_file_name);
 
 exit:
-    pa_xfree(card_string);
-
     if (items)
         pa_xstrfreev(items);
+    if (pf)
+        fclose(pf);
 
     return conf_file_name;
 }

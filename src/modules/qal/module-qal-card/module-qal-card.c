@@ -45,6 +45,10 @@
 
 #include "qal-utils.h"
 
+#ifdef ENABLE_PAL_SERVICE
+void load_pal_service();
+#endif
+
 #define CONC(A,B) (A B)
 #define PAL_MODULE_ID_PREFIX "audio."
 #define PAL_MODULE_PRIMARY "primary"
@@ -1039,6 +1043,10 @@ int pa__init(pa_module *m) {
     pa_log_debug("Pal extn module loaded successfully\n", __func__);
 
     pa_qal_card_enable_jack_detection(u);
+
+#ifdef ENABLE_PAL_SERVICE
+    load_pal_service();
+#endif
 
     return ret;
 
