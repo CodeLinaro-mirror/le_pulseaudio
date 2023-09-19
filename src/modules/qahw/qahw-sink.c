@@ -116,6 +116,7 @@ typedef struct {
     pa_atomic_t wait_for_write_ready;
     pa_atomic_t wait_for_drain_ready;
     pa_atomic_t restart_in_progress;
+    pa_atomic_t close_output;
     int write_fd;
 
     pa_encoding_t encoding;
@@ -943,7 +944,7 @@ static bool write_chunk(pa_qahw_sink_data *sdata, pa_memchunk *chunk) {
             qahw_sdata->timestamp += chunk->duration / PA_NSEC_PER_USEC;
     }
 
-    while((out_buf.bytes > 0)) {
+    while((out_buf.bytes > 0) && !pa_atomic_load(&sdata->qahw_sdata->close_output)) {
         if (qahw_sdata->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
             pa_atomic_store(&qahw_sdata->wait_for_write_ready, 1);
 
@@ -1523,6 +1524,7 @@ static int open_qahw_sink(qahw_module_handle_t *module_handle, pa_encoding_t enc
 
     pa_atomic_store(&qahw_sdata->wait_for_write_ready, 0);
     pa_atomic_store(&qahw_sdata->wait_for_drain_ready, 0);
+    pa_atomic_store(&qahw_sdata->close_output, 0);
 
     payload.channel_map_params = qahw_sdata->qahw_map;
     rc = qahw_out_set_param_data(qahw_sdata->out_handle,
@@ -1612,9 +1614,13 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
     if (PA_UNLIKELY(qahw_sdata->out_handle == NULL)) {
         pa_log_error("Invalid sink handle %p", qahw_sdata->out_handle);
     } else {
-        pa_asyncmsgq_send(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
-                                      QAHW_SINK_MESSAGE_CLOSE_OUTPUT, &rc, 0, NULL);
-        pa_log_debug("%s Ack closing qahw sink rc: %d", __func__, rc);
+        pa_atomic_store(&sdata->qahw_sdata->close_output, 1);
+        if (sdata->qahw_sdata->out_handle) {
+            rc = qahw_close_output_stream(sdata->qahw_sdata->out_handle);
+            if (PA_UNLIKELY(rc))
+                pa_log_debug("%s close qahw sink rc: %d", __func__, rc);
+            sdata->qahw_sdata->out_handle = NULL;
+        }
     }
 
 #ifdef SINK_DUMP_ENABLED

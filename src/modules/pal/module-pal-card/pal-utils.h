@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -29,4 +30,7 @@
 pal_device_id_t pa_pal_util_device_name_to_enum(const char *device);
 uint32_t pa_pal_get_channel_count(pa_channel_map *pa_map);
 bool pa_pal_channel_map_to_pal(pa_channel_map *pa_map, struct pal_channel_info *pal_map);
+int pa_pal_set_volume(pal_stream_handle_t *handle, uint32_t num_channels, float value);
+int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connection_state);
+
 #endif
