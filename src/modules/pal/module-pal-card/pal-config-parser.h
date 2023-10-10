@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -31,6 +32,7 @@ typedef struct {
     pa_hashmap *profiles;
     pa_hashmap *sinks;
     pa_hashmap *sources;
+    pa_hashmap *loopbacks;
     char *default_profile;
 } pa_pal_config_data;
 
