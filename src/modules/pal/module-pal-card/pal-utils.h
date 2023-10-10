@@ -26,11 +26,15 @@
 #include <PalDefs.h>
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+#define BITPOOL_MAX                  0xFFFF
+#define BITPOOL_MAX_CONC_SESSION_IDS 16
 
 pal_device_id_t pa_pal_util_device_name_to_enum(const char *device);
 uint32_t pa_pal_get_channel_count(pa_channel_map *pa_map);
 bool pa_pal_channel_map_to_pal(pa_channel_map *pa_map, struct pal_channel_info *pal_map);
 int pa_pal_set_volume(pal_stream_handle_t *handle, uint32_t num_channels, float value);
 int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connection_state);
+unsigned short pa_pal_alloc_session_id(void);
+void pa_pal_release_session_id(unsigned short session_id);
 
 #endif
