@@ -7,6 +7,9 @@ sources = [
   'qal-utils.c',
   'qal-config-parser.c',
   'module-qal-card-extn.c',
+  'qal-jack-hdmi-out.c',
+  'qal-jack.c',
+  'qal-format-detection.c',
 ]
 
 headers = [
@@ -15,6 +18,9 @@ headers = [
   'qal-source.h',
   'qal-utils.h',
   'qal-config-parser.h',
+  'qal-jack-common.h',
+  'qal-jack.h',
+  'qal-jack-format.h',
 ]
 
 extra_inc = [include_directories(qal_inc)]
@@ -24,6 +30,12 @@ extra_deps = [ dbus_dep,
                meson.get_compiler('c').find_library('pal'),
                meson.get_compiler('c').find_library('agm')
              ]
+if get_option('enable-pal-service') == 'yes'
+extra_deps += [ meson.get_compiler('c').find_library('palserverwrapper'),
+                meson.get_compiler('c').find_library('utils'),
+                meson.get_compiler('c').find_library('binder')
+              ]
+endif
 extra_libs = []
 
 # build shared module

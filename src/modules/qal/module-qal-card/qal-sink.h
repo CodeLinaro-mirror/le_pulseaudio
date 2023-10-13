@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -15,16 +16,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
  */
-
- /*
-  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
-  */
-
- /*
-  * Changes from Qualcomm Innovation Center are provided under the following license:
-  * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
-  * SPDX-License-Identifier: BSD-3-Clause-Clear
-  */
 
 #ifndef foopalpasinkfoo
 #define foopalpasinkfoo
@@ -117,6 +108,8 @@ int pa_pal_sink_create(pa_module *m, pa_card *card, const char *driver, const ch
 void pa_pal_sink_close(pa_pal_sink_handle_t *handle);
 void pa_pal_sink_module_init(void);
 void pa_pal_sink_module_deinit(void);
+int pa_pal_sink_get_media_config(pa_pal_sink_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding);
+pa_idxset* pa_pal_sink_get_config(pa_pal_sink_handle_t *handle);
 
 static inline bool pa_pal_sink_is_supported_encoding(pa_encoding_t encoding) {
     bool supported = true;
