@@ -1624,7 +1624,7 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
         pa_log_info("%s: param %s set to hal with return value %d", __func__, bt_sco_off, ret);
     }
 
-    if (qahw_sdata->devices & AUDIO_DEVICE_OUT_HDMI) {
+    if ((qahw_sdata->devices & AUDIO_DEVICE_OUT_HDMI) || (qahw_sdata->devices & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP)) {
         kvpair = pa_sprintf_malloc("%s=%d", QAHW_PARAMETER_DEVICE_DISCONNECT, qahw_sdata->devices);
 
         rc = qahw_set_parameters(qahw_sdata->module_handle, kvpair);
