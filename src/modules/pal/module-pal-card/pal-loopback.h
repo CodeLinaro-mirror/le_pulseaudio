@@ -28,7 +28,6 @@ typedef struct {
 typedef struct pa_pal_loopback_module_data {
     char *dbus_path;
     void *prv_data;
-    int session_count;
     pa_card *card;
     pa_module *m;
     pa_dbus_protocol *dbus_protocol;
