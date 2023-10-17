@@ -1214,8 +1214,11 @@ static int free_pa_sink(pa_pal_sink_data *sdata) {
 
     pa_log_debug("closing pa sink %p", sdata->pa_sdata->sink);
 
-    if (pa_sdata->sink)
+    if (pa_sdata->sink) {
+        if (PA_SINK_IS_OPENED(pa_sdata->sink->thread_info.state))
+            pa_sink_suspend(pa_sdata->sink, PA_SINK_SUSPENDED, PA_SUSPEND_USER);
         pa_sink_unlink(pa_sdata->sink);
+    }
 
     if (pa_sdata->thread) {
         pa_asyncmsgq_send(pa_sdata->thread_mq.inq, NULL, PA_MESSAGE_SHUTDOWN, NULL, 0, NULL);
