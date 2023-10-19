@@ -11,10 +11,12 @@ headers = [
 extra_inc = [include_directories(qal_voiceui_inc)]
 extra_flags = []
 extra_deps = [ dbus_dep,
-               meson.get_compiler('c').find_library('cutils'),
                meson.get_compiler('c').find_library('pal'),
                meson.get_compiler('c').find_library('agm')
              ]
+if get_option('pal-support-cutils')
+extra_deps += [meson.get_compiler('c').find_library('cutils')]
+endif
 extra_libs = []
 
 # build shared module
