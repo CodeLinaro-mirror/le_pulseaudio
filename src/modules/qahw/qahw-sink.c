@@ -1611,13 +1611,13 @@ static int close_qahw_sink(pa_qahw_sink_data *sdata) {
     if (PA_UNLIKELY(qahw_sdata->out_handle == NULL)) {
         pa_log_error("Invalid sink handle %p", qahw_sdata->out_handle);
     } else {
-        pa_atomic_store(&sdata->qahw_sdata->close_output, 1);
-        if (sdata->qahw_sdata->out_handle) {
-            rc = qahw_close_output_stream(sdata->qahw_sdata->out_handle);
-            if (PA_UNLIKELY(rc))
-                pa_log_debug("%s close qahw sink rc: %d", __func__, rc);
-            sdata->qahw_sdata->out_handle = NULL;
+        if (qahw_sdata->state == STATE_PAUSED) {
+            pa_atomic_store(&sdata->qahw_sdata->close_output, 1);
+            pa_fdsem_post(sdata->qahw_sdata->qahw_fdsem);
         }
+        pa_asyncmsgq_send(sdata->qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(sdata->qahw_sdata->qahw_msg),
+                                      QAHW_SINK_MESSAGE_CLOSE_OUTPUT, &rc, 0, NULL);
+        pa_log_debug("%s Ack closing qahw sink rc: %d", __func__, rc);
     }
 
 #ifdef SINK_DUMP_ENABLED
