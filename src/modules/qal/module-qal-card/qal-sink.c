@@ -37,6 +37,7 @@
 #include <pulsecore/sink.h>
 #include <pulsecore/memchunk.h>
 #include <pulsecore/mutex.h>
+#include <pulsecore/core-util.h>
 
 #include <sys/time.h>
 #include <time.h>
@@ -183,7 +184,7 @@ static int pa_pal_sink_fill_info(pa_pal_sink_config *sink, pal_sink_data *pal_sd
     pal_sdata->pal_device->config.sample_rate = port_device_data->default_spec.rate;
     pal_sdata->pal_device->config.bit_width = 16;
     if (sink->pal_devicepp_config) {
-        strlcpy(pal_sdata->pal_device->custom_config.custom_key, sink->pal_devicepp_config, sizeof(pal_sdata->pal_device->custom_config.custom_key));
+        pa_strlcpy(pal_sdata->pal_device->custom_config.custom_key, sink->pal_devicepp_config, sizeof(pal_sdata->pal_device->custom_config.custom_key));
     }
     if (!pa_pal_channel_map_to_pal(&port_device_data->default_map, &pal_sdata->pal_device->config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);

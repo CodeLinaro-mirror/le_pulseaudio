@@ -26,7 +26,6 @@ headers = [
 extra_inc = [include_directories(qal_inc)]
 extra_flags = []
 extra_deps = [ dbus_dep,
-               meson.get_compiler('c').find_library('cutils'),
                meson.get_compiler('c').find_library('pal'),
                meson.get_compiler('c').find_library('agm')
              ]
@@ -36,6 +35,16 @@ extra_deps += [ meson.get_compiler('c').find_library('palserverwrapper'),
                 meson.get_compiler('c').find_library('binder')
               ]
 endif
+
+if get_option('pal-support-card-status')
+extra_flags += ['-DPAL_CARD_STATUS_SUPPORTED']
+endif
+
+if get_option('pal-support-cutils')
+extra_flags += ['-DPAL_USES_CUTILS']
+extra_deps += [meson.get_compiler('c').find_library('cutils')]
+endif
+
 extra_libs = []
 
 # build shared module
