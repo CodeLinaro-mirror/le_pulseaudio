@@ -12,6 +12,7 @@ sources = [
   'qal-format-detection.c',
   'bt-a2dp-split.c',
   'hfp.c',
+  'pal-loopback.c',
 ]
 
 headers = [
@@ -25,6 +26,7 @@ headers = [
   'qal-jack-format.h',
   'bt-a2dp-split.h',
   'hfp.h',
+  'pal-loopback.h',
 ]
 
 extra_inc = [include_directories(qal_inc)]

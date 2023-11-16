@@ -28,6 +28,7 @@
 #include <pulse/sample.h>
 #include <pulsecore/modargs.h>
 #include <pulsecore/thread.h>
+#include <pulsecore/protocol-dbus.h>
 
 #include <string.h>
 
@@ -39,6 +40,7 @@
 #include "qal-sink.h"
 #include "qal-card.h"
 #include "qal-config-parser.h"
+#include "pal-loopback.h"
 
 #include "qal-jack.h"
 #include "qal-jack-format.h"
@@ -1042,6 +1044,10 @@ int pa__init(pa_module *m) {
         pa_log_error("pal extn init failed\n");
     pa_log_debug("Pal extn module loaded successfully\n", __func__);
 
+    ret = pa_pal_loopback_init(u->core, u->card, u->config_data->loopbacks, (void *)u, m);
+    if (ret)
+        pa_log_error("Pal loopback init failed !!");
+
     pa_qal_card_enable_jack_detection(u);
 
 #ifdef ENABLE_PAL_SERVICE
@@ -1067,6 +1073,7 @@ void pa__done(pa_module *m) {
         return;
 
     pa_pal_module_extn_deinit();
+    pa_pal_loopback_deinit();
 
     if (u->sinks) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
