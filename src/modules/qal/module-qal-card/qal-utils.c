@@ -62,15 +62,18 @@ typedef struct {
 } pa_pal_util_jack_type_to_port_name;
 
 pa_pal_util_port_to_pal_device_mapping port_to_pal_device[] = {
-    { (char *)"speaker",          PAL_DEVICE_OUT_SPEAKER,          (char *)"PAL_DEVICE_OUT_SPEAKER" },
-    { (char *)"lineout",          PAL_DEVICE_OUT_LINE,             (char *)"PAL_DEVICE_OUT_LINE" },
-    { (char *)"headset",          PAL_DEVICE_OUT_WIRED_HEADSET,    (char *)"PAL_DEVICE_OUT_WIRED_HEADSET" },
-    { (char *)"headphone",        PAL_DEVICE_OUT_WIRED_HEADPHONE,  (char *)"PAL_DEVICE_OUT_WIRED_HEADPHONE" },
-    { (char *)"bta2dp-out",       PAL_DEVICE_OUT_BLUETOOTH_A2DP,   (char *)"PAL_DEVICE_OUT_BLUETOOTH_A2DP" },
-    { (char *)"builtin-mic",      PAL_DEVICE_IN_HANDSET_MIC,       (char *)"PAL_DEVICE_IN_HANDSET_MIC" },
-    { (char *)"speaker-mic",      PAL_DEVICE_IN_SPEAKER_MIC,       (char *)"PAL_DEVICE_IN_SPEAKER_MIC" },
-    { (char *)"linein",           PAL_DEVICE_IN_LINE,              (char *)"PAL_DEVICE_IN_LINE" },
-    { (char *)"hdmi-out",         PAL_DEVICE_OUT_AUX_DIGITAL,      (char *)"PAL_DEVICE_OUT_AUX_DIGITAL" },
+    { (char *)"speaker",          PAL_DEVICE_OUT_SPEAKER,               (char *)"PAL_DEVICE_OUT_SPEAKER" },
+    { (char *)"lineout",          PAL_DEVICE_OUT_LINE,                  (char *)"PAL_DEVICE_OUT_LINE" },
+    { (char *)"headset",          PAL_DEVICE_OUT_WIRED_HEADSET,         (char *)"PAL_DEVICE_OUT_WIRED_HEADSET" },
+    { (char *)"headphone",        PAL_DEVICE_OUT_WIRED_HEADPHONE,       (char *)"PAL_DEVICE_OUT_WIRED_HEADPHONE" },
+    { (char *)"bta2dp-out",       PAL_DEVICE_OUT_BLUETOOTH_A2DP,        (char *)"PAL_DEVICE_OUT_BLUETOOTH_A2DP" },
+    { (char *)"builtin-mic",      PAL_DEVICE_IN_HANDSET_MIC,            (char *)"PAL_DEVICE_IN_HANDSET_MIC" },
+    { (char *)"speaker-mic",      PAL_DEVICE_IN_SPEAKER_MIC,            (char *)"PAL_DEVICE_IN_SPEAKER_MIC" },
+    { (char *)"linein",           PAL_DEVICE_IN_LINE,                   (char *)"PAL_DEVICE_IN_LINE" },
+    { (char *)"hdmi-out",         PAL_DEVICE_OUT_AUX_DIGITAL,           (char *)"PAL_DEVICE_OUT_AUX_DIGITAL" },
+    { (char *)"bta2dp-in",        PAL_DEVICE_IN_BLUETOOTH_A2DP,         (char *)"PAL_DEVICE_IN_BLUETOOTH_A2DP" },
+    { (char *)"btsco-in",         PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET,  (char *)"PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
+    { (char *)"btsco-out",        PAL_DEVICE_OUT_BLUETOOTH_SCO,         (char *)"PAL_DEVICE_OUT_BLUETOOTH_SCO" },
 };
 
 pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
