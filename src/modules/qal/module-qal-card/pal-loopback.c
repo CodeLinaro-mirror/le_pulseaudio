@@ -839,12 +839,6 @@ int pa_pal_loopback_init(pa_core *core, pa_card *card,
     pa_assert(m);
     pa_assert(loopback_confs);
 
-    if (!pa_hashmap_size(loopback_confs)) {
-        pa_log_debug("%s: No Loopback usecases found in config. \
-                Skipping loopback module init", __func__);
-        return E_FAILURE;
-    }
-
     pa_pal_loopback_mdata_ptr = pa_xnew0(struct pa_pal_loopback_module_data, 1);
 
     pa_pal_loopback_mdata_ptr->dbus_path = pa_sprintf_malloc("%s/%s",

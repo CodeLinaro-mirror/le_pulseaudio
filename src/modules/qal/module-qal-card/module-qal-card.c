@@ -1044,9 +1044,11 @@ int pa__init(pa_module *m) {
         pa_log_error("pal extn init failed\n");
     pa_log_debug("Pal extn module loaded successfully\n", __func__);
 
-    ret = pa_pal_loopback_init(u->core, u->card, u->config_data->loopbacks, (void *)u, m);
-    if (ret)
-        pa_log_error("Pal loopback init failed !!");
+    if (pa_hashmap_size(u->config_data->loopbacks)) {
+        ret = pa_pal_loopback_init(u->core, u->card, u->config_data->loopbacks, (void *)u, m);
+        if (ret)
+            pa_log_error("Pal loopback init failed !!");
+    }
 
     pa_qal_card_enable_jack_detection(u);
 
