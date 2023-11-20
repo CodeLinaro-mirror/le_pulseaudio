@@ -30,6 +30,9 @@
 
 #include "pal-utils.h"
 
+/* Supports session ID allocation upto 16 concurrent sessions */
+static unsigned short bit_pool = 0;
+
 typedef struct{
     pa_channel_position_t pa_channel_map_position;
     uint32_t pal_channel_map_position;
@@ -191,4 +194,41 @@ int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connecti
     }
 
     return ret;
+}
+
+unsigned short pa_pal_alloc_session_id(void)
+{
+    unsigned short mask = 1;
+    unsigned short session_id_avail = 1;
+
+    if (bit_pool >= BITPOOL_MAX) {
+        pa_log_error("bit_pool is already full\n");
+        return BITPOOL_MAX;
+    }
+
+    while (bit_pool & mask)
+    {
+        mask <<= 1;
+        session_id_avail++;
+    }
+    bit_pool |= mask;
+
+    pa_log_debug("Allocating session_id %hu", session_id_avail);
+    return session_id_avail;
+}
+
+void pa_pal_release_session_id(unsigned short session_id)
+{
+    unsigned short mask = 1;
+
+    if (session_id > BITPOOL_MAX_CONC_SESSION_IDS || session_id < 0) {
+        pa_log_error("%hu is invalid session id\n", session_id);
+        return;
+    }
+
+    mask = BITPOOL_MAX ^ (mask << (session_id - 1));
+    bit_pool &= mask;
+
+    pa_log_debug("Released session_id %hu\n", session_id);
+    return;
 }
