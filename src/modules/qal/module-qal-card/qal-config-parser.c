@@ -1237,10 +1237,12 @@ static char *pa_pal_config_get_conf_file_name() {
     FILE *pf;
     uint32_t i = 0;
 
+#ifdef PAL_CARD_STATUS_SUPPORTED
     if (0 > pa_wait_for_snd_card_to_online()) {
         pa_log_error("Not found any SND card online\n");
         goto exit;
     }
+#endif
 
     if (!(pf = pa_fopen_cloexec(cards, "rb"))) {
         pa_log_error("Open %s failed\n", cards);
