@@ -190,6 +190,7 @@ static void pa_pal_bt_connect(DBusConnection *conn, DBusMessage *msg, void *user
 {
     int32_t ret = 0;
     char *usecase = NULL;
+    unsigned short session_id = -1;
     pa_pal_loopback_ses_data_t *ses_data = NULL;
     pa_pal_loopback_config *loopback_config[MAX_LOOPBACK_PROFILES];
     DBusMessageIter arg_i;
@@ -276,8 +277,12 @@ static void pa_pal_bt_connect(DBusConnection *conn, DBusMessage *msg, void *user
 
     pa_strlcpy(ses_data->usecase, usecase, MAX_USECASE_NAME_LENGTH);
     ses_data->common = m_data;
-    ses_data->obj_path = pa_sprintf_malloc("%s/ses_%u", m_data->dbus_path,
-            ++m_data->session_count);
+    session_id = pa_pal_alloc_session_id();
+    if (session_id == BITPOOL_MAX) {
+        pa_log_error("Session_id allocation failed for %s session", usecase);
+        goto error_1;
+    }
+    ses_data->obj_path = pa_sprintf_malloc("%s/ses_%hu", m_data->dbus_path, session_id);
     memcpy(ses_data->loopback_config, loopback_config, sizeof(loopback_config));
     pa_log_info("session obj path %s \n", ses_data->obj_path);
 
@@ -306,6 +311,7 @@ error_1:
 static void pa_pal_bt_disconnect(DBusConnection *conn, DBusMessage *msg, void *userdata)
 {
     char *usecase = NULL;
+    unsigned short session_id = -1;
     pa_pal_loopback_ses_data_t *ses_data = NULL;
     pa_pal_loopback_config *loopback_config[MAX_LOOPBACK_PROFILES];
     DBusError error;
@@ -353,8 +359,14 @@ static void pa_pal_bt_disconnect(DBusConnection *conn, DBusMessage *msg, void *u
 
     pa_assert_se(pa_dbus_protocol_remove_interface(m_data->dbus_protocol, ses_data->obj_path,
                 pa_pal_loopback_session_interface_info.name) >= 0);
-    --m_data->session_count;
 
+    if (sscanf(ses_data->obj_path, "%*[^0123456789]%hu", &session_id)) {
+        pa_log_debug("Releasing session_id %hu\n", session_id);
+        pa_pal_release_session_id(session_id);
+    }
+    else {
+        pa_log_error("session_id not released !!\n");
+    }
     pa_hashmap_remove(m_data->session_data, usecase);
     pa_xfree(ses_data->obj_path);
     pa_xfree(ses_data);
@@ -850,7 +862,6 @@ int pa_pal_loopback_init(pa_core *core, pa_card *card,
     pa_pal_loopback_mdata_ptr->m = m;
     pa_pal_loopback_mdata_ptr->prv_data = prv_data;
     pa_pal_loopback_mdata_ptr->loopback_confs = loopback_confs;
-    pa_pal_loopback_mdata_ptr->session_count = 0;
 
     pa_pal_loopback_mdata_ptr->session_data =
         pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
