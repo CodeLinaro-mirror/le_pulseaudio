@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -95,12 +95,24 @@ pa_pal_jack_handle_t *pa_pal_jack_register_event_callback(pa_pal_jack_type_t jac
         pa_log_info("jack_type %d", jack_type);
         u->jack_type = jack_type;
 
-       if (jack_type == PA_PAL_JACK_TYPE_HDMI_OUT) {
-            jdata = pa_pal_hdmi_out_jack_detection_enable(jack_type, m, &(u->hook_slot), callback, jack_in_config, client_data);
-        }
+       switch(jack_type) {
+           case PA_PAL_JACK_TYPE_HDMI_OUT:
+               jdata = pa_pal_hdmi_out_jack_detection_enable(jack_type, m, &(u->hook_slot),
+                       callback, jack_in_config, client_data);
+               break;
+           case PA_PAL_JACK_TYPE_BTA2DP_IN:
+           case PA_PAL_JACK_TYPE_BTA2DP_OUT:
+           case PA_PAL_JACK_TYPE_BTSCO_IN:
+           case PA_PAL_JACK_TYPE_BTSCO_OUT:
+               jdata = pa_pal_external_jack_detection_enable(jack_type, m, &(u->hook_slot),
+                       callback, client_data);
+               break;
+           default:
+               break;
+       }
 
-        if (!(pa_pal_jack_check_enable_status(jdata, port_name, jack_type)))
-            goto fail;
+       if (!(pa_pal_jack_check_enable_status(jdata, port_name, jack_type)))
+           goto fail;
     } else {
         u->jack_type = jack_type;
         jdata = pa_hashmap_get(registered_jacks, (char *)port_name);
@@ -138,11 +150,19 @@ bool pa_pal_jack_deregister_event_callback(pa_pal_jack_handle_t *jack_handle, pa
     if (jdata->ref_count == 0) {
         pa_log_info("%s: dergister jack type %d",__func__, jdata->jack_type);
 
-        if (jdata->jack_type & PA_PAL_JACK_TYPE_HDMI_OUT) {
-            pa_hashmap_remove(registered_jacks, port_name);
-            pa_pal_hdmi_out_jack_detection_disable(jdata, m);
-            toggle_jack_status_bits(PA_PAL_JACK_TYPE_HDMI_OUT);
+        switch (jdata->jack_type) {
+            case PA_PAL_JACK_TYPE_HDMI_OUT:
+                pa_pal_hdmi_out_jack_detection_disable(jdata, m);
+                break;
+            case PA_PAL_JACK_TYPE_BTA2DP_IN:
+            case PA_PAL_JACK_TYPE_BTA2DP_OUT:
+            case PA_PAL_JACK_TYPE_BTSCO_IN:
+            case PA_PAL_JACK_TYPE_BTSCO_OUT:
+                pa_pal_external_jack_detection_disable(jdata, m);
+                break;
         }
+        pa_hashmap_remove(registered_jacks, port_name);
+        toggle_jack_status_bits(jdata->jack_type);
     }
 
     pa_xfree(u);
