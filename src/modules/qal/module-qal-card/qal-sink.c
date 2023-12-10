@@ -872,6 +872,26 @@ static int pa_pal_set_param(pal_sink_data *pal_sdata, uint32_t param_id) {
     return rc;
 }
 
+int pa_pal_sink_set_a2dp_suspend(const char *prm_value)
+{
+    int ret = 0;
+    pal_param_bta2dp_t param_bt_a2dp;
+
+    pa_assert(prm_value);
+
+    memset(&param_bt_a2dp, 0, sizeof(pal_param_bta2dp_t));
+    param_bt_a2dp.a2dp_suspended = (!strcmp(prm_value, "true")) ? true : false;
+    param_bt_a2dp.is_suspend_setparam = false;
+    param_bt_a2dp.dev_id = PAL_DEVICE_OUT_BLUETOOTH_A2DP;
+
+    ret = pal_set_param(PAL_PARAM_ID_BT_A2DP_SUSPENDED, (void *)&param_bt_a2dp,
+            sizeof(pal_param_bta2dp_t));
+    if (ret)
+        pa_log_error("BT set param for a2dp suspend failed");
+
+    return ret;
+}
+
 int pa_pal_sink_get_media_config(pa_pal_sink_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
     pa_pal_sink_data *sdata = (pa_pal_sink_data *)handle;
     pa_format_info *f;

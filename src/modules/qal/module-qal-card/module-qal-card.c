@@ -631,6 +631,11 @@ static void pa_pal_card_set_sink_param(pa_device_port *port, struct userdata *u,
                 if(ret)
                     pa_log_error("Set sink device connection params for connection=%d failed ret =%d", connection_state, ret);
                 break;
+            case JACK_PARAM_KEY_A2DP_SUSPEND:
+                ret = pa_pal_sink_set_a2dp_suspend(kvpair.value);
+                if (ret)
+                    pa_log_error("Set sink param for a2dp suspend=%s failed", kvpair.value);
+                break;
             default:
                 break;
         }
