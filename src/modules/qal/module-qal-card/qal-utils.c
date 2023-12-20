@@ -35,6 +35,8 @@
 
 #define AAC_AOT_PS    29
 
+#define DEFAULT_NUM_DEVICES    1
+
 typedef struct{
     pa_channel_position_t pa_channel_map_position;
     uint32_t pal_channel_map_position;
@@ -139,6 +141,18 @@ pal_device_id_t pa_pal_util_port_name_to_enum(const char *port_name) {
     pa_log_debug("%s: device_name %s pal device %u", __func__, port_name, device);
 
     return device;
+}
+
+const pa_device_port *pa_pal_util_get_port_from_device(pa_hashmap *ports,
+                                                                        pal_device_id_t device_id) {
+    uint32_t count;
+
+    for (count = 0; count < ARRAY_SIZE(port_to_pal_device); count++) {
+        if (port_to_pal_device[count].pal_device == device_id)
+            return pa_hashmap_get(ports, port_to_pal_device[count].port_name);
+    }
+
+    return NULL;
 }
 
 int pa_pal_util_set_pal_metadata_from_pa_format(const pa_format_info *format) {
@@ -498,5 +512,28 @@ void pa_pal_util_get_jack_sys_path(pa_pal_card_port_config *config_port, pa_pal_
 
     if (config_port->channel_status_path)
         jack_in_config->jack_sys_path.channel_status = config_port->channel_status_path;
+}
 
+void pa_pal_util_port_change(pa_pal_card_port_device_data *port_device_data,
+                                pa_pal_card_port_device_data *active_port_device_data,
+                                pal_device_id_t device_id,
+                                pal_param_device_connection_t *param_device_connection,
+                                bool *port_changed) {
+    if (port_device_data->device != active_port_device_data->device) {
+        *port_changed = true;
+        if (port_device_data->device == device_id)
+            param_device_connection->connection_state = true;
+        else if (active_port_device_data->device == device_id)
+            param_device_connection->connection_state = false;
+    }
+}
+
+int pa_pal_util_set_device(pal_stream_handle_t *stream_handle, pal_device_id_t id,
+                            pal_param_device_connection_t *param_device_connection) {
+    struct pal_device device;
+    int no_of_devices = DEFAULT_NUM_DEVICES;
+
+    device.id = id;
+
+    return pal_stream_set_device(stream_handle, no_of_devices, &device);
 }

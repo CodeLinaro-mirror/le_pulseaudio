@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018, 2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -36,5 +36,7 @@ typedef struct pa_pal_jack_config {
 } pa_pal_jack_out_config;
 
 bool pa_pal_format_detection_get_value_from_path(const char* path, int *node_value);
+void pa_pal_format_set_jack_default_config(pa_pal_jack_out_config *config);
+
 #endif
 

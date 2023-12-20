@@ -31,6 +31,8 @@
 
 pal_device_id_t pa_pal_util_device_name_to_enum(const char *device);
 pal_device_id_t pa_pal_util_port_name_to_enum(const char *port_name);
+const pa_device_port *pa_pal_util_get_port_from_device(pa_hashmap *ports,
+                                pal_device_id_t device_id);
 uint32_t pa_pal_get_channel_count(pa_channel_map *pa_map);
 bool pa_pal_channel_map_to_pal(pa_channel_map *pa_map, struct pal_channel_info *pal_map);
 pal_audio_fmt_t pa_pal_util_get_pal_format_from_pa_encoding(pa_encoding_t pa_format, pal_snd_dec_t *pal_snd_dec);
@@ -43,4 +45,12 @@ void pa_pal_util_get_jack_sys_path(pa_pal_card_port_config *config_port, pa_pal_
 int pa_pal_set_volume(pal_stream_handle_t *handle, uint32_t num_channels, float value);
 int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connection_state);
 pa_pal_card_avoid_processing_config_id_t pa_pal_utils_get_config_id_from_string(const char *config_str);
+void pa_pal_util_port_change(pa_pal_card_port_device_data *port_device_data,
+                                pa_pal_card_port_device_data *active_port_device_data,
+                                pal_device_id_t device_id,
+                                pal_param_device_connection_t *param_device_connection,
+                                bool *port_changed);
+int pa_pal_util_set_device(pal_stream_handle_t *stream_handle, pal_device_id_t id,
+                            pal_param_device_connection_t *param_device_connection);
+
 #endif
