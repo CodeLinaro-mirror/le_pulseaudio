@@ -231,17 +231,21 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
         switch_port = pa_pal_util_get_port_from_device(s->ports, param_device_connection.id);
         if (switch_port)
             switch_port_device_data = PA_DEVICE_PORT_DATA(switch_port);
-    }
-
-    /* Update required port info as per PA active port for next run */
-    sdata->pal_sdata->pal_device->id = port_device_data->device;
-    if (port_device_data->pal_devicepp_config) {
-        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
-                sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
-    }
-    else {
-        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, "",
-                sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    } else if (port_device_data->device == PAL_DEVICE_IN_USB_HEADSET ||
+                active_port_device_data->device == PAL_DEVICE_IN_USB_HEADSET) {
+        param_device_connection.id = PAL_DEVICE_IN_USB_HEADSET;
+        switch_port = pa_pal_util_get_port_from_device(s->ports, param_device_connection.id);
+        if (switch_port) {
+            switch_port_device_data = PA_DEVICE_PORT_DATA(switch_port);
+            pa_pal_jack_usb_device_address_t *usb_addr;
+            ret = pa_proplist_get(switch_port->proplist, PA_PROP_USB_ADDR, (void *)&usb_addr, &nbytes);
+            if (PA_UNLIKELY(ret)) {
+                pa_log_error("Get usb in address failed %d", ret);
+                goto end;
+            }
+            param_device_connection.device_config.usb_addr.card_id = usb_addr->card_id;
+            param_device_connection.device_config.usb_addr.device_num = usb_addr->device_num;
+        }
     }
 
     if (!switch_port || !switch_port_device_data) {
@@ -278,6 +282,17 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
     }
 
     sdata->pal_sdata->pal_device->id = port_device_data->device;
+    if (sdata->pal_sdata->pal_device->id == PAL_DEVICE_IN_USB_HEADSET) {
+        sdata->pal_sdata->pal_device->address.card_id = param_device_connection.device_config.usb_addr.card_id;
+        sdata->pal_sdata->pal_device->address.device_num = param_device_connection.device_config.usb_addr.device_num;
+    }
+
+    if (port_device_data->pal_devicepp_config)
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
+                sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    else
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, "",
+                sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
 
     pa_log_info("%s Set port of %p to %s", __func__, sdata->pal_sdata, p->name);
 

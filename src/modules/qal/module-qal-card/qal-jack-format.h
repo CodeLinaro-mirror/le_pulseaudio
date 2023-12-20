@@ -26,6 +26,14 @@
 #include <pulsecore/thread.h>
 #include "qal-jack.h"
 
+#define PA_PROP_USB_ADDR                     "usb.addr"
+
+typedef struct {
+    int card_id;
+    int device_num;
+    int capability;
+} pa_pal_jack_usb_device_address_t;
+
 typedef struct pa_pal_jack_config {
     pa_encoding_t encoding;
     pa_sample_spec ss;

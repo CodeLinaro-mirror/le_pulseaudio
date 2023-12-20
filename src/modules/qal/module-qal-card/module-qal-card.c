@@ -215,7 +215,13 @@ static void pa_pal_card_create_profiles_and_add_ports(struct userdata *u, pa_has
 
 static void pa_pal_card_update_extra_conf_for_port(pa_pal_jack_type_t jack_type,
                     void *conf, pa_device_port *port) {
-    return;
+    if ((jack_type == PA_PAL_JACK_TYPE_USB_OUT) || (jack_type == PA_PAL_JACK_TYPE_USB_IN)) {
+        if (conf)
+            pa_assert_se(pa_proplist_set(port->proplist, PA_PROP_USB_ADDR, conf,
+                                         sizeof(pa_pal_jack_usb_device_address_t)) >= 0);
+        else
+          pa_proplist_unset(port->proplist, PA_PROP_USB_ADDR);
+    }
 }
 
 static int pa_pal_card_set_profile(pa_card *c, pa_card_profile *new_profile) {

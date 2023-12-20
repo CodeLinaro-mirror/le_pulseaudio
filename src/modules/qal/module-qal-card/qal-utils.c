@@ -77,6 +77,8 @@ pa_pal_util_port_to_pal_device_mapping port_to_pal_device[] = {
     { (char *)"bta2dp-in",        PAL_DEVICE_IN_BLUETOOTH_A2DP,         (char *)"PAL_DEVICE_IN_BLUETOOTH_A2DP" },
     { (char *)"btsco-in",         PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET,  (char *)"PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
     { (char *)"btsco-out",        PAL_DEVICE_OUT_BLUETOOTH_SCO,         (char *)"PAL_DEVICE_OUT_BLUETOOTH_SCO" },
+    { (char *)"usb-out",          PAL_DEVICE_OUT_USB_HEADSET,      (char *)"PAL_DEVICE_OUT_USB_HEADSET" },
+    { (char *)"usb-in",          PAL_DEVICE_IN_USB_HEADSET,       (char *)"PAL_DEVICE_IN_USB_HEADSET" },
 };
 
 pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
@@ -94,6 +96,8 @@ pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_PAL_JACK_TYPE_HDMI_OUT, (char *)"hdmi-out"},
     { PA_PAL_JACK_TYPE_SPDIF_OUT_OPTICAL, (char *)"spdif-out-optical"},
     { PA_PAL_JACK_TYPE_SPDIF_OUT_COAXIAL, (char *)"spdif-out-coaxial"},
+    { PA_PAL_JACK_TYPE_USB_OUT, (char *)"usb-out"},
+    { PA_PAL_JACK_TYPE_USB_IN, (char *)"usb-in"},
 };
 
 static pa_channel_position_t pa_pal_be_channel_map[] = {
@@ -534,6 +538,10 @@ int pa_pal_util_set_device(pal_stream_handle_t *stream_handle, pal_device_id_t i
     int no_of_devices = DEFAULT_NUM_DEVICES;
 
     device.id = id;
+    if ((device.id == PAL_DEVICE_OUT_USB_HEADSET) || (device.id == PAL_DEVICE_IN_USB_HEADSET)) {
+        device.address.card_id = param_device_connection->device_config.usb_addr.card_id;
+        device.address.device_num = param_device_connection->device_config.usb_addr.device_num;
+    }
 
     return pal_stream_set_device(stream_handle, no_of_devices, &device);
 }
