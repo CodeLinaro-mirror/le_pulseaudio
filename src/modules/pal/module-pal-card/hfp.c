@@ -31,6 +31,8 @@ int set_btsco_params(btsco_t *btsco, pal_param_id_type_t param_id, bool is_sco_o
     pal_param_btsco_t param_btsco;
     pa_assert(btsco);
 
+    memset(&param_btsco, 0, sizeof(param_btsco));
+    param_btsco.is_bt_hfp = true;
     param_btsco.bt_sco_on = is_sco_on;
     if (param_id == PAL_PARAM_ID_BT_SCO_WB) {
         if (btsco->sample_rate == 16000)
@@ -128,6 +130,14 @@ int start_hfp(btsco_t *btsco, pa_pal_loopback_config **loopback)
     if (!rx_config_port_in || !rx_config_port_out ||
             !tx_config_port_in || !tx_config_port_out)
         return -EINVAL;
+
+    if (btsco->sample_rate != rx_config_port_in->default_spec.rate) {
+        ret = set_btsco_params(btsco, PAL_PARAM_ID_BT_SCO_WB, true);
+        if (ret != 0) {
+            pa_log_error("%s: set_params failed for btsco", __func__);
+            return ret;
+        }
+    }
 
     /* Channel info */
     pa_pal_channel_map_to_pal(&rx_config_port_in->default_map, &ch_info);
