@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -80,6 +80,7 @@ static const char *pa_pal_source_get_name_from_type(pal_stream_type_t type) {
 
 static int pa_pal_source_fill_info(pa_pal_source_config *source, pal_source_data *pal_sdata, pa_pal_card_port_device_data *port_device_data) {
     pa_assert(pal_sdata);
+    pa_assert(pal_sdata->pal_device);
 
     pal_sdata->stream_attributes = pa_xnew0(struct pal_stream_attributes, 1);
 
@@ -107,7 +108,11 @@ static int pa_pal_source_fill_info(pa_pal_source_config *source, pal_source_data
     pal_sdata->pal_device->id = port_device_data->device;
     pal_sdata->pal_device->config.sample_rate = port_device_data->default_spec.rate;
     pal_sdata->pal_device->config.bit_width = 16;
-    if(source->pal_devicepp_config){
+
+    if (port_device_data->pal_devicepp_config){
+        pa_strlcpy(pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
+            sizeof(pal_sdata->pal_device->custom_config.custom_key));
+    } else if (source->pal_devicepp_config){
         pa_strlcpy(pal_sdata->pal_device->custom_config.custom_key, source->pal_devicepp_config, sizeof(pal_sdata->pal_device->custom_config.custom_key));
     }
     if (!pa_pal_channel_map_to_pal(&port_device_data->default_map, &pal_sdata->pal_device->config.ch_info)) {
@@ -200,14 +205,20 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     pa_assert(sdata);
     pa_assert(sdata->pal_sdata);
+    pa_assert(sdata->pal_sdata->pal_device);
     pa_assert(port_device_data);
+
+    /* Update required port info as per PA active port for next run */
+    sdata->pal_sdata->pal_device->id = port_device_data->device;
+    if (port_device_data->pal_devicepp_config) {
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
+                sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    }
 
     if (PA_SOURCE_IS_OPENED(s->state)) {
         pa_assert(sdata->pal_sdata->stream_handle);
     }
     else {
-        /* Update port id as per PA active port for next run */
-        sdata->pal_sdata->pal_device->id = port_device_data->device;
         return ret;
     }
 

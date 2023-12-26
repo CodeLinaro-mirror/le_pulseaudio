@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -700,6 +700,7 @@ static int pa_pal_config_parse_pal_devicepp_config(pa_config_parser_state *state
     pa_pal_config_data* config_data = NULL;
     pa_pal_sink_config *sink = NULL;
     pa_pal_source_config *source = NULL;
+    pa_pal_card_port_config *port = NULL;
     int ret = 0;
 
     pa_assert(state);
@@ -714,6 +715,9 @@ static int pa_pal_config_parse_pal_devicepp_config(pa_config_parser_state *state
     } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         source->pal_devicepp_config = pa_xstrdup(state->rvalue);
         pa_log_debug("%s: pal devicepp config is %s for source %s", __func__, source->pal_devicepp_config, source->name);
+    } else if ((port = pa_pal_config_get_port(config_data->ports, state->section))) {
+        port->pal_devicepp_config = pa_xstrdup(state->rvalue);
+        pa_log_debug("%s: pal devicepp config is %s for port %s", __func__, port->pal_devicepp_config, port->name);
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         ret = -1;
@@ -1260,6 +1264,9 @@ static void pa_pal_config_free_port(pa_pal_card_port_config *port) {
 
     pa_idxset_free(port->formats, (pa_free_cb_t) pa_format_info_free);
 
+    if (port->pal_devicepp_config)
+        pa_xfree(port->pal_devicepp_config);
+
     pa_xfree(port);
 }
 
@@ -1526,7 +1533,6 @@ pa_pal_config_data* pa_pal_config_parse_new(char *dir, char *conf_file_name) {
         /* common between sink and source*/
         { "type",                        pa_pal_config_parse_type,                                NULL, NULL },
         { "alternate-sample-rate",       pa_pal_config_parse_alternative_sample_rate,             NULL, NULL },
-        { "pal-devicepp-config",         pa_pal_config_parse_pal_devicepp_config,                 NULL, NULL },
 
         /* common between profile, sink and source */
         { "port-names",                  pa_pal_config_parse_port_names,                          NULL, NULL },
@@ -1550,6 +1556,7 @@ pa_pal_config_data* pa_pal_config_parse_new(char *dir, char *conf_file_name) {
         { "sample-rates",                pa_pal_config_parse_sample_rates,                        NULL, NULL },
         { "sample-formats",              pa_pal_config_parse_sample_formats,                      NULL, NULL },
         { "channel-maps",                pa_pal_config_parse_channel_maps,                        NULL, NULL },
+        { "pal-devicepp-config",         pa_pal_config_parse_pal_devicepp_config,                 NULL, NULL },
 
 	/* [Loopback...] */
         { "in-port-names",               pa_pal_config_parse_port_names,                          NULL, NULL },

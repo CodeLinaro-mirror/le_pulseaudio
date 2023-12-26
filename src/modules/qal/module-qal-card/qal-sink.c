@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -386,6 +386,7 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
 
     pa_assert(sdata);
     pa_assert(sdata->pal_sdata);
+    pa_assert(sdata->pal_sdata->pal_device);
     if (PA_SINK_IS_OPENED(s->state))
         pa_assert(sdata->pal_sdata->stream_handle);
 
@@ -427,6 +428,10 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
 
     param_device_connection.id = port_device_data->device;
     sdata->pal_sdata->pal_device->id = port_device_data->device;
+    if (port_device_data->pal_devicepp_config){
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
+                        sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    }
 
     if (PA_SINK_IS_OPENED(s->state)) {
         ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
