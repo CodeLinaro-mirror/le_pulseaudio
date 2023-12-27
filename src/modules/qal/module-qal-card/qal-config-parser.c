@@ -24,6 +24,7 @@
 #include <pulsecore/card.h>
 #include <pulsecore/core-util.h>
 #include <pulsecore/thread.h>
+#include <pulsecore/protocol-dbus.h>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -32,6 +33,7 @@
 #include "qal-sink.h"
 #include "qal-source.h"
 #include "qal-utils.h"
+#include "pal-loopback.h"
 
 #define PAL_CARD_DEFAULT_CONF_NAME "default.conf"
 #define PAL_CARD_DEFAULT_TARGET_NAME_LENGTH 7
@@ -40,6 +42,7 @@
 #define PAL_CARD_PROFILE_PREFIX "Profile "
 #define PAL_CARD_SINK_PREFIX "Sink "
 #define PAL_CARD_SOURCE_PREFIX "Source "
+#define PAL_CARD_LOOPBACK_PREFIX "Loopback "
 #define PAL_CARD_SND_SUFFIX "snd-card"
 
 #define MAX_RETRY 100
@@ -58,6 +61,7 @@ static pa_pal_sink_config* pa_pal_config_get_sink(pa_hashmap *sinks, char *name)
 static pa_pal_source_config *pa_pal_config_get_source(pa_hashmap *sources, char *name);
 static pa_pal_card_profile_config* pa_pal_config_get_profile(pa_hashmap *profiles, char *name);
 static pa_pal_card_port_config* pa_pal_config_get_port(pa_hashmap *ports, char *name);
+static pa_pal_loopback_config* pa_pal_config_get_loopback(pa_hashmap *loopback_profiles, char *name);
 
 static pa_pal_source_config* pa_pal_config_get_source(pa_hashmap *sources, char *name) {
     pa_pal_source_config *source = NULL;
@@ -163,7 +167,7 @@ static int pa_pal_config_parse_encodings(pa_config_parser_state *state) {
     } else if ((port = pa_pal_config_get_port(config_data->ports, state->section))) {
         name = port->name;
         formats = port->formats;
-     } else {
+    } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
     }
@@ -850,6 +854,7 @@ static int pa_pal_config_parse_description(pa_config_parser_state *state) {
     pa_pal_card_port_config *port;
     pa_pal_sink_config *sink;
     pa_pal_source_config *source;
+    pa_pal_loopback_config *loopback_config = NULL;
 
     int ret = 0;
 
@@ -865,6 +870,8 @@ static int pa_pal_config_parse_description(pa_config_parser_state *state) {
         sink->description = pa_xstrdup(state->rvalue);
     } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
         source->description = pa_xstrdup(state->rvalue);
+    } else if ((loopback_config = pa_pal_config_get_loopback(config_data->loopbacks, state->section))) {
+        loopback_config->description = pa_xstrdup(state->rvalue);
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         ret = -1;
@@ -987,6 +994,7 @@ static int pa_pal_config_parse_port_names(pa_config_parser_state *state) {
     pa_pal_card_port_config *port;
     pa_pal_sink_config *sink = NULL;
     pa_pal_source_config *source = NULL;
+    pa_pal_loopback_config *loopback_config = NULL;
 
     pa_hashmap *ports = NULL;
     pa_hashmap *profiles = NULL;
@@ -1021,6 +1029,9 @@ static int pa_pal_config_parse_port_names(pa_config_parser_state *state) {
         items = source->port_conf_string;
         profiles = source->profiles;
         name = source->name;
+    } else if ((loopback_config = pa_pal_config_get_loopback(config_data->loopbacks, state->section))) {
+        name = loopback_config->name;
+        items = pa_split_spaces_strv(state->rvalue);
     } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         ret = -1;
@@ -1042,6 +1053,19 @@ static int pa_pal_config_parse_port_names(pa_config_parser_state *state) {
             pa_xstrfreev(items);
             ret = -1;
             goto exit;
+        }
+
+	/* handle loopback separately as it has both in and out ports */
+        if (loopback_config) {
+            if (port->direction == PA_DIRECTION_INPUT) {
+                ports = loopback_config->in_ports;
+                if (!loopback_config->in_port_conf_string)
+                    loopback_config->in_port_conf_string = items;
+            } else {
+                ports = loopback_config->out_ports;
+                if (!loopback_config->out_port_conf_string)
+                    loopback_config->out_port_conf_string = items;
+            }
         }
 
         pa_log_debug("%s: adding port %s to %s", __func__, port->name, name);
@@ -1070,6 +1094,57 @@ static int pa_pal_config_parse_port_names(pa_config_parser_state *state) {
 
 exit:
     return ret;
+}
+
+/* Add unique loopback profile to hashmap */
+static pa_pal_loopback_config* pa_pal_config_get_loopback(pa_hashmap *loopback_profiles, char *name) {
+    pa_pal_loopback_config *loopback_config = NULL;
+
+    pa_assert(loopback_profiles);
+    pa_assert(name);
+
+    if (!pa_startswith(name, PAL_CARD_LOOPBACK_PREFIX)) {
+        goto exit;
+    }
+    /* point to Port name */
+    name += strlen(PAL_CARD_LOOPBACK_PREFIX);
+
+    /* Do not add if already there */
+    loopback_config = pa_hashmap_get(loopback_profiles, name);
+    if (loopback_config) {
+        goto exit;
+    }
+
+    loopback_config = pa_xnew0(pa_pal_loopback_config, 1);
+    if (!loopback_config) {
+        return NULL;
+    }
+    loopback_config->name = pa_xstrdup(name);
+    loopback_config->in_ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+    loopback_config->out_ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+
+    pa_log_debug("%s: loopback name is %s", __func__, loopback_config->name);
+
+    pa_hashmap_put(loopback_profiles, loopback_config->name, loopback_config);
+
+exit:
+    return loopback_config;
+}
+
+static void pa_pal_config_free_loopback(pa_pal_loopback_config *loopback_config) {
+    pa_assert(loopback_config);
+
+    pa_log_info("%s: freeing loopback %s", __func__, loopback_config->name);
+
+    pa_xfree(loopback_config->name);
+
+    pa_xfree(loopback_config->description);
+
+    pa_hashmap_free(loopback_config->in_ports);
+
+    pa_hashmap_free(loopback_config->out_ports);
+
+    pa_xfree(loopback_config);
 }
 
 static void pa_pal_config_free_profile(pa_pal_card_profile_config *profile) {
@@ -1237,10 +1312,12 @@ static char *pa_pal_config_get_conf_file_name() {
     FILE *pf;
     uint32_t i = 0;
 
+#ifdef PAL_CARD_STATUS_SUPPORTED
     if (0 > pa_wait_for_snd_card_to_online()) {
         pa_log_error("Not found any SND card online\n");
         goto exit;
     }
+#endif
 
     if (!(pf = pa_fopen_cloexec(cards, "rb"))) {
         pa_log_error("Open %s failed\n", cards);
@@ -1474,6 +1551,10 @@ pa_pal_config_data* pa_pal_config_parse_new(char *dir, char *conf_file_name) {
         { "sample-formats",              pa_pal_config_parse_sample_formats,                      NULL, NULL },
         { "channel-maps",                pa_pal_config_parse_channel_maps,                        NULL, NULL },
 
+	/* [Loopback...] */
+        { "in-port-names",               pa_pal_config_parse_port_names,                          NULL, NULL },
+        { "out-port-names",              pa_pal_config_parse_port_names,                          NULL, NULL },
+
         {  NULL, NULL, NULL, NULL }
     };
 
@@ -1490,6 +1571,8 @@ pa_pal_config_data* pa_pal_config_parse_new(char *dir, char *conf_file_name) {
     config_data->sinks = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_pal_config_free_sink);
 
     config_data->sources = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_pal_config_free_source);
+
+    config_data->loopbacks = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_pal_config_free_loopback);
 
     conf_full_path = pa_pal_config_parser_get_conf_file_name(dir, conf_file_name);
     if (!conf_full_path) {
@@ -1530,6 +1613,11 @@ void pa_pal_config_parse_free(pa_pal_config_data *config_data) {
     if (config_data->sources) {
         pa_hashmap_free(config_data->sources);
         config_data->sources = NULL;
+    }
+
+    if (config_data->loopbacks) {
+        pa_hashmap_free(config_data->loopbacks);
+        config_data->loopbacks = NULL;
     }
 
     if (config_data->default_profile) {

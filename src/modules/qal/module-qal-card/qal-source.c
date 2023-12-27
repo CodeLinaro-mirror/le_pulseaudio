@@ -36,6 +36,7 @@
 #include <pulsecore/source.h>
 #include <pulsecore/memchunk.h>
 #include <pulsecore/core-format.h>
+#include <pulsecore/core-util.h>
 #include <pulse/util.h>
 
 #include "qal-source.h"
@@ -51,6 +52,7 @@
 #define PA_DEFAULT_SOURCE_FORMAT PA_SAMPLE_S16LE
 #define PA_DEFAULT_SOURCE_RATE 48000
 #define PA_DEFAULT_SOURCE_CHANNELS 2
+#define PA_NUM_DEVICES 1
 
 static int restart_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
                               int source_id, pal_source_data *pal_sdata, uint32_t buffer_size, uint32_t buffer_count);
@@ -106,7 +108,7 @@ static int pa_pal_source_fill_info(pa_pal_source_config *source, pal_source_data
     pal_sdata->pal_device->config.sample_rate = port_device_data->default_spec.rate;
     pal_sdata->pal_device->config.bit_width = 16;
     if(source->pal_devicepp_config){
-        strlcpy(pal_sdata->pal_device->custom_config.custom_key, source->pal_devicepp_config, sizeof(pal_sdata->pal_device->custom_config.custom_key));
+        pa_strlcpy(pal_sdata->pal_device->custom_config.custom_key, source->pal_devicepp_config, sizeof(pal_sdata->pal_device->custom_config.custom_key));
     }
     if (!pa_pal_channel_map_to_pal(&port_device_data->default_map, &pal_sdata->pal_device->config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
@@ -171,6 +173,53 @@ static int pa_pal_source_standby(pal_source_data *pal_sdata) {
     }
 
     return 0;
+}
+
+static int pa_pal_set_device(pal_stream_handle_t *stream_handle,
+                          pa_pal_card_port_device_data *param_device_connection) {
+    struct pal_device device_connect;
+    int ret = 0;
+
+    device_connect.id = param_device_connection->device;
+
+    ret = pal_stream_set_device(stream_handle, PA_NUM_DEVICES, &device_connect);
+    if(ret)
+        pa_log_error("pal source switch device %d failed %d", device_connect.id, ret);
+
+    return ret;
+}
+
+static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
+    int ret = 0;
+    pal_param_device_connection_t param_device_connection;
+
+    pa_assert(s);
+    pa_assert(p);
+    pa_pal_card_port_device_data *port_device_data = PA_DEVICE_PORT_DATA(p);
+    pa_pal_source_data *sdata = (pa_pal_source_data *)s->userdata;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pal_sdata);
+    pa_assert(port_device_data);
+
+    if (PA_SOURCE_IS_OPENED(s->state)) {
+        pa_assert(sdata->pal_sdata->stream_handle);
+    }
+    else {
+        /* Update port id as per PA active port for next run */
+        sdata->pal_sdata->pal_device->id = port_device_data->device;
+        return ret;
+    }
+
+    param_device_connection.id = port_device_data->device;
+
+    ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
+    if (ret != 0) {
+        pa_log_error("pal source switch device failed %d", ret);
+        return ret;
+    }
+
+    return ret;
 }
 
 static int pa_pal_source_set_state_in_io_thread_cb(pa_source *s, pa_source_state_t new_state, pa_suspend_cause_t new_suspend_cause PA_GCC_UNUSED)
@@ -565,7 +614,7 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_sdata->source->userdata = (void *)source_data;
     pa_sdata->source->parent.process_msg = pa_pal_source_process_msg;
     pa_sdata->source->set_state_in_io_thread = pa_pal_source_set_state_in_io_thread_cb;
-    pa_sdata->source->set_port = NULL; //Need to update with set port callback function
+    pa_sdata->source->set_port = pa_pal_source_set_port_cb;
 
     /* FIXME: check reconfigure needed for non pcm */
     pa_sdata->source->reconfigure = pa_pal_source_reconfigure_cb;

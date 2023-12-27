@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021, 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -28,7 +28,10 @@
 #include <pulsecore/thread-mq.h>
 #include <pulsecore/shared.h>
 #include <stdio.h>
+
+#ifdef PAL_USES_CUTILS
 #include <cutils/str_parms.h>
+#endif
 
 #include <PalApi.h>
 #include <PalDefs.h>
@@ -55,6 +58,18 @@
 
 #define OK 0
 
+
+#ifndef PAL_USES_CUTILS
+struct str_parms *str_parms_create_str(const char *_string){return NULL;}
+int str_parms_get_str(struct str_parms *str_parms, const char *key,
+                      char *out_val, int len){return 0;}
+char *str_parms_to_str(struct str_parms *str_parms){return NULL;}
+int str_parms_add_str(struct str_parms *str_parms, const char *key,
+                      const char *value){return 0;}
+struct str_parms *str_parms_create(void){return NULL;}
+void str_parms_del(struct str_parms *str_parms, const char *key){return;}
+void str_parms_destroy(struct str_parms *str_parms){return;}
+#endif
 struct pal_module_extn_data {
 	char *obj_path;
 	pa_dbus_protocol *dbus_protocol;

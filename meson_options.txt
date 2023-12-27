@@ -1,6 +1,12 @@
 option('pa_version',
        type : 'string', value : '0.0',
        description : 'pulseaudio version')
+option('pal-support-card-status',
+       type : 'boolean', value : true,
+       description : 'pal-support-card-status')
+option('pal-support-cutils',
+       type : 'boolean', value : true,
+       description : 'pal-support-cutils')
 option('daemon',
        type : 'boolean', value : true,
        description : 'Enable building and installation of pulseaudio daemon and supporting configuration files')

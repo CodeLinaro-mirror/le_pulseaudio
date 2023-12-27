@@ -39,4 +39,6 @@ pa_pal_jack_type_t pa_pal_util_get_jack_type_from_port_name(const char *port_nam
 const char* pa_pal_util_get_port_name_from_jack_type(pa_pal_jack_type_t jack_type);
 pa_channel_map pa_pal_map_remove_invalid_channels(pa_channel_map *def_map_with_inval_ch);
 void pa_pal_util_get_jack_sys_path(pa_pal_card_port_config *config_port, pa_pal_jack_in_config *jack_in_config);
+int pa_pal_set_volume(pal_stream_handle_t *handle, uint32_t num_channels, float value);
+int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connection_state);
 #endif

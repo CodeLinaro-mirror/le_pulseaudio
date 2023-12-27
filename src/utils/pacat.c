@@ -1233,7 +1233,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (raw && !encoding_set && mode == PLAYBACK)
+    if (raw && mode == PLAYBACK)
         partialframe_buf = pa_xmalloc(pa_frame_size(&sample_spec));
 
     /* Set up a new main loop */
