@@ -128,6 +128,10 @@ static inline pal_stream_type_t pa_pal_source_get_type_from_string(const char *s
         type = PAL_STREAM_DEEP_BUFFER;
     } else if (pa_streq(stream_type, "PAL_STREAM_COMPRESSED")) {
         type = PAL_STREAM_COMPRESSED;
+    } else if (pa_streq(stream_type, "PAL_STREAM_VOIP_TX")) {
+        type = PAL_STREAM_VOIP_TX;
+    } else if (pa_streq(stream_type, "PAL_STREAM_VOIP_RX")) {
+        type = PAL_STREAM_VOIP_RX;
     } else if (pa_streq(stream_type, "PAL_STREAM_RAW")) {
         type = PAL_STREAM_RAW;
     } else {

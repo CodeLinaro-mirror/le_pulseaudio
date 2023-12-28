@@ -86,6 +86,10 @@ static const char *pa_pal_sink_get_name_from_type(pal_stream_type_t type) {
         name = "deep_buffer";
     else if (type == PAL_STREAM_COMPRESSED)
         name = "offload";
+    else if (type == PAL_STREAM_VOIP_TX)
+        name = "voip_tx";
+    else if (type == PAL_STREAM_VOIP_RX)
+        name = "voip_rx";
     else if (type == PAL_STREAM_GENERIC)
         name = "direct_pcm";
 
