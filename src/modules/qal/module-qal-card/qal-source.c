@@ -84,7 +84,6 @@ static const char *pa_pal_source_get_name_from_type(pal_stream_type_t type) {
 
 static int pa_pal_source_fill_info(pa_pal_source_config *source, pal_source_data *pal_sdata, pa_pal_card_port_device_data *port_device_data) {
     pa_assert(pal_sdata);
-    pa_assert(pal_sdata->pal_device);
 
     pal_sdata->stream_attributes = pa_xnew0(struct pal_stream_attributes, 1);
 
