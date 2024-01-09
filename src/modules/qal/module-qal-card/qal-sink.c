@@ -440,6 +440,10 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
         pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
                         sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
     }
+    else {
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, "",
+                        sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    }
 
     if (PA_SINK_IS_OPENED(s->state)) {
         ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
