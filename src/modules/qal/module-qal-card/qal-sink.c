@@ -109,6 +109,10 @@ static void pa_pal_sink_set_volume_cb(pa_sink *s) {
     pa_assert(s);
     sdata = (pa_pal_sink_data *)s->userdata;
 
+    if (!PA_SINK_IS_RUNNING(s->state)) {
+        pa_log_error("set volume is supported only when sink is in RUNNING state\n");
+        return;
+    }
     pa_assert(sdata);
     pa_assert(sdata->pal_sdata);
     pa_assert(sdata->pal_sdata->stream_handle);
