@@ -26,6 +26,8 @@
 #include <pulsecore/core-util.h>
 #include <pulsecore/core-format.h>
 #include <pulse/channelmap.h>
+#include <errno.h>
+#include <math.h>
 
 #include "qal-utils.h"
 
@@ -60,15 +62,19 @@ typedef struct {
 } pa_pal_util_jack_type_to_port_name;
 
 pa_pal_util_port_to_pal_device_mapping port_to_pal_device[] = {
-    { (char *)"speaker",          PAL_DEVICE_OUT_SPEAKER,          (char *)"PAL_DEVICE_OUT_SPEAKER" },
-    { (char *)"lineout",          PAL_DEVICE_OUT_LINE,             (char *)"PAL_DEVICE_OUT_LINE" },
-    { (char *)"headset",          PAL_DEVICE_OUT_WIRED_HEADSET,    (char *)"PAL_DEVICE_OUT_WIRED_HEADSET" },
-    { (char *)"headphone",        PAL_DEVICE_OUT_WIRED_HEADPHONE,  (char *)"PAL_DEVICE_OUT_WIRED_HEADPHONE" },
-    { (char *)"bta2dp-out",       PAL_DEVICE_OUT_BLUETOOTH_A2DP,   (char *)"PAL_DEVICE_OUT_BLUETOOTH_A2DP" },
-    { (char *)"builtin-mic",      PAL_DEVICE_IN_HANDSET_MIC,       (char *)"PAL_DEVICE_IN_HANDSET_MIC" },
-    { (char *)"speaker-mic",      PAL_DEVICE_IN_SPEAKER_MIC,       (char *)"PAL_DEVICE_IN_SPEAKER_MIC" },
-    { (char *)"linein",           PAL_DEVICE_IN_LINE,              (char *)"PAL_DEVICE_IN_LINE" },
-    { (char *)"hdmi-out",         PAL_DEVICE_OUT_AUX_DIGITAL,      (char *)"PAL_DEVICE_OUT_AUX_DIGITAL" },
+    { (char *)"speaker",          PAL_DEVICE_OUT_SPEAKER,               (char *)"PAL_DEVICE_OUT_SPEAKER" },
+    { (char *)"lineout",          PAL_DEVICE_OUT_LINE,                  (char *)"PAL_DEVICE_OUT_LINE" },
+    { (char *)"headset",          PAL_DEVICE_OUT_WIRED_HEADSET,         (char *)"PAL_DEVICE_OUT_WIRED_HEADSET" },
+    { (char *)"headphone",        PAL_DEVICE_OUT_WIRED_HEADPHONE,       (char *)"PAL_DEVICE_OUT_WIRED_HEADPHONE" },
+    { (char *)"bta2dp-out",       PAL_DEVICE_OUT_BLUETOOTH_A2DP,        (char *)"PAL_DEVICE_OUT_BLUETOOTH_A2DP" },
+    { (char *)"builtin-mic",      PAL_DEVICE_IN_HANDSET_MIC,            (char *)"PAL_DEVICE_IN_HANDSET_MIC" },
+    { (char *)"speaker-mic",      PAL_DEVICE_IN_SPEAKER_MIC,            (char *)"PAL_DEVICE_IN_SPEAKER_MIC" },
+    { (char *)"headset-mic",      PAL_DEVICE_IN_WIRED_HEADSET,          (char *)"PAL_DEVICE_IN_WIRED_HEADSET" },
+    { (char *)"linein",           PAL_DEVICE_IN_LINE,                   (char *)"PAL_DEVICE_IN_LINE" },
+    { (char *)"hdmi-out",         PAL_DEVICE_OUT_AUX_DIGITAL,           (char *)"PAL_DEVICE_OUT_AUX_DIGITAL" },
+    { (char *)"bta2dp-in",        PAL_DEVICE_IN_BLUETOOTH_A2DP,         (char *)"PAL_DEVICE_IN_BLUETOOTH_A2DP" },
+    { (char *)"btsco-in",         PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET,  (char *)"PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
+    { (char *)"btsco-out",        PAL_DEVICE_OUT_BLUETOOTH_SCO,         (char *)"PAL_DEVICE_OUT_BLUETOOTH_SCO" },
 };
 
 pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
@@ -290,6 +296,67 @@ bool pa_pal_channel_map_to_pal(pa_channel_map *pa_map, struct pal_channel_info *
     }
 
     return true;
+}
+
+int pa_pal_set_volume(pal_stream_handle_t *handle, uint32_t num_channels, float value)
+{
+    int32_t vol = 0, ret = 0;
+    struct pal_volume_data *pal_volume = NULL;
+
+    pa_log_debug("%s: volume to be set (%f)\n", __func__, value);
+
+    if (!handle) {
+        pa_log_debug("%s: Usecase is not active yet !!\n", __func__);
+        return -EINVAL;
+    }
+
+    if (value < 0.0) {
+        pa_log_debug("(%f) Under 0.0, assuming 0.0\n", value);
+        value = 0.0;
+    } else {
+        value = ((value > 15.000000) ? 1.0 : (value / 15));
+        pa_log_debug("Volume brought with in range (%f)\n", value);
+    }
+    vol  = lrint((value * 0x2000) + 0.5);
+
+    pa_log_debug("Setting volume to %d \n", vol);
+
+    pal_volume = (struct pal_volume_data *)calloc(1, sizeof(struct pal_volume_data)
+            + (sizeof(struct pal_channel_vol_kv) * num_channels));
+    if (!pal_volume)
+        return -ENOMEM;
+
+    pal_volume->no_of_volpair = num_channels;
+    for (int i = 0; i < num_channels; i++) {
+        pal_volume->volume_pair[i].channel_mask = 0x03;
+        pal_volume->volume_pair[i].vol = value;
+    }
+    ret = pal_stream_set_volume(handle, pal_volume);
+    if (ret)
+        pa_log_error("%s failed: %d \n", __func__, ret);
+
+    free(pal_volume);
+    pa_log_debug("%s: exit", __func__);
+
+    return ret;
+}
+
+int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connection_state)
+{
+    int ret = 0;
+    pal_param_device_connection_t param_device_connection;
+
+    param_device_connection.id = pal_dev_id;
+    param_device_connection.connection_state = connection_state;
+
+    ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION,
+            (void*)&param_device_connection,
+            sizeof(pal_param_device_connection_t));
+    if (ret != 0) {
+        pa_log_error("Set PAL_PARAM_ID_DEVICE_CONNECTION for %d failed", param_device_connection.id);
+    }
+
+    return ret;
 }
 
 pa_pal_jack_type_t pa_pal_util_get_jack_type_from_port_name(const char *port_name) {

@@ -31,6 +31,7 @@ typedef struct {
     pa_hashmap *profiles;
     pa_hashmap *sinks;
     pa_hashmap *sources;
+    pa_hashmap *loopbacks;
     char *default_profile;
 } pa_pal_config_data;
 

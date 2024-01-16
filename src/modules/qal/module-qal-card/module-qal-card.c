@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -28,6 +28,7 @@
 #include <pulse/sample.h>
 #include <pulsecore/modargs.h>
 #include <pulsecore/thread.h>
+#include <pulsecore/protocol-dbus.h>
 
 #include <string.h>
 
@@ -39,6 +40,7 @@
 #include "qal-sink.h"
 #include "qal-card.h"
 #include "qal-config-parser.h"
+#include "pal-loopback.h"
 
 #include "qal-jack.h"
 #include "qal-jack-format.h"
@@ -133,6 +135,7 @@ static void pa_pal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_h
 
     pa_log_debug("%s:\n", __func__);
     pa_assert(u);
+    pa_assert(u->config_data);
     pa_assert(ports);
     pa_assert(profiles);
 
@@ -154,6 +157,9 @@ static void pa_pal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_h
         port_device_data->default_map = config_port->default_map;
         port_device_data->default_spec.channels = config_port->default_map.channels;
         port_device_data->default_spec.rate = config_port->default_spec.rate;
+
+        if (config_port->pal_devicepp_config)
+            port_device_data->pal_devicepp_config = pa_xstrdup(config_port->pal_devicepp_config);
 
         /* Sanity check that we don't have duplicates */
         pa_assert_se(pa_hashmap_put(ports, port->name, port) >= 0);
@@ -1042,6 +1048,12 @@ int pa__init(pa_module *m) {
         pa_log_error("pal extn init failed\n");
     pa_log_debug("Pal extn module loaded successfully\n", __func__);
 
+    if (pa_hashmap_size(u->config_data->loopbacks)) {
+        ret = pa_pal_loopback_init(u->core, u->card, u->config_data->loopbacks, (void *)u, m);
+        if (ret)
+            pa_log_error("Pal loopback init failed !!");
+    }
+
     pa_qal_card_enable_jack_detection(u);
 
 #ifdef ENABLE_PAL_SERVICE
@@ -1067,6 +1079,7 @@ void pa__done(pa_module *m) {
         return;
 
     pa_pal_module_extn_deinit();
+    pa_pal_loopback_deinit();
 
     if (u->sinks) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
