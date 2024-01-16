@@ -200,6 +200,8 @@ static int pa_pal_set_device(pal_stream_handle_t *stream_handle,
 static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
     int ret = 0;
     pal_param_device_connection_t param_device_connection;
+    pa_pal_card_port_device_data *active_port_device_data;
+    bool port_changed = false;
 
     pa_assert(s);
     pa_assert(p);
@@ -210,6 +212,36 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
     pa_assert(sdata->pal_sdata);
     pa_assert(sdata->pal_sdata->pal_device);
     pa_assert(port_device_data);
+    active_port_device_data = PA_DEVICE_PORT_DATA(s->active_port);
+    pa_assert(active_port_device_data);
+
+    /* For Headset-in device, need set connect state */
+    if (port_device_data->device == PAL_DEVICE_IN_WIRED_HEADSET || active_port_device_data->device == PAL_DEVICE_IN_WIRED_HEADSET) {
+         param_device_connection.id = PAL_DEVICE_IN_WIRED_HEADSET;
+
+         if (port_device_data->device == PAL_DEVICE_IN_WIRED_HEADSET) {
+             param_device_connection.connection_state = true;
+             if(port_device_data->is_connected != param_device_connection.connection_state)
+                port_changed = true;
+             port_device_data->is_connected = param_device_connection.connection_state;
+         }
+         else if (active_port_device_data->device == PAL_DEVICE_IN_WIRED_HEADSET) {
+             param_device_connection.connection_state = false;
+             if(active_port_device_data->is_connected != param_device_connection.connection_state)
+                port_changed = true;
+             active_port_device_data->is_connected = param_device_connection.connection_state;
+         }
+
+         if (port_changed) {
+             pa_log_info("headset mic %s", param_device_connection.connection_state ? "connecting" : "disconnecting");
+             ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION,
+                             (void*)&param_device_connection,
+                             sizeof(pal_param_device_connection_t));
+             if (ret != 0)
+                 pa_log_error("pal source set device %d connect status failed %d",
+                                PAL_DEVICE_IN_WIRED_HEADSET, ret);
+         }
+    }
 
     /* Update required port info as per PA active port for next run */
     sdata->pal_sdata->pal_device->id = port_device_data->device;
