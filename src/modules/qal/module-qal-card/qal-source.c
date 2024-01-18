@@ -249,6 +249,10 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
         pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
                 sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
     }
+    else {
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, "",
+                sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    }
 
     if (PA_SOURCE_IS_OPENED(s->state)) {
         pa_assert(sdata->pal_sdata->stream_handle);
