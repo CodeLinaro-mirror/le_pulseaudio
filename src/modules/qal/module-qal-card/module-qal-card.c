@@ -43,6 +43,7 @@
 #include "pal-loopback.h"
 
 #include "qal-jack.h"
+#include "qal-jack-common.h"
 #include "qal-jack-format.h"
 
 #include "qal-utils.h"
@@ -399,8 +400,8 @@ static void pa_pal_card_free_sinks(struct userdata *u, const char *profile_name)
 
 static pa_pal_card_source_info *pa_pal_card_is_dynamic_source_present_for_port(const char *port_name,
                                                                             struct userdata *u) {
-    pa_pal_card_sink_info *source_info = NULL;
-    pa_pal_sink_config *source;
+    pa_pal_card_source_info *source_info = NULL;
+    pa_pal_source_config *source;
     void *state;
 
     pa_assert(port_name);

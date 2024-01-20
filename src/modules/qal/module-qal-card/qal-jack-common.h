@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018, 2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -50,6 +50,9 @@ struct pa_pal_jack_data {
 struct pa_pal_jack_data* pa_pal_hdmi_out_jack_detection_enable(pa_pal_jack_type_t jack_type, pa_module *m, pa_hook_slot **hook_slot,
                                            pa_pal_jack_callback_t callback, pa_pal_jack_in_config *jack_in_config, void *client_data);
 void pa_pal_hdmi_out_jack_detection_disable(struct pa_pal_jack_data *jdata, pa_module *m);
+struct pa_pal_jack_data* pa_pal_external_jack_detection_enable(pa_pal_jack_type_t jack_type, pa_module *m, pa_hook_slot **hook_slot,
+                                                                                          pa_pal_jack_callback_t callback, void *client_data);
+void pa_pal_external_jack_detection_disable(struct pa_pal_jack_data *jdata, pa_module *m);
 
 #endif
 
