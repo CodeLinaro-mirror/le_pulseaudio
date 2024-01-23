@@ -942,9 +942,10 @@ static int open_pal_sink(pa_pal_sink_data *sdata) {
 
     pa_assert(pal_sdata);
 
-    pa_log_debug("opening sink with configuration type = 0x%x, format %d, sample_rate %d",
+    pa_log_debug("opening sink with configuration type = 0x%x, format %d, sample_rate %d, channels: %d",
                  pal_sdata->stream_attributes->type, pal_sdata->stream_attributes->out_media_config.aud_fmt_id,
-                 pal_sdata->stream_attributes->out_media_config.sample_rate);
+                 pal_sdata->stream_attributes->out_media_config.sample_rate,
+                 pal_sdata->stream_attributes->out_media_config.ch_info.channels);
 
     rc = pal_stream_open(pal_sdata->stream_attributes, 1, pal_sdata->pal_device, 0, NULL, pa_pal_out_cb, sdata,
                              &pal_sdata->stream_handle);
