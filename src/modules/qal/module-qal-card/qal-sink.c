@@ -57,6 +57,7 @@
 #define PA_DEFAULT_SINK_FORMAT PA_SAMPLE_S16LE
 #define PA_DEFAULT_SINK_RATE 48000
 #define PA_DEFAULT_SINK_CHANNELS 2
+#define PA_BITS_PER_BYTE 8
 
 
 typedef struct {
@@ -167,8 +168,19 @@ static int pa_pal_sink_fill_info(pa_pal_sink_config *sink, pal_sink_data *pal_sd
     pal_sdata->stream_attributes->flags = 0;
     pal_sdata->stream_attributes->direction = PAL_AUDIO_OUTPUT;
     pal_sdata->stream_attributes->out_media_config.sample_rate = sink->default_spec.rate;
-    pal_sdata->stream_attributes->out_media_config.bit_width = 16;
-    pal_sdata->stream_attributes->out_media_config.aud_fmt_id = encoding;
+    pal_sdata->stream_attributes->out_media_config.bit_width = pa_sample_size_of_format(sink->default_spec.format) * PA_BITS_PER_BYTE;
+
+    switch (pal_sdata->stream_attributes->out_media_config.bit_width) {
+        case 32:
+            pal_sdata->stream_attributes->out_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S32_LE;
+            break;
+        case 24:
+            pal_sdata->stream_attributes->out_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S24_3LE;
+            break;
+        default:
+            pal_sdata->stream_attributes->out_media_config.aud_fmt_id = PAL_AUDIO_FMT_DEFAULT_PCM;
+            break;
+    }
 
     pal_sdata->compressed = (encoding != PAL_AUDIO_FMT_PCM_S16_LE ? true : false);
     if (pal_sdata->stream_attributes->type == PAL_STREAM_COMPRESSED) {

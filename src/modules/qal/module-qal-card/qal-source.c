@@ -53,6 +53,7 @@
 #define PA_DEFAULT_SOURCE_RATE 48000
 #define PA_DEFAULT_SOURCE_CHANNELS 2
 #define PA_NUM_DEVICES 1
+#define PA_BITS_PER_BYTE 8
 
 static int restart_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
                               int source_id, pal_source_data *pal_sdata, uint32_t buffer_size, uint32_t buffer_count);
@@ -97,8 +98,19 @@ static int pa_pal_source_fill_info(pa_pal_source_config *source, pal_source_data
     pal_sdata->stream_attributes->direction = PAL_AUDIO_INPUT;
 
     pal_sdata->stream_attributes->in_media_config.sample_rate = source->default_spec.rate;
-    pal_sdata->stream_attributes->in_media_config.bit_width = 16;
-    pal_sdata->stream_attributes->in_media_config.aud_fmt_id = 0;
+    pal_sdata->stream_attributes->in_media_config.bit_width = pa_sample_size_of_format(source->default_spec.format) * PA_BITS_PER_BYTE;
+
+    switch (pal_sdata->stream_attributes->in_media_config.bit_width) {
+        case 32:
+            pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S32_LE;
+            break;
+        case 24:
+            pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S24_3LE;
+            break;
+        default:
+            pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_DEFAULT_PCM;
+            break;
+    }
 
     if (!pa_pal_channel_map_to_pal(&source->default_map, &pal_sdata->stream_attributes->in_media_config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
