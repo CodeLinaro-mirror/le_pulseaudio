@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -91,6 +91,7 @@ void pa_pal_source_close(pa_pal_source_handle_t *handle);
 bool pa_pal_source_is_supported_sample_rate(uint32_t sample_rate);
 pa_idxset* pa_pal_source_get_config(pa_pal_source_handle_t *handle);
 int pa_pal_source_get_media_config(pa_pal_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding);
+int pa_pal_source_set_device_connection_params(pa_pal_source_handle_t *handle, const char *prm_value);
 
 static inline bool pa_pal_source_is_supported_type(char *source_type) {
     pa_assert(source_type);

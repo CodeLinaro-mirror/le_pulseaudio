@@ -45,14 +45,23 @@ typedef struct {
 
 enum module_method_handler_index {
     METHOD_HANDLER_BT_CONNECT,
-    METHOD_HANDLER_MODULE_LAST = METHOD_HANDLER_BT_CONNECT,
+    METHOD_HANDLER_SET_PARAM,
+    METHOD_HANDLER_MODULE_LAST = METHOD_HANDLER_SET_PARAM,
     METHOD_HANDLER_MODULE_MAX = METHOD_HANDLER_MODULE_LAST + 1,
 };
 
+static char const *jack_prmkey_names[JACK_PARAM_KEY_MAX] = {
+    [JACK_PARAM_KEY_DEVICE_CONNECTION]          = "device_connection",
+};
+
 static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void pal_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 static pa_dbus_arg_info connection_args[] = {
     {"connection_args", "(bs)", "in"},
+};
+static pa_dbus_arg_info set_param_args[] = {
+    {"param_string", "s", "in"},
 };
 
 static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] = {
@@ -61,6 +70,11 @@ static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] 
         .arguments = connection_args,
         .n_arguments = sizeof(connection_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = pal_jack_external_bt_connection },
+    [METHOD_HANDLER_SET_PARAM] = {
+        .method_name = "SetParam",
+        .arguments = set_param_args,
+        .n_arguments = sizeof(set_param_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = pal_jack_external_set_param },
 };
 
 static pa_dbus_interface_info module_interface_info = {
@@ -151,6 +165,81 @@ static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *m
 
     pa_dbus_send_empty_reply(conn, msg);
 
+}
+
+static void pal_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    pa_pal_jack_event_data_t event_data;
+    pa_pal_external_jack_data *external_jdata = userdata;
+    const char *param = NULL;
+
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    pa_log_debug("%s", __func__);
+
+    if (!dbus_message_get_args(msg, &error, DBUS_TYPE_STRING, &param, DBUS_TYPE_INVALID)) {
+        pa_log_error("Invalid signature for SetParam - %s\n", error.message);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Invalid signature for SetParam");
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_log_info("%s: external source port %s  set param %s", __func__,
+            pa_pal_util_get_port_name_from_jack_type(external_jdata->jack_type), param);
+
+    /* Generate jack set param event */
+    event_data.jack_type = external_jdata->jack_type;
+    event_data.event = PA_PAL_JACK_SET_PARAM;
+    event_data.pa_pal_jack_info = (void *)param;
+    pa_hook_fire(&(external_jdata->event_hook), &event_data);
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+static int parse_keyidx(const char *keystr)
+{
+    int key_idx = 0;
+    for (key_idx = 1; key_idx < JACK_PARAM_KEY_MAX; key_idx++) {
+        if (!strcmp(keystr, jack_prmkey_names[key_idx])) {
+            break;
+        }
+    }
+
+    if ((key_idx > 0) && (key_idx < JACK_PARAM_KEY_MAX))
+        return key_idx;
+    else
+        return -1;
+}
+
+int pa_pal_external_jack_parse_kvpair(const char *kvpair, jack_prm_kvpair_t *kv)
+{
+    int ret = 0;
+    int key_idx = 0;
+    char *key_name, *value, *kvstr, *tmpstr;
+
+    pa_assert(kvpair);
+    pa_assert(kv);
+
+    kvstr = strdup(kvpair);
+    pa_assert(kvstr);
+    key_name = strtok_r(kvstr, "=", &tmpstr);
+
+    key_idx = parse_keyidx(key_name);
+    if (key_idx != -1) {
+        kv->value = strdup(strtok_r(NULL, "=", &tmpstr));
+        kv->key = key_idx;
+    }
+    else {
+        ret = -EINVAL;
+    }
+
+    free(kvstr);
+    return ret;
 }
 
 static dbus_uint32_t pal_jack_external_get_array_size(DBusMessageIter array) {
