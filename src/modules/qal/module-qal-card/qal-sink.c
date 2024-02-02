@@ -75,7 +75,7 @@ static int open_pal_sink(pa_pal_sink_data *sdata);
 static int pa_pal_set_param(pal_sink_data *pal_sdata, uint32_t param_id);
 
 static const uint32_t supported_sink_rates[] =
-                          {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
+                          {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000};
 
 static const char *pa_pal_sink_get_name_from_type(pal_stream_type_t type) {
     const char *name = NULL;
