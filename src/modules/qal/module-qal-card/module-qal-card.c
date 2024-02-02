@@ -654,8 +654,8 @@ static int pa_pal_set_sco_params(uint32_t sample_rate) {
 
     memset(&param_btsco, 0, sizeof(param_btsco));
     param_id = PAL_PARAM_ID_BT_SCO;
-    param_btsco.is_bt_hfp = true;
-    param_btsco.bt_sco_on = false; //false for HFP-AG case
+    param_btsco.is_bt_hfp = false; //false for HFP-AG case
+    param_btsco.bt_sco_on = true;
 
     ret =  pal_set_param(param_id, (void*)&param_btsco,
             sizeof(pal_param_btsco_t));
