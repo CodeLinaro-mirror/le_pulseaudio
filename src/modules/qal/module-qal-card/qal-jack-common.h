@@ -49,6 +49,7 @@ struct pa_pal_jack_data {
 
 typedef enum {
     JACK_PARAM_KEY_DEVICE_CONNECTION = 1,
+    JACK_PARAM_KEY_A2DP_SUSPEND,
     JACK_PARAM_KEY_MAX
 } jack_param_key_t;
 
