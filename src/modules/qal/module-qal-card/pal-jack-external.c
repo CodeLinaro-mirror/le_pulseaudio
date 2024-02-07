@@ -33,8 +33,6 @@
 
 #define PAL_DBUS_OBJECT_PATH_PREFIX        "/org/pulseaudio/ext/pal/port"
 #define PAL_DBUS_MODULE_IFACE              "org.PulseAudio.Ext.Pal.Module"
-#define USECASE_TYPE_SINK                  "btsink"
-#define USECASE_TYPE_SOURCE                "btsource"
 
 typedef struct {
     char *obj_path;
@@ -59,7 +57,7 @@ static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *m
 static void pal_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 static pa_dbus_arg_info connection_args[] = {
-    {"connection_args", "(bs)", "in"},
+    {"connection_args", "b", "in"},
 };
 static pa_dbus_arg_info set_param_args[] = {
     {"param_string", "s", "in"},
@@ -105,11 +103,6 @@ static void set_default_config(pa_pal_jack_type_t jack_type, pa_pal_jack_out_con
 static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     pa_pal_jack_event_data_t event_data;
     pa_pal_external_jack_data *external_jdata = userdata;
-    DBusMessageIter arg, struct_i;
-    const char *param;
-    const char *port_name;
-    const char *usecase_type;
-    pa_pal_jack_out_config config;
     bool is_connect = false;
 
     DBusError error;
@@ -122,25 +115,12 @@ static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *m
 
     pa_log_debug("%s", __func__);
 
-    if (!dbus_message_iter_init(msg, &arg)) {
-        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
-                "%s received no arguments", __func__);
+    if (!dbus_message_get_args(msg, &error, DBUS_TYPE_BOOLEAN, &is_connect, DBUS_TYPE_INVALID)) {
+        pa_log_error("Invalid signature for SetParam - %s\n", error.message);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Invalid signature for SetParam");
         dbus_error_free(&error);
         return;
     }
-
-    if (!pa_streq(dbus_message_get_signature(msg), connection_args[0].type)) {
-        pa_log_error("%s error while parsing the args\n", __func__);
-        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
-                "Invalid signature for %s", __func__);
-        dbus_error_free(&error);
-        return;
-    }
-
-    dbus_message_iter_recurse(&arg, &struct_i);
-    dbus_message_iter_get_basic(&struct_i, &is_connect);
-    dbus_message_iter_next(&struct_i);
-    dbus_message_iter_get_basic(&struct_i, &usecase_type);
 
     if (is_connect) {
         event_data.event = PA_PAL_JACK_AVAILABLE;
@@ -155,22 +135,16 @@ static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *m
     event_data.jack_type = external_jdata->jack_type;
     pa_hook_fire(&(external_jdata->event_hook), &event_data);
 
-    pa_log_info("usecase_type %s", usecase_type);
-    if (is_connect && !strcmp(usecase_type, USECASE_TYPE_SOURCE)) {
-        /* Generate jack config update event */
-        set_default_config(external_jdata->jack_type, &config);
-        event_data.event = PA_PAL_JACK_CONFIG_UPDATE;
-        event_data.pa_pal_jack_info = &config;
-        pa_hook_fire(&(external_jdata->event_hook), &event_data);
-    }
-
     pa_dbus_send_empty_reply(conn, msg);
 
 }
 
 static void pal_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    int ret = 0;
     pa_pal_jack_event_data_t event_data;
     pa_pal_external_jack_data *external_jdata = userdata;
+    pa_pal_jack_out_config config;
+    jack_prm_kvpair_t kvpair;
     const char *param = NULL;
 
     DBusError error;
@@ -193,11 +167,28 @@ static void pal_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, 
     pa_log_info("%s: external source port %s  set param %s", __func__,
             pa_pal_util_get_port_name_from_jack_type(external_jdata->jack_type), param);
 
+    /* Validate jack kvpair */
+    ret = pa_pal_external_jack_parse_kvpair(param, &kvpair);
+    if (ret) {
+        pa_log_error("Invalid jack param !!");
+        return;
+    }
+
     /* Generate jack set param event */
     event_data.jack_type = external_jdata->jack_type;
     event_data.event = PA_PAL_JACK_SET_PARAM;
     event_data.pa_pal_jack_info = (void *)param;
     pa_hook_fire(&(external_jdata->event_hook), &event_data);
+
+    /* Fire hook to add sink/source for the ports */
+    if (kvpair.key == JACK_PARAM_KEY_DEVICE_CONNECTION &&
+            !strcmp(kvpair.value, "true")) {
+        /* Generate jack config update event */
+        set_default_config(external_jdata->jack_type, &config);
+        event_data.event = PA_PAL_JACK_CONFIG_UPDATE;
+        event_data.pa_pal_jack_info = &config;
+        pa_hook_fire(&(external_jdata->event_hook), &event_data);
+    }
 
     pa_dbus_send_empty_reply(conn, msg);
 }

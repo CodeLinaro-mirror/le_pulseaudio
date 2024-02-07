@@ -123,6 +123,24 @@ pal_device_id_t pa_pal_util_device_name_to_enum(const char *device_name) {
     return device;
 }
 
+pal_device_id_t pa_pal_util_port_name_to_enum(const char *port_name) {
+    uint32_t count;
+    pal_device_id_t device = PAL_DEVICE_NONE;
+
+    pa_assert(port_name);
+
+    for (count = 0; count < ARRAY_SIZE(port_to_pal_device); count++) {
+        if (pa_streq(port_name, port_to_pal_device[count].port_name)) {
+            device = port_to_pal_device[count].pal_device;
+            break;
+        }
+    }
+
+    pa_log_debug("%s: device_name %s pal device %u", __func__, port_name, device);
+
+    return device;
+}
+
 int pa_pal_util_set_pal_metadata_from_pa_format(const pa_format_info *format) {
     int rc = 0;
     char *stream_format;
