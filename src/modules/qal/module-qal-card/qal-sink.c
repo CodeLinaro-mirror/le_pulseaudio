@@ -366,7 +366,6 @@ static int pa_pal_sink_standby(pa_pal_sink_data *sdata) {
 
     pa_assert(sdata);
     pa_assert(sdata->pal_sdata);
-    pa_assert(sdata->pal_sdata->stream_handle);
 
     pa_log_debug("%s",__func__);
 
