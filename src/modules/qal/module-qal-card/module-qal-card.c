@@ -62,6 +62,7 @@ void load_pal_service();
 
 #define PAL_CARD_NAME_PREFIX "pal."
 #define DEFAULT_PROFILE "default"
+#define DEFAULT_SCO_SAMPLE_RATE 16000
 
 PA_MODULE_AUTHOR("QTI");
 PA_MODULE_DESCRIPTION("pal card module");
@@ -602,13 +603,130 @@ exit:
 }
 
 static void pa_pal_card_set_sink_param(pa_device_port *port, struct userdata *u, const char *jack_param) {
-/* FIXME: implement function when required */
-    pa_log_error("%s: not implement now", __func__);
+    int ret = 0;
+    jack_prm_kvpair_t kvpair;
+    pa_pal_card_sink_info *sink_info = NULL;
+    pa_pal_sink_data *sdata = NULL;
+    bool connection_state = false;
+
+    pa_assert(port);
+    pa_assert(jack_param);
+
+    pa_log_debug("%s:", __func__);
+
+    ret = pa_pal_external_jack_parse_kvpair(jack_param, &kvpair);
+    if (ret) {
+        pa_log_error("Invalid jack param !!");
+        return;
+    }
+
+    /* check if any dynamic sink is already created on same port */
+    sink_info = pa_pal_card_is_dynamic_sink_present_for_port(port->name, u);
+    if (sink_info && sink_info->handle) {
+        switch(kvpair.key) {
+            case JACK_PARAM_KEY_DEVICE_CONNECTION:
+                sdata = (pa_pal_sink_data *)sink_info->handle;
+                connection_state = (!strcmp(kvpair.value, "true")) ? true : false;
+                ret = pa_pal_set_device_connection_state(sdata->pal_sdata->pal_device->id, connection_state);
+                if(ret)
+                    pa_log_error("Set sink device connection params for connection=%d failed ret =%d", connection_state, ret);
+                break;
+            case JACK_PARAM_KEY_A2DP_SUSPEND:
+                ret = pa_pal_sink_set_a2dp_suspend(kvpair.value);
+                if (ret)
+                    pa_log_error("Set sink param for a2dp suspend=%s failed", kvpair.value);
+                break;
+            default:
+                break;
+        }
+    }
+    else {
+        pa_log_error("No sink exists for the port %s", port->name);
+        return;
+    }
+}
+
+static int pa_pal_set_sco_params(uint32_t sample_rate) {
+    int ret = E_SUCCESS;
+
+    pal_param_btsco_t param_btsco;
+    pal_param_id_type_t param_id;
+
+    memset(&param_btsco, 0, sizeof(param_btsco));
+    param_id = PAL_PARAM_ID_BT_SCO;
+    param_btsco.is_bt_hfp = false; //false for HFP-AG case
+    param_btsco.bt_sco_on = true;
+
+    ret =  pal_set_param(param_id, (void*)&param_btsco,
+            sizeof(pal_param_btsco_t));
+    if (ret != 0) {
+        pa_log_error("Set param_id=%d failed", param_id);
+    }
+
+    param_id = PAL_PARAM_ID_BT_SCO_WB;
+    if (sample_rate == DEFAULT_SCO_SAMPLE_RATE) {
+        param_btsco.bt_wb_speech_enabled = true;
+    }
+    else
+        param_btsco.bt_wb_speech_enabled = false;
+
+    ret =  pal_set_param(param_id, (void*)&param_btsco,
+            sizeof(pal_param_btsco_t));
+    if (ret != 0) {
+        pa_log_error("Set param_id=%d failed", param_id);
+    }
+
+    return ret;
 }
 
 static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *u, const char *jack_param) {
-/* FIXME: implement function when required */
-    pa_log_error("%s: not implement now", __func__);
+    int ret = 0;
+    jack_prm_kvpair_t kvpair;
+    pa_pal_card_source_info *source_info = NULL;
+    pa_pal_source_data *sdata = NULL;
+    struct pal_device *pal_device = NULL;
+    bool connection_state = false;
+
+    pa_assert(port);
+    pa_assert(jack_param);
+
+    pa_log_debug("%s:", __func__);
+
+    ret = pa_pal_external_jack_parse_kvpair(jack_param, &kvpair);
+    if (ret) {
+        pa_log_error("Invalid jack param !!");
+        return;
+    }
+
+    /* check if any dynamic source is already created on same port */
+    source_info = pa_pal_card_is_dynamic_source_present_for_port(port->name, u);
+    if (source_info && source_info->handle) {
+        switch(kvpair.key) {
+            case JACK_PARAM_KEY_DEVICE_CONNECTION:
+                sdata = (pa_pal_source_data *)source_info->handle;
+                pa_assert(sdata->pal_sdata);
+                pa_assert(sdata->pal_sdata->pal_device);
+                pal_device = sdata->pal_sdata->pal_device;
+                connection_state = (!strcmp(kvpair.value, "true")) ? true : false;
+                ret = pa_pal_set_device_connection_state(pal_device->id, connection_state);
+                if(ret)
+                    pa_log_error("Set source device connection params failed ret=%d", ret);
+
+                if (!strcmp(port->name, "btsco-in")) {
+                    /* setting common params for SCO  mode */
+                    ret = pa_pal_set_sco_params(sdata->pa_sdata->source->default_sample_rate);
+                    if(ret)
+                        pa_log_error("Set common sco params failed. ret=%d", ret);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    else {
+        pa_log_error("No source exists for port %s", port->name);
+        return;
+    }
 }
 
 static void pa_pal_card_remove_dynamic_sink(pa_device_port *port, struct userdata *u) {

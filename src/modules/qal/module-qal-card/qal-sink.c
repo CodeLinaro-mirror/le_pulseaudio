@@ -57,6 +57,7 @@
 #define PA_DEFAULT_SINK_FORMAT PA_SAMPLE_S16LE
 #define PA_DEFAULT_SINK_RATE 48000
 #define PA_DEFAULT_SINK_CHANNELS 2
+#define PA_BITS_PER_BYTE 8
 
 
 typedef struct {
@@ -75,7 +76,7 @@ static int open_pal_sink(pa_pal_sink_data *sdata);
 static int pa_pal_set_param(pal_sink_data *pal_sdata, uint32_t param_id);
 
 static const uint32_t supported_sink_rates[] =
-                          {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
+                          {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000};
 
 static const char *pa_pal_sink_get_name_from_type(pal_stream_type_t type) {
     const char *name = NULL;
@@ -167,8 +168,19 @@ static int pa_pal_sink_fill_info(pa_pal_sink_config *sink, pal_sink_data *pal_sd
     pal_sdata->stream_attributes->flags = 0;
     pal_sdata->stream_attributes->direction = PAL_AUDIO_OUTPUT;
     pal_sdata->stream_attributes->out_media_config.sample_rate = sink->default_spec.rate;
-    pal_sdata->stream_attributes->out_media_config.bit_width = 16;
-    pal_sdata->stream_attributes->out_media_config.aud_fmt_id = encoding;
+    pal_sdata->stream_attributes->out_media_config.bit_width = pa_sample_size_of_format(sink->default_spec.format) * PA_BITS_PER_BYTE;
+
+    switch (pal_sdata->stream_attributes->out_media_config.bit_width) {
+        case 32:
+            pal_sdata->stream_attributes->out_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S32_LE;
+            break;
+        case 24:
+            pal_sdata->stream_attributes->out_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S24_3LE;
+            break;
+        default:
+            pal_sdata->stream_attributes->out_media_config.aud_fmt_id = PAL_AUDIO_FMT_DEFAULT_PCM;
+            break;
+    }
 
     pal_sdata->compressed = (encoding != PAL_AUDIO_FMT_PCM_S16_LE ? true : false);
     if (pal_sdata->stream_attributes->type == PAL_STREAM_COMPRESSED) {
@@ -872,6 +884,26 @@ static int pa_pal_set_param(pal_sink_data *pal_sdata, uint32_t param_id) {
     return rc;
 }
 
+int pa_pal_sink_set_a2dp_suspend(const char *prm_value)
+{
+    int ret = 0;
+    pal_param_bta2dp_t param_bt_a2dp;
+
+    pa_assert(prm_value);
+
+    memset(&param_bt_a2dp, 0, sizeof(pal_param_bta2dp_t));
+    param_bt_a2dp.a2dp_suspended = (!strcmp(prm_value, "true")) ? true : false;
+    param_bt_a2dp.is_suspend_setparam = false;
+    param_bt_a2dp.dev_id = PAL_DEVICE_OUT_BLUETOOTH_A2DP;
+
+    ret = pal_set_param(PAL_PARAM_ID_BT_A2DP_SUSPENDED, (void *)&param_bt_a2dp,
+            sizeof(pal_param_bta2dp_t));
+    if (ret)
+        pa_log_error("BT set param for a2dp suspend failed");
+
+    return ret;
+}
+
 int pa_pal_sink_get_media_config(pa_pal_sink_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
     pa_pal_sink_data *sdata = (pa_pal_sink_data *)handle;
     pa_format_info *f;
@@ -922,9 +954,10 @@ static int open_pal_sink(pa_pal_sink_data *sdata) {
 
     pa_assert(pal_sdata);
 
-    pa_log_debug("opening sink with configuration type = 0x%x, format %d, sample_rate %d",
+    pa_log_debug("opening sink with configuration type = 0x%x, format %d, sample_rate %d, channels: %d",
                  pal_sdata->stream_attributes->type, pal_sdata->stream_attributes->out_media_config.aud_fmt_id,
-                 pal_sdata->stream_attributes->out_media_config.sample_rate);
+                 pal_sdata->stream_attributes->out_media_config.sample_rate,
+                 pal_sdata->stream_attributes->out_media_config.ch_info.channels);
 
     rc = pal_stream_open(pal_sdata->stream_attributes, 1, pal_sdata->pal_device, 0, NULL, pa_pal_out_cb, sdata,
                              &pal_sdata->stream_handle);

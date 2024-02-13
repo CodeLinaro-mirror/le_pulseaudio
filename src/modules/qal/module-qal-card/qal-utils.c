@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -236,7 +236,9 @@ static pa_pal_util_pa_pal_channel_map pa_pal_channel_map[] = {
     { PA_CHANNEL_POSITION_TOP_CENTER, PAL_CHMAP_CHANNEL_TC },
     { PA_CHANNEL_POSITION_TOP_REAR_LEFT, PAL_CHMAP_CHANNEL_TBL },
     { PA_CHANNEL_POSITION_TOP_REAR_RIGHT, PAL_CHMAP_CHANNEL_TBR },
-    { PA_CHANNEL_POSITION_TOP_REAR_CENTER, PAL_CHMAP_CHANNEL_TBC }
+    { PA_CHANNEL_POSITION_TOP_REAR_CENTER, PAL_CHMAP_CHANNEL_TBC },
+    { PA_CHANNEL_POSITION_AUX0, PAL_CHMAP_CHANNEL_RLC },
+    { PA_CHANNEL_POSITION_AUX1, PAL_CHMAP_CHANNEL_RRC }
 };
 
 pal_audio_fmt_t pa_pal_util_get_pal_format_from_pa_encoding(pa_encoding_t pa_format, pal_snd_dec_t *pal_snd_dec) {
