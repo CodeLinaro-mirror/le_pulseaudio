@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -52,6 +52,8 @@
 #define PA_DEFAULT_SOURCE_FORMAT PA_SAMPLE_S16LE
 #define PA_DEFAULT_SOURCE_RATE 48000
 #define PA_DEFAULT_SOURCE_CHANNELS 2
+#define PA_NUM_DEVICES 1
+#define PA_BITS_PER_BYTE 8
 
 static int restart_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
                               int source_id, pal_source_data *pal_sdata, uint32_t buffer_size, uint32_t buffer_count);
@@ -60,7 +62,7 @@ static int close_pal_source(pal_source_data *pal_sdata);
 static int open_pal_source(pal_source_data *pal_sdata);
 
 static const uint32_t supported_source_rates[] =
-                          {8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000};
+                          {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000};
 
 static const char *pa_pal_source_get_name_from_type(pal_stream_type_t type) {
     const char *name = NULL;
@@ -71,6 +73,10 @@ static const char *pa_pal_source_get_name_from_type(pal_stream_type_t type) {
         name = "low-latency";
     else if (type == PAL_STREAM_COMPRESSED)
         name = "compress";
+    else if (type == PAL_STREAM_VOIP_TX)
+        name = "voip_tx";
+    else if (type == PAL_STREAM_VOIP_RX)
+        name = "voip_Rx";
     else if (type == PAL_STREAM_DEEP_BUFFER)
         name = "deep-buffer";
 
@@ -92,8 +98,19 @@ static int pa_pal_source_fill_info(pa_pal_source_config *source, pal_source_data
     pal_sdata->stream_attributes->direction = PAL_AUDIO_INPUT;
 
     pal_sdata->stream_attributes->in_media_config.sample_rate = source->default_spec.rate;
-    pal_sdata->stream_attributes->in_media_config.bit_width = 16;
-    pal_sdata->stream_attributes->in_media_config.aud_fmt_id = 0;
+    pal_sdata->stream_attributes->in_media_config.bit_width = pa_sample_size_of_format(source->default_spec.format) * PA_BITS_PER_BYTE;
+
+    switch (pal_sdata->stream_attributes->in_media_config.bit_width) {
+        case 32:
+            pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S32_LE;
+            break;
+        case 24:
+            pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S24_3LE;
+            break;
+        default:
+            pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_DEFAULT_PCM;
+            break;
+    }
 
     if (!pa_pal_channel_map_to_pal(&source->default_map, &pal_sdata->stream_attributes->in_media_config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
@@ -106,7 +123,11 @@ static int pa_pal_source_fill_info(pa_pal_source_config *source, pal_source_data
     pal_sdata->pal_device->id = port_device_data->device;
     pal_sdata->pal_device->config.sample_rate = port_device_data->default_spec.rate;
     pal_sdata->pal_device->config.bit_width = 16;
-    if(source->pal_devicepp_config){
+
+    if (port_device_data->pal_devicepp_config){
+        pa_strlcpy(pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
+            sizeof(pal_sdata->pal_device->custom_config.custom_key));
+    } else if (source->pal_devicepp_config){
         pa_strlcpy(pal_sdata->pal_device->custom_config.custom_key, source->pal_devicepp_config, sizeof(pal_sdata->pal_device->custom_config.custom_key));
     }
     if (!pa_pal_channel_map_to_pal(&port_device_data->default_map, &pal_sdata->pal_device->config.ch_info)) {
@@ -172,6 +193,95 @@ static int pa_pal_source_standby(pal_source_data *pal_sdata) {
     }
 
     return 0;
+}
+
+static int pa_pal_set_device(pal_stream_handle_t *stream_handle,
+                          pa_pal_card_port_device_data *param_device_connection) {
+    struct pal_device device_connect;
+    int ret = 0;
+
+    device_connect.id = param_device_connection->device;
+
+    ret = pal_stream_set_device(stream_handle, PA_NUM_DEVICES, &device_connect);
+    if(ret)
+        pa_log_error("pal source switch device %d failed %d", device_connect.id, ret);
+
+    return ret;
+}
+
+static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
+    int ret = 0;
+    pal_param_device_connection_t param_device_connection;
+    pa_pal_card_port_device_data *active_port_device_data;
+    bool port_changed = false;
+
+    pa_assert(s);
+    pa_assert(p);
+    pa_pal_card_port_device_data *port_device_data = PA_DEVICE_PORT_DATA(p);
+    pa_pal_source_data *sdata = (pa_pal_source_data *)s->userdata;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pal_sdata);
+    pa_assert(sdata->pal_sdata->pal_device);
+    pa_assert(port_device_data);
+    active_port_device_data = PA_DEVICE_PORT_DATA(s->active_port);
+    pa_assert(active_port_device_data);
+
+    /* For Headset-in device, need set connect state */
+    if (port_device_data->device == PAL_DEVICE_IN_WIRED_HEADSET || active_port_device_data->device == PAL_DEVICE_IN_WIRED_HEADSET) {
+         param_device_connection.id = PAL_DEVICE_IN_WIRED_HEADSET;
+
+         if (port_device_data->device == PAL_DEVICE_IN_WIRED_HEADSET) {
+             param_device_connection.connection_state = true;
+             if(port_device_data->is_connected != param_device_connection.connection_state)
+                port_changed = true;
+             port_device_data->is_connected = param_device_connection.connection_state;
+         }
+         else if (active_port_device_data->device == PAL_DEVICE_IN_WIRED_HEADSET) {
+             param_device_connection.connection_state = false;
+             if(active_port_device_data->is_connected != param_device_connection.connection_state)
+                port_changed = true;
+             active_port_device_data->is_connected = param_device_connection.connection_state;
+         }
+
+         if (port_changed) {
+             pa_log_info("headset mic %s", param_device_connection.connection_state ? "connecting" : "disconnecting");
+             ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION,
+                             (void*)&param_device_connection,
+                             sizeof(pal_param_device_connection_t));
+             if (ret != 0)
+                 pa_log_error("pal source set device %d connect status failed %d",
+                                PAL_DEVICE_IN_WIRED_HEADSET, ret);
+         }
+    }
+
+    /* Update required port info as per PA active port for next run */
+    sdata->pal_sdata->pal_device->id = port_device_data->device;
+    if (port_device_data->pal_devicepp_config) {
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
+                sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    }
+    else {
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, "",
+                sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    }
+
+    if (PA_SOURCE_IS_OPENED(s->state)) {
+        pa_assert(sdata->pal_sdata->stream_handle);
+    }
+    else {
+        return ret;
+    }
+
+    param_device_connection.id = port_device_data->device;
+
+    ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
+    if (ret != 0) {
+        pa_log_error("pal source switch device failed %d", ret);
+        return ret;
+    }
+
+    return ret;
 }
 
 static int pa_pal_source_set_state_in_io_thread_cb(pa_source *s, pa_source_state_t new_state, pa_suspend_cause_t new_suspend_cause PA_GCC_UNUSED)
@@ -566,7 +676,7 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_sdata->source->userdata = (void *)source_data;
     pa_sdata->source->parent.process_msg = pa_pal_source_process_msg;
     pa_sdata->source->set_state_in_io_thread = pa_pal_source_set_state_in_io_thread_cb;
-    pa_sdata->source->set_port = NULL; //Need to update with set port callback function
+    pa_sdata->source->set_port = pa_pal_source_set_port_cb;
 
     /* FIXME: check reconfigure needed for non pcm */
     pa_sdata->source->reconfigure = pa_pal_source_reconfigure_cb;
