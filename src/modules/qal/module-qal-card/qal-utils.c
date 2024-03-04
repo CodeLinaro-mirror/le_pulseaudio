@@ -379,6 +379,23 @@ int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connecti
     return ret;
 }
 
+pa_pal_card_avoid_processing_config_id_t pa_pal_utils_get_config_id_from_string(const char *config_str) {
+    pa_pal_card_avoid_processing_config_id_t config_id = PA_PAL_CARD_AVOID_PROCESSING_FOR_NONE;
+
+    if (pa_streq(config_str, "all") || pa_streq(config_str, "true"))
+        config_id = PA_PAL_CARD_AVOID_PROCESSING_FOR_ALL;
+    else if (pa_streq(config_str, "rate"))
+        config_id = PA_PAL_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE;
+    else if (pa_streq(config_str, "bitwidth"))
+        config_id = PA_PAL_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH;
+    else if (pa_streq(config_str, "channels"))
+        config_id = PA_PAL_CARD_AVOID_PROCESSING_FOR_CHANNELS;
+    else
+        pa_log_error("%s: Unsupported config %s", __func__, config_str);
+
+    return config_id;
+}
+
 pa_pal_jack_type_t pa_pal_util_get_jack_type_from_port_name(const char *port_name) {
     uint32_t count;
 
