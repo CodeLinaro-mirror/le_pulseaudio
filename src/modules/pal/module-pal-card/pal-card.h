@@ -49,6 +49,16 @@ typedef enum {
     PA_PAL_CARD_SOURCE_LL_0 = 0x7,
 } pa_pal_card_source_usecase_id_t;
 
+typedef enum {
+    PA_PAL_CARD_AVOID_PROCESSING_FOR_NONE = 0x0,
+    PA_PAL_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE = 0x1,
+    PA_PAL_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH = 0x2,
+    PA_PAL_CARD_AVOID_PROCESSING_FOR_CHANNELS = 0x4,
+    PA_PAL_CARD_AVOID_PROCESSING_FOR_ALL = (PA_PAL_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE |
+                                             PA_PAL_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH |
+                                             PA_PAL_CARD_AVOID_PROCESSING_FOR_CHANNELS),
+} pa_pal_card_avoid_processing_config_id_t;
+
 typedef struct {
     char *name;
     char *description;

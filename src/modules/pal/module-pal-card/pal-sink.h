@@ -42,6 +42,7 @@ typedef struct {
     pa_encoding_t default_encoding;
     pa_channel_map default_map;
     uint32_t alternate_sample_rate;
+    pa_pal_card_avoid_processing_config_id_t avoid_config_processing;
     pa_idxset *formats;
     pa_hashmap *ports;
     pa_hashmap *profiles;
@@ -81,6 +82,7 @@ typedef struct {
     pa_thread_mq thread_mq;
     pa_thread *thread;
     pa_idxset *formats;
+    pa_pal_card_avoid_processing_config_id_t avoid_config_processing;
 } pa_sink_data;
 
 typedef struct {

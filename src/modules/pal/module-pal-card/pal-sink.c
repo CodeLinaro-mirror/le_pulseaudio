@@ -58,6 +58,9 @@
 #define PA_DEFAULT_SINK_RATE 48000
 #define PA_DEFAULT_SINK_CHANNELS 2
 #define PA_BITS_PER_BYTE 8
+#define PA_DEFAULT_BUFFER_DURATION_MS 25
+#define PA_LOW_LATENCY_BUFFER_DURATION_MS 5
+#define PA_DEEP_BUFFER_BUFFER_DURATION_MS 20
 
 
 typedef struct {
@@ -77,6 +80,70 @@ static int pa_pal_set_param(pal_sink_data *pal_sdata, uint32_t param_id);
 
 static const uint32_t supported_sink_rates[] =
                           {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000};
+
+static size_t sink_get_buffer_size(pa_sample_spec spec, pal_stream_type_t type) {
+    uint32_t buffer_duration = PA_DEFAULT_BUFFER_DURATION_MS;
+    size_t length = 0;
+
+    switch (type) {
+        case PAL_STREAM_DEEP_BUFFER:
+            buffer_duration = PA_DEEP_BUFFER_BUFFER_DURATION_MS;
+            break;
+        case PAL_STREAM_LOW_LATENCY:
+            buffer_duration = PA_LOW_LATENCY_BUFFER_DURATION_MS;
+            break;
+        default:
+            break;
+    }
+    length = ((spec.rate * buffer_duration * spec.channels * pa_sample_size_of_format(spec.format)) / 1000);
+
+    return pa_frame_align(length, &spec);
+}
+
+static pa_sample_format_t pa_pal_sink_find_nearest_supported_pa_format(pa_sample_format_t format) {
+    pa_sample_format_t format1;
+
+    switch(format) {
+        case PA_SAMPLE_S16LE:
+        case PA_SAMPLE_U8:
+        case PA_SAMPLE_ALAW:
+        case PA_SAMPLE_S16BE:
+            format1 = PA_SAMPLE_S16LE;
+            break;
+        case PA_SAMPLE_S24LE:
+        case PA_SAMPLE_S24BE:
+        case PA_SAMPLE_S24_32LE:
+        case PA_SAMPLE_S24_32BE:
+            format1 = PA_SAMPLE_S24LE;
+            break;
+        case PA_SAMPLE_S32LE:
+        case PA_SAMPLE_FLOAT32LE:
+        case PA_SAMPLE_S32BE:
+            format1 = PA_SAMPLE_S32LE;
+            break;
+        default:
+            format1 = PA_SAMPLE_S16LE;
+            pa_log_error(" unsupport format %d hence defaulting to %d",format, format1);
+    }
+    return format1;
+
+}
+
+static uint32_t pa_pal_sink_find_nearest_supported_sample_rate(uint32_t sample_rate) {
+    uint32_t i;
+    uint32_t nearest_rate = PA_DEFAULT_SINK_RATE;
+
+    for (i = 0; i < ARRAY_SIZE(supported_sink_rates) ; i++) {
+        if (sample_rate == supported_sink_rates[i]) {
+            nearest_rate = sample_rate;
+            break;
+        } else if (sample_rate > supported_sink_rates[i]) {
+            nearest_rate = supported_sink_rates[i];
+        }
+    }
+
+    return nearest_rate;
+}
 
 static const char *pa_pal_sink_get_name_from_type(pal_stream_type_t type) {
     const char *name = NULL;
@@ -518,8 +585,9 @@ static int pa_pal_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool pas
     pa_pal_sink_data *sdata = NULL;
     pa_sink_data *pa_sdata = NULL;
     pal_sink_data *pal_sdata = NULL;
-    pa_pal_card_port_device_data *port_device_data;
+    pa_pal_card_port_device_data *port_device_data = NULL;
     pa_channel_map new_map;
+    pa_sample_spec tmp_spec;
 
     bool supported = false;
     uint32_t i;
@@ -527,6 +595,7 @@ static int pa_pal_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool pas
     uint32_t old_rate;
 
     pa_assert(s);
+    pa_assert(spec);
 
     sdata = (pa_pal_sink_data *) s->userdata;
 
@@ -538,7 +607,8 @@ static int pa_pal_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool pas
 
     pa_sdata = sdata->pa_sdata;
     pal_sdata = sdata->pal_sdata;
-
+    tmp_spec = *spec;
+    pal_stream_type_t stream_type = pal_sdata->stream_attributes->type;
     for (i = 0; i < ARRAY_SIZE(supported_sink_rates) ; i++) {
         if (spec->rate == supported_sink_rates[i]) {
             supported = true;
@@ -557,21 +627,43 @@ static int pa_pal_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool pas
         old_rate = pa_sdata->sink->sample_spec.rate; /* take backup */
         pa_sdata->sink->sample_spec.rate = spec->rate;
 
+        if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_CHANNELS)
+            pa_channel_map_init_auto(&new_map, tmp_spec.channels, PA_CHANNEL_MAP_DEFAULT);
+        else {
+            new_map = pa_sdata->sink->channel_map;
+            tmp_spec.channels = pa_sdata->sink->sample_spec.channels;
+        }
+
+        /* find nearest suitable format */
+        if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH)
+            tmp_spec.format = pa_pal_sink_find_nearest_supported_pa_format(spec->format);
+        else
+            tmp_spec.format = pa_sdata->sink->sample_spec.format;
+
+        /* find nearest suitable rate */
+        if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE)
+            tmp_spec.rate = pa_pal_sink_find_nearest_supported_sample_rate(spec->rate);
+        else
+            tmp_spec.rate = pa_sdata->sink->sample_spec.rate;
+
+        if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_ALL)
+            pal_sdata->buffer_size = sink_get_buffer_size(tmp_spec, stream_type);
+
         port_device_data = PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port);
-        rc = restart_pal_sink(s, PA_ENCODING_PCM, &pa_sdata->sink->sample_spec, &new_map, port_device_data,
-                                 pal_sdata->stream_attributes->type, pal_sdata->index, sdata,
-                                 (uint32_t)pal_sdata->buffer_size, pal_sdata->buffer_count);
+        rc = restart_pal_sink(s, PA_ENCODING_PCM, &tmp_spec, &new_map, port_device_data,
+                pal_sdata->stream_attributes->type, pal_sdata->index, sdata,
+                (uint32_t)pal_sdata->buffer_size, pal_sdata->buffer_count);
         if (PA_UNLIKELY(rc)) {
             pa_sdata->sink->sample_spec.rate = old_rate; /* restore old rate if failed */
             pa_log_error("Could create reopen pal sink, error %d", rc);
             return -1;
         }
 
-        pa_sdata->sink->sample_spec = *spec;
+        pa_sdata->sink->sample_spec = tmp_spec;
         pa_sdata->sink->channel_map = new_map;
-
+        pa_sink_set_max_request(pa_sdata->sink, pal_sdata->buffer_size);
+        pa_sink_set_max_rewind(pa_sdata->sink, 0);
         pa_sink_set_fixed_latency(pa_sdata->sink, pal_sdata->sink_latency_us);
-        return 0;
     }
 
     return rc;
@@ -1062,6 +1154,7 @@ static int restart_pal_sink(pa_sink *s, pa_encoding_t encoding, pa_sample_spec *
 
     sdata->pal_sdata->stream_attributes->out_media_config.aud_fmt_id = pal_format;
     sdata->pal_sdata->stream_attributes->out_media_config.sample_rate = ss->rate;
+    sdata->pal_sdata->pal_device->config.sample_rate = ss->rate;
     if (!pa_pal_channel_map_to_pal(map, &sdata->pal_sdata->stream_attributes->out_media_config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
         return -1;
@@ -1143,7 +1236,8 @@ static int pa_pal_sink_alloc_common_resources(pa_pal_sink_data *sdata) {
    return 0;
 }
 
-static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, bool use_hw_volume, uint32_t alternate_sample_rate, pa_card *card, pa_hashmap *ports, const char *driver, pa_pal_sink_data *sdata) {
+static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, bool use_hw_volume, uint32_t alternate_sample_rate, pa_card *card,
+                          pa_pal_card_avoid_processing_config_id_t avoid_config_processing, pa_hashmap *ports, const char *driver, pa_pal_sink_data *sdata) {
     pa_sink_new_data new_data;
     pa_sink_data *pa_sdata;
     pa_device_port *port;
@@ -1173,6 +1267,16 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_log_info("ss->rate %d ss->channels %d", ss->rate, ss->channels);
     pa_sink_new_data_set_sample_spec(&new_data, ss);
     pa_sink_new_data_set_channel_map(&new_data, map);
+
+    if (avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_ALL){
+        new_data.avoid_resampling_is_set = true;
+        new_data.avoid_resampling = true;
+    }
+    else{
+        new_data.avoid_resampling_is_set = false;
+        new_data.avoid_resampling = false;
+
+    }
 
     if (alternate_sample_rate == PA_ALTERNATE_SINK_RATE)
         pa_sink_new_data_set_alternate_sample_rate(&new_data, alternate_sample_rate);
@@ -1210,6 +1314,7 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_sdata->sink->set_state_in_io_thread = pa_pal_sink_set_state_in_io_thread_cb;
     pa_sdata->sink->set_port = pa_pal_sink_set_port_cb;
     pa_sdata->sink->reconfigure = pa_pal_sink_reconfigure_cb;
+    pa_sdata->avoid_config_processing = avoid_config_processing;
 
     if (pa_idxset_size(formats) > 0 ) {
         pa_sdata->sink->get_formats = pa_pal_sink_get_formats;
@@ -1369,7 +1474,7 @@ int pa_pal_sink_create(pa_module *m, pa_card *card, const char *driver, const ch
         goto exit;
     }
 
-    rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &sink->default_spec, &sink->default_map, sink->use_hw_volume, sink->alternate_sample_rate, card, ports, driver, sdata);
+    rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &sink->default_spec, &sink->default_map, sink->use_hw_volume, sink->alternate_sample_rate, card, sink->avoid_config_processing, ports, driver, sdata);
     pa_hashmap_free(ports);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", sink->name, rc);
