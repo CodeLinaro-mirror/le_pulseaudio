@@ -485,16 +485,16 @@ static void pa_pal_card_add_dynamic_source(pa_device_port *port, pa_pal_jack_out
 
     pa_pal_card_source_info *source_info = NULL;
 
-    pa_pal_source_config *source;
+    pa_pal_source_config *source = NULL;
     pa_pal_source_config new_source;
 
-    pa_idxset *requested_formats;
-    pa_format_info *requested_format;
+    pa_idxset *requested_formats = NULL;
+    pa_format_info *requested_format = NULL;
 
-    pa_format_info *current_format;
+    pa_format_info *current_format = NULL;
     pa_format_info *config_format = NULL;
 
-    pa_idxset *current_formats;
+    pa_idxset *current_formats = NULL;
 
     pa_sample_spec ss;
     pa_channel_map map;
@@ -503,7 +503,7 @@ static void pa_pal_card_add_dynamic_source(pa_device_port *port, pa_pal_jack_out
     char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
 
-    void *state;
+    void *state = NULL;
     uint32_t i;
 
     pa_assert(port);
@@ -746,16 +746,16 @@ static void pa_pal_card_add_dynamic_sink(pa_device_port *port, pa_pal_jack_out_c
 
     pa_pal_card_sink_info *sink_info = NULL;
 
-    pa_pal_sink_config *sink;
+    pa_pal_sink_config *sink = NULL;
     pa_pal_sink_config new_sink;
 
-    pa_idxset *requested_formats;
-    pa_format_info *requested_format;
+    pa_idxset *requested_formats = NULL;
+    pa_format_info *requested_format = NULL;
 
-    pa_format_info *current_format;
-    pa_format_info *config_format;
+    pa_format_info *current_format = NULL;
+    pa_format_info *config_format = NULL;
 
-    pa_idxset *current_formats;
+    pa_idxset *current_formats = NULL;
 
     pa_sample_spec ss;
     pa_channel_map map;
@@ -764,7 +764,7 @@ static void pa_pal_card_add_dynamic_sink(pa_device_port *port, pa_pal_jack_out_c
     char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
 
-    void *state;
+    void *state = NULL;
     uint32_t i;
 
     pa_assert(port);
