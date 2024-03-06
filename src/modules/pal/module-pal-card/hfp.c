@@ -27,9 +27,9 @@
 #include <errno.h>
 #include "PalDefs.h"
 #include "PalApi.h"
-#include "qal-card.h"
+#include "pal-card.h"
 #include "pal-loopback.h"
-#include "qal-utils.h"
+#include "pal-utils.h"
 #include "hfp.h"
 
 #define DEFAULT_BIT_WIDTH                   16
