@@ -259,6 +259,7 @@ exit:
 static int pa_pal_config_parse_avoid_processing(pa_config_parser_state *state) {
     pa_pal_config_data* config_data = NULL;
     pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
     char **items = NULL;
     char *item = NULL;
     char *name = NULL;
@@ -279,16 +280,21 @@ static int pa_pal_config_parse_avoid_processing(pa_config_parser_state *state) {
 
     if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
         name = sink->name;
-    }  else {
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
+        name = source->name;
+    } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
     }
 
-    /* add list to sink */
+    /* add list to sink/source */
     while ((item = items[i++])) {
         if (sink) {
             sink->avoid_config_processing |= pa_pal_utils_get_config_id_from_string(item);
             pa_log_debug("%s: Adding %s to the list of configs to avoid processing for sink %s", __func__, item, name);
+        } else {
+            source->avoid_config_processing |= pa_pal_utils_get_config_id_from_string(item);
+            pa_log_debug("%s: Adding %s to the list of configs to avoid processing for source %s", __func__, item, name);
         }
     }
 
