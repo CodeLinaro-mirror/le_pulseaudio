@@ -30,6 +30,7 @@
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
 pal_device_id_t pa_pal_util_device_name_to_enum(const char *device);
+pal_device_id_t pa_pal_util_port_name_to_enum(const char *port_name);
 uint32_t pa_pal_get_channel_count(pa_channel_map *pa_map);
 bool pa_pal_channel_map_to_pal(pa_channel_map *pa_map, struct pal_channel_info *pal_map);
 pal_audio_fmt_t pa_pal_util_get_pal_format_from_pa_encoding(pa_encoding_t pa_format, pal_snd_dec_t *pal_snd_dec);
