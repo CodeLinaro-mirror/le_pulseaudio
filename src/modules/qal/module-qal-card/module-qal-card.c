@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -43,6 +43,7 @@
 #include "pal-loopback.h"
 
 #include "qal-jack.h"
+#include "qal-jack-common.h"
 #include "qal-jack-format.h"
 
 #include "qal-utils.h"
@@ -61,6 +62,7 @@ void load_pal_service();
 
 #define PAL_CARD_NAME_PREFIX "pal."
 #define DEFAULT_PROFILE "default"
+#define DEFAULT_SCO_SAMPLE_RATE 16000
 
 PA_MODULE_AUTHOR("QTI");
 PA_MODULE_DESCRIPTION("pal card module");
@@ -135,6 +137,7 @@ static void pa_pal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_h
 
     pa_log_debug("%s:\n", __func__);
     pa_assert(u);
+    pa_assert(u->config_data);
     pa_assert(ports);
     pa_assert(profiles);
 
@@ -156,6 +159,9 @@ static void pa_pal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_h
         port_device_data->default_map = config_port->default_map;
         port_device_data->default_spec.channels = config_port->default_map.channels;
         port_device_data->default_spec.rate = config_port->default_spec.rate;
+
+        if (config_port->pal_devicepp_config)
+            port_device_data->pal_devicepp_config = pa_xstrdup(config_port->pal_devicepp_config);
 
         /* Sanity check that we don't have duplicates */
         pa_assert_se(pa_hashmap_put(ports, port->name, port) >= 0);
@@ -395,8 +401,8 @@ static void pa_pal_card_free_sinks(struct userdata *u, const char *profile_name)
 
 static pa_pal_card_source_info *pa_pal_card_is_dynamic_source_present_for_port(const char *port_name,
                                                                             struct userdata *u) {
-    pa_pal_card_sink_info *source_info = NULL;
-    pa_pal_sink_config *source;
+    pa_pal_card_source_info *source_info = NULL;
+    pa_pal_source_config *source;
     void *state;
 
     pa_assert(port_name);
@@ -597,13 +603,105 @@ exit:
 }
 
 static void pa_pal_card_set_sink_param(pa_device_port *port, struct userdata *u, const char *jack_param) {
-/* FIXME: implement function when required */
-    pa_log_error("%s: not implement now", __func__);
+    int ret = 0;
+    jack_prm_kvpair_t kvpair;
+    bool connection_state = false;
+
+    pa_assert(port);
+    pa_assert(jack_param);
+
+    pa_log_debug("%s:", __func__);
+
+    ret = pa_pal_external_jack_parse_kvpair(jack_param, &kvpair);
+    if (ret) {
+        pa_log_error("Invalid jack param !!");
+        return;
+    }
+
+    switch(kvpair.key) {
+        case JACK_PARAM_KEY_DEVICE_CONNECTION:
+            connection_state = (!strcmp(kvpair.value, "true")) ? true : false;
+            ret = pa_pal_set_device_connection_state(pa_pal_util_port_name_to_enum(port->name), connection_state);
+            if(ret)
+                pa_log_error("Set sink device connection params for connection=%d failed ret =%d", connection_state, ret);
+            break;
+        case JACK_PARAM_KEY_A2DP_SUSPEND:
+            ret = pa_pal_sink_set_a2dp_suspend(kvpair.value);
+            if (ret)
+                pa_log_error("Set sink param for a2dp suspend=%s failed", kvpair.value);
+            break;
+        default:
+            break;
+    }
+}
+
+static int pa_pal_set_sco_params(uint32_t sample_rate) {
+    int ret = E_SUCCESS;
+
+    pal_param_btsco_t param_btsco;
+    pal_param_id_type_t param_id;
+
+    memset(&param_btsco, 0, sizeof(param_btsco));
+    param_id = PAL_PARAM_ID_BT_SCO;
+    param_btsco.is_bt_hfp = false; //false for HFP-AG case
+    param_btsco.bt_sco_on = true;
+
+    ret =  pal_set_param(param_id, (void*)&param_btsco,
+            sizeof(pal_param_btsco_t));
+    if (ret != 0) {
+        pa_log_error("Set param_id=%d failed", param_id);
+    }
+
+    param_id = PAL_PARAM_ID_BT_SCO_WB;
+    if (sample_rate == DEFAULT_SCO_SAMPLE_RATE) {
+        param_btsco.bt_wb_speech_enabled = true;
+    }
+    else
+        param_btsco.bt_wb_speech_enabled = false;
+
+    ret =  pal_set_param(param_id, (void*)&param_btsco,
+            sizeof(pal_param_btsco_t));
+    if (ret != 0) {
+        pa_log_error("Set param_id=%d failed", param_id);
+    }
+
+    return ret;
 }
 
 static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *u, const char *jack_param) {
-/* FIXME: implement function when required */
-    pa_log_error("%s: not implement now", __func__);
+    int ret = 0;
+    jack_prm_kvpair_t kvpair;
+    bool connection_state = false;
+
+    pa_assert(port);
+    pa_assert(jack_param);
+
+    pa_log_debug("%s:", __func__);
+
+    ret = pa_pal_external_jack_parse_kvpair(jack_param, &kvpair);
+    if (ret) {
+        pa_log_error("Invalid jack param !!");
+        return;
+    }
+
+    /* check if any dynamic source is already created on same port */
+    switch(kvpair.key) {
+        case JACK_PARAM_KEY_DEVICE_CONNECTION:
+            connection_state = (!strcmp(kvpair.value, "true")) ? true : false;
+            ret = pa_pal_set_device_connection_state(pa_pal_util_port_name_to_enum(port->name), connection_state);
+            if(ret)
+                pa_log_error("Set source device connection params failed ret=%d", ret);
+
+            if (!strcmp(port->name, "btsco-in")) {
+                /* setting common params for SCO  mode */
+                ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
+                if(ret)
+                    pa_log_error("Set common sco params failed. ret=%d", ret);
+            }
+            break;
+        default:
+            break;
+    }
 }
 
 static void pa_pal_card_remove_dynamic_sink(pa_device_port *port, struct userdata *u) {

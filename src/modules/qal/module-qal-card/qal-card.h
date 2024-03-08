@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -102,6 +102,7 @@ typedef struct {
     char *arc_sample_rate_node_path;
     char *arc_audio_preemph_node_path;
     char *channel_status_path;
+    char *pal_devicepp_config;
 } pa_pal_card_port_config;
 
 typedef union {
@@ -120,6 +121,7 @@ typedef struct {
     pa_sample_spec default_spec;
     pa_channel_map default_map;
     bool is_connected;
+    char *pal_devicepp_config;
 } pa_pal_card_port_device_data;
 
 #endif

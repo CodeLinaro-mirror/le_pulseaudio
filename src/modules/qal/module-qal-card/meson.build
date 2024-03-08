@@ -13,6 +13,7 @@ sources = [
   'bt-a2dp-split.c',
   'hfp.c',
   'pal-loopback.c',
+  'pal-jack-external.c',
 ]
 
 headers = [

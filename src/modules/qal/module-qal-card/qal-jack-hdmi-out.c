@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -104,7 +104,7 @@ static void check_hdmi_out_connection (pa_pal_hdmi_out_jack_data_t *hdmi_out_jda
 
     pa_pal_format_detection_get_value_from_path(path, &hdmi_tx_state);
 
-    if (hdmi_tx_state) {
+    if (hdmi_tx_state == 1) {
         /* Raise jack available event */
         event_data.jack_type = hdmi_out_jdata->jack_type;
         event_data.event = PA_PAL_JACK_AVAILABLE;
