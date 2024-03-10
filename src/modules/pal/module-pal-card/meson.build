@@ -1,0 +1,75 @@
+name = 'module-pal-card'
+
+sources = [
+  'module-pal-card.c',
+  'pal-sink.c',
+  'pal-source.c',
+  'pal-utils.c',
+  'pal-config-parser.c',
+  'module-pal-card-extn.c',
+  'pal-jack-hdmi-out.c',
+  'pal-jack.c',
+  'pal-format-detection.c',
+  'bt-a2dp-split.c',
+  'hfp.c',
+  'pal-loopback.c',
+  'pal-jack-external.c',
+]
+
+headers = [
+  'pal-card.h',
+  'pal-sink.h',
+  'pal-source.h',
+  'pal-utils.h',
+  'pal-config-parser.h',
+  'pal-jack-common.h',
+  'pal-jack.h',
+  'pal-jack-format.h',
+  'bt-a2dp-split.h',
+  'hfp.h',
+  'pal-loopback.h',
+]
+
+extra_inc = [include_directories(pal_inc)]
+extra_flags = []
+extra_deps = [ dbus_dep,
+               meson.get_compiler('c').find_library('pal'),
+               meson.get_compiler('c').find_library('agm')
+             ]
+if get_option('enable-pal-service') == 'yes'
+extra_deps += [ meson.get_compiler('c').find_library('palserverwrapper'),
+                meson.get_compiler('c').find_library('utils'),
+                meson.get_compiler('c').find_library('binder')
+              ]
+endif
+
+if get_option('pal-support-card-status')
+extra_flags += ['-DPAL_CARD_STATUS_SUPPORTED']
+endif
+
+if get_option('pal-support-cutils')
+extra_flags += ['-DPAL_USES_CUTILS']
+extra_deps += [meson.get_compiler('c').find_library('cutils')]
+endif
+
+extra_libs = []
+
+# build shared module
+mod = shared_module(name,
+  sources,
+  headers,
+  include_directories : [configinc, topinc, include_directories('.')] + extra_inc,
+  c_args : [pa_c_args, server_c_args, '-DPA_MODULE_NAME=' + name.underscorify()] + extra_flags,
+  install : true,
+  install_rpath : rpath_dirs,
+  install_dir : modlibexecdir,
+  dependencies : [thread_dep, libpulse_dep, libpulsecommon_dep, libpulsecore_dep, libintl_dep, platform_dep, platform_socket_dep, libm_dep] + extra_deps,
+  link_args : [nodelete_link_args, '-Wl,--no-undefined' ],
+  link_with : extra_libs,
+  name_prefix : '',
+  implicit_include_directories : false)
+
+# install configs
+install_subdir('configs',
+  install_dir : paldatadir
+)

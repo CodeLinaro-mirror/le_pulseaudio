@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -25,7 +25,7 @@
 
 #include <PalApi.h>
 #include <PalDefs.h>
-#include "qal-jack.h"
+#include "pal-jack.h"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 

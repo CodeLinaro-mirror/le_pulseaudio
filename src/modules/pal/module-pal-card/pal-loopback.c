@@ -30,8 +30,8 @@
 #include <math.h>
 
 #include "pal-loopback.h"
-#include "qal-utils.h"
-#include "qal-card.h"
+#include "pal-utils.h"
+#include "pal-card.h"
 #include "bt-a2dp-split.h"
 #include "hfp.h"
 

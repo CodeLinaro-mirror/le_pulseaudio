@@ -42,8 +42,8 @@
 #include <sys/time.h>
 #include <time.h>
 
-#include "qal-sink.h"
-#include "qal-utils.h"
+#include "pal-sink.h"
+#include "pal-utils.h"
 
 /* #define SINK_DEBUG */
 
@@ -457,7 +457,7 @@ static int pa_pal_set_device(pal_stream_handle_t *stream_handle,
 
     ret = pal_stream_set_device(stream_handle, no_of_devices, &device_connect);
     if(ret)
-        pa_log_error("qal sink switch device %d failed %d", device_connect.id, ret);
+        pa_log_error("pal sink switch device %d failed %d", device_connect.id, ret);
     return ret;
 }
 
@@ -507,7 +507,7 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
                 (void*)&param_device_connection,
                 sizeof(pal_param_device_connection_t));
             if (ret != 0)
-                pa_log_error("qal sink set device %d connect status failed %d",
+                pa_log_error("pal sink set device %d connect status failed %d",
                   PAL_DEVICE_OUT_AUX_DIGITAL, ret);
         }
     }
@@ -526,7 +526,7 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     if (PA_SINK_IS_OPENED(s->state)) {
         ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
         if (ret != 0)
-            pa_log_error("qal sink switch device failed %d", ret);
+            pa_log_error("pal sink switch device failed %d", ret);
     }
 
     return ret;
@@ -570,7 +570,7 @@ static int pa_pal_sink_io_process_msg(pa_msgobject *o, int code, void *data, int
             *((int64_t*) data) = pa_pal_sink_get_latency(sdata);
             return 0;
 
-        case PA_QAL_SINK_MESSAGE_DRAIN_READY:
+        case PA_PAL_SINK_MESSAGE_DRAIN_READY:
             pa_sink_drain_complete(sdata->pa_sdata->sink);
             return 0;
 
@@ -936,7 +936,7 @@ static int32_t pa_pal_out_cb(pal_stream_handle_t *stream_handle,
             pa_log_debug("[%d]Func:%s Received event WRITE_READY for handle %p",
                     __LINE__, __func__, pal_sdata->stream_handle);
 #endif
-            /* Wake up QAL thread */
+            /* Wake up PAL thread */
             pa_fdsem_post(pal_sdata->pal_fdsem);
 
             break;
@@ -948,7 +948,7 @@ static int32_t pa_pal_out_cb(pal_stream_handle_t *stream_handle,
 #endif
             /* post drain complete to i/o thread */
             pa_asyncmsgq_post(sdata->pa_sdata->thread_mq.inq, PA_MSGOBJECT(sdata->pa_sdata->sink),
-                                                PA_QAL_SINK_MESSAGE_DRAIN_READY, NULL, 0, NULL, NULL);
+                                                PA_PAL_SINK_MESSAGE_DRAIN_READY, NULL, 0, NULL, NULL);
 
             break;
 
