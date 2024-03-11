@@ -44,7 +44,9 @@ typedef struct {
 enum module_method_handler_index {
     METHOD_HANDLER_BT_CONNECT,
     METHOD_HANDLER_SET_PARAM,
-    METHOD_HANDLER_MODULE_LAST = METHOD_HANDLER_SET_PARAM,
+    METHOD_HANDLER_START_STREAM,
+    METHOD_HANDLER_STOP_STREAM,
+    METHOD_HANDLER_MODULE_LAST = METHOD_HANDLER_STOP_STREAM,
     METHOD_HANDLER_MODULE_MAX = METHOD_HANDLER_MODULE_LAST + 1,
 };
 
@@ -55,12 +57,19 @@ static char const *jack_prmkey_names[JACK_PARAM_KEY_MAX] = {
 
 static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pal_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void pal_jack_external_start_stream(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void pal_jack_external_stop_stream(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 static pa_dbus_arg_info connection_args[] = {
     {"connection_args", "b", "in"},
 };
 static pa_dbus_arg_info set_param_args[] = {
     {"param_string", "s", "in"},
+};
+static pa_dbus_arg_info start_stream_args[] = {
+    {"stream_config", "(suss)", "in"},
+};
+static pa_dbus_arg_info stop_stream_args[] = {
 };
 
 static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] = {
@@ -74,6 +83,16 @@ static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] 
         .arguments = set_param_args,
         .n_arguments = sizeof(set_param_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = pal_jack_external_set_param },
+    [METHOD_HANDLER_START_STREAM] = {
+        .method_name = "StartStream",
+        .arguments = start_stream_args,
+        .n_arguments = sizeof(start_stream_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = pal_jack_external_start_stream },
+    [METHOD_HANDLER_STOP_STREAM] = {
+        .method_name = "StopStream",
+        .arguments = stop_stream_args,
+        .n_arguments = sizeof(stop_stream_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = pal_jack_external_stop_stream },
 };
 
 static pa_dbus_interface_info module_interface_info = {
@@ -257,6 +276,93 @@ static dbus_uint32_t pal_jack_external_get_array_size(DBusMessageIter array) {
     return cnt;
 }
 
+static void pal_jack_external_start_stream(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    pa_pal_jack_out_config config;
+    pa_pal_jack_event_data_t event_data;
+    pa_pal_external_jack_data *external_jdata = userdata;
+
+    char *encoding_str = NULL;
+    char *format_str = NULL;
+    char *map = NULL;
+    uint32_t rate;
+
+    DBusMessageIter struct_i, arg_i;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    pa_log_debug("%s", __func__);
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
+                "pal_jack_external_start_stream has no arguments");
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (!pa_streq(dbus_message_get_signature(msg),
+                start_stream_args[0].type)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
+                "Invalid signature for start_stream");
+        dbus_error_free(&error);
+        return;
+    }
+
+    dbus_message_iter_recurse(&arg_i, &struct_i);
+    dbus_message_iter_get_basic(&struct_i, &encoding_str);
+
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &rate);
+
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &format_str);
+
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_get_basic(&struct_i, &map);
+
+    pa_log_info("%s: external source port %s, encoding %s, rate %d, format  %s map %s", __func__,
+                            pa_pal_util_get_port_name_from_jack_type(external_jdata->jack_type),
+                                                            encoding_str, rate, format_str, map);
+
+    /* Initialize parameters to default values */
+    config.ss.format = PA_SAMPLE_S16LE;
+    config.encoding = pa_encoding_from_string(encoding_str);
+
+    if (config.encoding == PA_ENCODING_INVALID) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Unsupported encoding %s", encoding_str);
+        dbus_error_free(&error);
+        return;
+    } else if (config.encoding == PA_ENCODING_PCM) {
+        config.ss.format = pa_parse_sample_format(format_str);
+    }
+
+    if (!pa_channel_map_parse(&config.map, map)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Unsupported channel map %s", map);
+        dbus_error_free(&error);
+        return;
+    }
+
+    config.ss.rate = rate;
+    config.ss.channels = config.map.channels;
+
+    event_data.jack_type = external_jdata->jack_type;
+
+    /* generate jack available event */
+    event_data.event = PA_PAL_JACK_AVAILABLE;
+    pa_hook_fire(&(external_jdata->event_hook), &event_data);
+
+    /* generate jack config update event */
+    event_data.pa_pal_jack_info = &config;
+    event_data.event = PA_PAL_JACK_CONFIG_UPDATE;
+    pa_hook_fire(&(external_jdata->event_hook), &event_data);
+
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
 struct pa_pal_jack_data* pa_pal_external_jack_detection_enable(pa_pal_jack_type_t jack_type, pa_module *m,
         pa_hook_slot **hook_slot, pa_pal_jack_callback_t callback, void *client_data) {
     struct pa_pal_jack_data *jdata = NULL;
@@ -314,4 +420,22 @@ void pa_pal_external_jack_detection_disable(struct pa_pal_jack_data *jdata, pa_m
 
     pa_xfree(jdata);
     jdata = NULL;
+}
+
+static void pal_jack_external_stop_stream(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    pa_pal_external_jack_data *external_jdata = userdata;
+    pa_pal_jack_event_data_t event_data;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    pa_log_debug("%s\n", __func__);
+
+    /* generate jack config update event */
+    event_data.jack_type = external_jdata->jack_type;
+    event_data.event = PA_PAL_JACK_UNAVAILABLE;
+    pa_hook_fire(&(external_jdata->event_hook), &event_data);
+
+    pa_dbus_send_empty_reply(conn, msg);
 }
