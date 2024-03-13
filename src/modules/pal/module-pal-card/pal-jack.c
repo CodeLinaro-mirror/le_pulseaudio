@@ -36,9 +36,9 @@
 #include <pulsecore/core-util.h>
 
 #include <pulsecore/thread.h>
-#include "qal-jack.h"
-#include "qal-jack-common.h"
-#include "qal-utils.h"
+#include "pal-jack.h"
+#include "pal-jack-common.h"
+#include "pal-utils.h"
 
 struct userdata {
     struct pa_pal_jack_data **jdata;

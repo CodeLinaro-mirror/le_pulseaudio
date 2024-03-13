@@ -640,6 +640,24 @@ if qal_voiceui_inc != ''
   cdata.set('HAVE_QAL_VOICEUI', 1)
 endif
 
+pal_inc = get_option('with-pal')
+paldatadir = ''
+if pal_inc != ''
+  cdata.set('HAVE_PAL', 1)
+  paldatadir = join_paths(datadir, 'pulseaudio', 'pal')
+  cdata.set_quoted('PAL_CARD_DEFAULT_CONF_PATH' , join_paths(paldatadir, 'configs'))
+
+  pal_service_enable = get_option('enable-pal-service')
+  if pal_service_enable == 'yes'
+    cdata.set('ENABLE_PAL_SERVICE', true)
+  endif
+endif
+
+pal_voiceui_inc = get_option('with-pal-voiceui')
+if pal_voiceui_inc != ''
+  cdata.set('HAVE_PAL_VOICEUI', 1)
+endif
+
 asyncns_dep = dependency('libasyncns', version : '>= 0.1', required : get_option('asyncns'))
 if asyncns_dep.found()
   cdata.set('HAVE_LIBASYNCNS', 1)
@@ -928,6 +946,7 @@ summary = [
   'alsadatadir:                   @0@'.format(alsadatadir),
   'qahwdatadir:                   @0@'.format(qahwdatadir),
   'qaldatadir:                    @0@'.format(qaldatadir),
+  'paldatadir:                    @0@'.format(paldatadir),
   'System Runtime Path:           @0@'.format(cdata.get_unquoted('PA_SYSTEM_RUNTIME_PATH')),
   'System State Path:             @0@'.format(cdata.get_unquoted('PA_SYSTEM_STATE_PATH')),
   'System Config Path:            @0@'.format(cdata.get_unquoted('PA_SYSTEM_CONFIG_PATH')),
@@ -951,6 +970,8 @@ summary = [
   'Enable QSTHW:                  @0@'.format(cdata.has('HAVE_QSTHW')),
   'Enable QAL:                    @0@'.format(cdata.has('HAVE_QAL')),
   'Enable QAL VOICEUI:            @0@'.format(cdata.has('HAVE_QAL_VOICEUI')),
+  'Enable PAL:                    @0@'.format(cdata.has('HAVE_PAL')),
+  'Enable PAL VOICEUI:            @0@'.format(cdata.has('HAVE_PAL_VOICEUI')),
 #  'Enable CoreAudio:              @0@'.format(${ENABLE_COREAUDIO}),
 #  'Enable Solaris:                @0@'.format(${ENABLE_SOLARIS}),
 #  'Enable WaveOut:                @0@'.format(${ENABLE_WAVEOUT}),

@@ -29,7 +29,7 @@
 #include <errno.h>
 #include <math.h>
 
-#include "qal-utils.h"
+#include "pal-utils.h"
 
 #define PA_PAL_SINK_PROP_FORMAT_FLAG    "stream-format"
 

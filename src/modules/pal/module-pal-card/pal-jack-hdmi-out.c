@@ -29,8 +29,8 @@
 #include <pthread.h>
 #include <stdbool.h>
 
-#include "qal-jack-common.h"
-#include "qal-jack-format.h"
+#include "pal-jack-common.h"
+#include "pal-jack-format.h"
 
 #define SOCKET_BUFFER_SIZE 64 * 1024
 #define UEVENT_MSG_LEN 4 * 1024
@@ -108,7 +108,7 @@ static void check_hdmi_out_connection (pa_pal_hdmi_out_jack_data_t *hdmi_out_jda
         /* Raise jack available event */
         event_data.jack_type = hdmi_out_jdata->jack_type;
         event_data.event = PA_PAL_JACK_AVAILABLE;
-        pa_log_info("qal jack type %d available", hdmi_out_jdata->jack_type);
+        pa_log_info("pal jack type %d available", hdmi_out_jdata->jack_type);
         pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
         hdmi_out_jdata->jack_plugin_status = PA_PAL_JACK_AVAILABLE;
 
@@ -175,7 +175,7 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
         if ((hdmi_out_flag == 1) && (hdmi_out_jdata->jack_plugin_status != PA_PAL_JACK_AVAILABLE)) {
             event_data.jack_type = hdmi_out_jdata->jack_type;
             event_data.event = PA_PAL_JACK_AVAILABLE;
-            pa_log_info("qal jack type %d available", hdmi_out_jdata->jack_type);
+            pa_log_info("pal jack type %d available", hdmi_out_jdata->jack_type);
             pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
             hdmi_out_jdata->jack_plugin_status = PA_PAL_JACK_AVAILABLE;
 
@@ -190,7 +190,7 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
             /* Raise jack unavailable event */
             event_data.jack_type = hdmi_out_jdata->jack_type;
             event_data.event = PA_PAL_JACK_UNAVAILABLE;
-            pa_log_info("qal jack type %d unavailable", hdmi_out_jdata->jack_type);
+            pa_log_info("pal jack type %d unavailable", hdmi_out_jdata->jack_type);
             pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
             hdmi_out_jdata->jack_plugin_status = PA_PAL_JACK_UNAVAILABLE;
         }

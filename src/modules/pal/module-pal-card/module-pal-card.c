@@ -36,17 +36,17 @@
 #include <PalDefs.h>
 #include <agm/agm_api.h>
 
-#include "qal-source.h"
-#include "qal-sink.h"
-#include "qal-card.h"
-#include "qal-config-parser.h"
+#include "pal-source.h"
+#include "pal-sink.h"
+#include "pal-card.h"
+#include "pal-config-parser.h"
 #include "pal-loopback.h"
 
-#include "qal-jack.h"
-#include "qal-jack-common.h"
-#include "qal-jack-format.h"
+#include "pal-jack.h"
+#include "pal-jack-common.h"
+#include "pal-jack-format.h"
 
-#include "qal-utils.h"
+#include "pal-utils.h"
 
 #ifdef ENABLE_PAL_SERVICE
 void load_pal_service();
@@ -962,7 +962,7 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
     return PA_HOOK_OK;
 }
 
-static void pa_qal_card_enable_jack_detection(struct userdata *u) {
+static void pa_pal_card_enable_jack_detection(struct userdata *u) {
     pa_pal_jack_handle_t *jack_handle = NULL;
     pa_pal_jack_type_t jack_types = PA_PAL_JACK_TYPE_INVALID;
     pa_pal_card_jack_info *jack_info = NULL;
@@ -1025,7 +1025,7 @@ static void pa_qal_card_enable_jack_detection(struct userdata *u) {
     }
 }
 
-static void pa_qal_card_disable_jack_detection(struct userdata *u, pa_module *m) {
+static void pa_pal_card_disable_jack_detection(struct userdata *u, pa_module *m) {
     pa_pal_card_jack_info *jack_info;
     pa_pal_card_port_config *config_port = NULL;
     const char *port_name = NULL;
@@ -1148,7 +1148,7 @@ int pa__init(pa_module *m) {
             pa_log_error("Pal loopback init failed !!");
     }
 
-    pa_qal_card_enable_jack_detection(u);
+    pa_pal_card_enable_jack_detection(u);
 
 #ifdef ENABLE_PAL_SERVICE
     load_pal_service();
@@ -1191,7 +1191,7 @@ void pa__done(pa_module *m) {
         pa_hashmap_free(u->sources);
     }
 
-    pa_qal_card_disable_jack_detection(u, m);
+    pa_pal_card_disable_jack_detection(u, m);
 
     pal_deinit();
 

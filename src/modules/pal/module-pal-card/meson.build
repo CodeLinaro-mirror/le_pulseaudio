@@ -1,15 +1,15 @@
-name = 'module-qal-card'
+name = 'module-pal-card'
 
 sources = [
-  'module-qal-card.c',
-  'qal-sink.c',
-  'qal-source.c',
-  'qal-utils.c',
-  'qal-config-parser.c',
-  'module-qal-card-extn.c',
-  'qal-jack-hdmi-out.c',
-  'qal-jack.c',
-  'qal-format-detection.c',
+  'module-pal-card.c',
+  'pal-sink.c',
+  'pal-source.c',
+  'pal-utils.c',
+  'pal-config-parser.c',
+  'module-pal-card-extn.c',
+  'pal-jack-hdmi-out.c',
+  'pal-jack.c',
+  'pal-format-detection.c',
   'bt-a2dp-split.c',
   'hfp.c',
   'pal-loopback.c',
@@ -17,20 +17,20 @@ sources = [
 ]
 
 headers = [
-  'qal-card.h',
-  'qal-sink.h',
-  'qal-source.h',
-  'qal-utils.h',
-  'qal-config-parser.h',
-  'qal-jack-common.h',
-  'qal-jack.h',
-  'qal-jack-format.h',
+  'pal-card.h',
+  'pal-sink.h',
+  'pal-source.h',
+  'pal-utils.h',
+  'pal-config-parser.h',
+  'pal-jack-common.h',
+  'pal-jack.h',
+  'pal-jack-format.h',
   'bt-a2dp-split.h',
   'hfp.h',
   'pal-loopback.h',
 ]
 
-extra_inc = [include_directories(qal_inc)]
+extra_inc = [include_directories(pal_inc)]
 extra_flags = []
 extra_deps = [ dbus_dep,
                meson.get_compiler('c').find_library('pal'),
@@ -71,5 +71,5 @@ mod = shared_module(name,
 
 # install configs
 install_subdir('configs',
-  install_dir : qaldatadir
+  install_dir : paldatadir
 )

@@ -18,8 +18,8 @@
  *
  */
 
-#ifndef fooqaljackcommonhfoo
-#define fooqaljackcommonhfoo
+#ifndef foopaljackcommonhfoo
+#define foopaljackcommonhfoo
 
 #include <pulsecore/core-error.h>
 #include <pulsecore/module.h>
@@ -27,7 +27,7 @@
 #include <pulsecore/core-util.h>
 
 #include <pulsecore/thread.h>
-#include "qal-jack.h"
+#include "pal-jack.h"
 
 #define JACK_HEADSET_DEVICE_PATH "/dev/input"
 
