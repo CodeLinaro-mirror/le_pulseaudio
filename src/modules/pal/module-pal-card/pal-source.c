@@ -46,6 +46,7 @@
 #include <fcntl.h>
 #include <math.h>
 
+#define PAL_MAX_GAIN 1
 #define PA_ALTERNATE_SOURCE_RATE 44100
 #define PA_FORMAT_DEFAULT_SAMPLE_RATE_INDEX 0
 #define PA_FORMAT_DEFAULT_SAMPLE_FORMAT_INDEX 0
@@ -398,6 +399,8 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
     pa_pal_card_port_device_data *port_device_data = NULL;
     pa_channel_map new_map;
     pa_sample_spec tmp_spec;
+    pa_volume_t volume;
+    float gain ;
 
     bool supported = false;
     uint32_t i;
@@ -418,6 +421,8 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
     pal_sdata = sdata->pal_sdata;
     pal_stream_type_t stream_type = pal_sdata->stream_attributes->type;
 
+    gain = ((float) pa_cvolume_max(&s->reference_volume) * (float)PAL_MAX_GAIN) / (float)PA_VOLUME_NORM;
+    volume = (pa_volume_t) roundf((float) gain * PA_VOLUME_NORM / PAL_MAX_GAIN);
     for (i = 0; i < ARRAY_SIZE(supported_source_rates) ; i++) {
         if (spec->rate == supported_source_rates[i]) {
             supported = true;
@@ -436,9 +441,10 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
         old_rate = pa_sdata->source->sample_spec.rate; /*take backup*/
         pa_sdata->source->sample_spec.rate = spec->rate;
 
-        if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_CHANNELS)
+        if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_CHANNELS) {
+            s->reference_volume.channels = tmp_spec.channels;
             pa_channel_map_init_auto(&new_map, tmp_spec.channels, PA_CHANNEL_MAP_DEFAULT);
-        else {
+        } else {
             new_map = pa_sdata->source->channel_map;
             tmp_spec.channels = pa_sdata->source->sample_spec.channels;
         }
@@ -457,10 +463,11 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
         }
         else
             tmp_spec.rate = pa_sdata->source->sample_spec.rate;
-        
+
         if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_ALL)
             pal_sdata->buffer_size = source_get_buffer_size(tmp_spec, stream_type);
 
+        pa_cvolume_set(&s->reference_volume, s->reference_volume.channels, volume);
         rc = restart_pal_source(sdata, PA_ENCODING_PCM, &tmp_spec, &new_map);
         if (PA_UNLIKELY(rc)) {
             pa_sdata->source->sample_spec.rate = old_rate; /*restore old rate if failed*/
