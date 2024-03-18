@@ -228,6 +228,16 @@ pa_channel_map* pa_channel_map_init_auto(pa_channel_map *m, unsigned channels, p
                     m->map[7] = PA_CHANNEL_POSITION_REAR_RIGHT;
                     return m;
 
+                case 7:
+                    m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+                    m->map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+                    m->map[2] = PA_CHANNEL_POSITION_FRONT_CENTER;
+                    m->map[3] = PA_CHANNEL_POSITION_SIDE_LEFT;
+                    m->map[4] = PA_CHANNEL_POSITION_SIDE_RIGHT;
+                    m->map[5] = PA_CHANNEL_POSITION_REAR_LEFT;
+                    m->map[6] = PA_CHANNEL_POSITION_REAR_RIGHT;
+                    return m;
+
                 case 6:
                     m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
                     m->map[1] = PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER;
