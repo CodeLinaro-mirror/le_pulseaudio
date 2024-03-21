@@ -973,6 +973,8 @@ static int pa_pal_set_param(pal_sink_data *pal_sdata, uint32_t param_id) {
     pal_param_payload *param_payload;
 
     param_payload = (pal_param_payload *) calloc (1, sizeof(pal_param_payload) + sizeof(pal_snd_dec_t));
+    if (!param_payload)
+        return rc;
     param_payload->payload_size = sizeof(pal_snd_dec_t);
     memcpy(param_payload->payload, pal_sdata->pal_snd_dec, param_payload->payload_size);
     rc = pal_stream_set_param(pal_sdata->stream_handle,

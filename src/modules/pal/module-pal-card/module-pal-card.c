@@ -920,12 +920,14 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
             } else if ((event == PA_PAL_JACK_CONFIG_UPDATE) && (port->available == PA_AVAILABLE_YES)) {
                 if (port->direction == PA_DIRECTION_INPUT) {
                     jack_info = pa_hashmap_get(u->jacks, port_name);
-                    jack_info->jack_curr_config = *((pa_pal_jack_out_config *)event_data->pa_pal_jack_info);
+                    if (jack_info)
+                        jack_info->jack_curr_config = *((pa_pal_jack_out_config *)event_data->pa_pal_jack_info);
 
                     pa_pal_card_add_dynamic_source(port, (pa_pal_jack_out_config *)event_data->pa_pal_jack_info, u);
                 } else if (port->direction == PA_DIRECTION_OUTPUT) {
                     jack_info = pa_hashmap_get(u->jacks, port_name);
-                    jack_info->jack_curr_config = *((pa_pal_jack_out_config *)event_data->pa_pal_jack_info);
+                    if (jack_info)
+                        jack_info->jack_curr_config = *((pa_pal_jack_out_config *)event_data->pa_pal_jack_info);
 
                     pa_pal_card_add_dynamic_sink(port, (pa_pal_jack_out_config *)event_data->pa_pal_jack_info, u);
                 }
@@ -1040,12 +1042,12 @@ static void pa_pal_card_disable_jack_detection(struct userdata *u, pa_module *m)
         port_name = pa_pal_util_get_port_name_from_jack_type(jack_info->jack_type);
         config_port = pa_hashmap_get(u->config_data->ports, port_name);
 
-        if (config_port->detection) {
+        if (config_port && config_port->detection) {
             if (pa_streq(config_port->detection, "external"))
                 external_jack = true;
         }
 
-        if (config_port->port_type) {
+        if (config_port && config_port->port_type) {
             /* no need to deregister secondary port */
             if (pa_streq(config_port->port_type, "secondary") && !external_jack)
                 continue;

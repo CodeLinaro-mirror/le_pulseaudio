@@ -221,15 +221,26 @@ int pa_pal_external_jack_parse_kvpair(const char *kvpair, jack_prm_kvpair_t *kv)
     pa_assert(kvstr);
     key_name = strtok_r(kvstr, "=", &tmpstr);
 
+    if (key_name == NULL) {
+        ret = -EINVAL;
+        goto exit;
+    }
+
     key_idx = parse_keyidx(key_name);
     if (key_idx != -1) {
-        kv->value = strdup(strtok_r(NULL, "=", &tmpstr));
+        value = strdup(strtok_r(NULL, "=", &tmpstr));
+        if (value == NULL) {
+            ret = -EINVAL;
+            goto exit;
+        }
+        kv->value = strdup(value);
         kv->key = key_idx;
     }
     else {
         ret = -EINVAL;
     }
 
+exit:
     free(kvstr);
     return ret;
 }

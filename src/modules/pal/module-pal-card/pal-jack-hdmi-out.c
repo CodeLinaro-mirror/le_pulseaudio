@@ -167,7 +167,7 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
             if (pa_strneq(switch_name, EXT_HDMI_DISPLAY_SWITCH_NAME, strlen(EXT_HDMI_DISPLAY_SWITCH_NAME))) {
                 if (( switch_state && atoi(switch_state) == 1) || ( dp_switch_state && atoi(dp_switch_state) == 1))
                     hdmi_out_flag = 1;
-                else if ((switch_state && atoi(switch_state) == 0) && ( switch_state && atoi(dp_switch_state) == 0))
+                else if ((switch_state && atoi(switch_state) == 0) && ( dp_switch_state && atoi(dp_switch_state) == 0))
                     hdmi_out_flag = -1;
             }
         }

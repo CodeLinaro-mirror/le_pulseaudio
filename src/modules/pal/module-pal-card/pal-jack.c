@@ -116,8 +116,10 @@ pa_pal_jack_handle_t *pa_pal_jack_register_event_callback(pa_pal_jack_type_t jac
     } else {
         u->jack_type = jack_type;
         jdata = pa_hashmap_get(registered_jacks, (char *)port_name);
-        u->hook_slot = pa_hook_connect(jdata->event_hook, PA_HOOK_NORMAL, (pa_hook_cb_t)callback, client_data);
-        jdata->ref_count++;
+        if (jdata) {
+            u->hook_slot = pa_hook_connect(jdata->event_hook, PA_HOOK_NORMAL, (pa_hook_cb_t)callback, client_data);
+            jdata->ref_count++;
+        }
     }
 
     return (pa_pal_jack_handle_t *)u;
