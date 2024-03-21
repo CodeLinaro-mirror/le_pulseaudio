@@ -27,10 +27,10 @@
 #include <errno.h>
 #include "PalDefs.h"
 #include "PalApi.h"
-#include "qal-card.h"
+#include "pal-card.h"
 #include "pal-loopback.h"
 #include "bt-a2dp-split.h"
-#include "qal-utils.h"
+#include "pal-utils.h"
 
 #define BIT_WIDTH                       16
 #define BTSINK_PAL_CUSTOM_CONFIG_KEY    "btsink-usecase"

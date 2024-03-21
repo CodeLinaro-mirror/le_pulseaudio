@@ -29,8 +29,8 @@
 #include <pthread.h>
 #include <stdbool.h>
 
-#include "qal-jack-common.h"
-#include "qal-jack-format.h"
+#include "pal-jack-common.h"
+#include "pal-jack-format.h"
 
 #define SOCKET_BUFFER_SIZE 64 * 1024
 #define UEVENT_MSG_LEN 4 * 1024
@@ -74,6 +74,16 @@ static int poll_data_event_init(pa_pal_jack_type_t jack_type) {
     return soc;
 }
 
+static void set_default_config(pa_pal_jack_out_config *config) {
+    config->preemph_status = 0;
+    config->ss.format = PA_SAMPLE_S16LE;
+    config->encoding = PA_ENCODING_PCM;
+    config->ss.rate = 48000;
+    config->ss.channels = 2;
+    pa_channel_map_init(&(config->map));
+    pa_channel_map_init_auto(&(config->map), 2, PA_CHANNEL_MAP_DEFAULT);
+}
+
 static void check_hdmi_out_connection (pa_pal_hdmi_out_jack_data_t *hdmi_out_jdata) {
     const char *path = NULL;
     int hdmi_tx_state = 0;
@@ -98,12 +108,12 @@ static void check_hdmi_out_connection (pa_pal_hdmi_out_jack_data_t *hdmi_out_jda
         /* Raise jack available event */
         event_data.jack_type = hdmi_out_jdata->jack_type;
         event_data.event = PA_PAL_JACK_AVAILABLE;
-        pa_log_info("qal jack type %d available", hdmi_out_jdata->jack_type);
+        pa_log_info("pal jack type %d available", hdmi_out_jdata->jack_type);
         pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
         hdmi_out_jdata->jack_plugin_status = PA_PAL_JACK_AVAILABLE;
 
         /* Set default config */
-        pa_pal_format_set_jack_default_config(&config);
+        set_default_config(&config);
 
         /* generate jack config update event */
         event_data.pa_pal_jack_info = &config;
@@ -165,12 +175,12 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
         if ((hdmi_out_flag == 1) && (hdmi_out_jdata->jack_plugin_status != PA_PAL_JACK_AVAILABLE)) {
             event_data.jack_type = hdmi_out_jdata->jack_type;
             event_data.event = PA_PAL_JACK_AVAILABLE;
-            pa_log_info("qal jack type %d available", hdmi_out_jdata->jack_type);
+            pa_log_info("pal jack type %d available", hdmi_out_jdata->jack_type);
             pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
             hdmi_out_jdata->jack_plugin_status = PA_PAL_JACK_AVAILABLE;
 
             /* Set default config */
-            pa_pal_format_set_jack_default_config(&config);
+            set_default_config(&config);
 
             /* generate jack config update event */
             event_data.pa_pal_jack_info = &config;
@@ -180,7 +190,7 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_
             /* Raise jack unavailable event */
             event_data.jack_type = hdmi_out_jdata->jack_type;
             event_data.event = PA_PAL_JACK_UNAVAILABLE;
-            pa_log_info("qal jack type %d unavailable", hdmi_out_jdata->jack_type);
+            pa_log_info("pal jack type %d unavailable", hdmi_out_jdata->jack_type);
             pa_hook_fire(&(hdmi_out_jdata->event_hook), &event_data);
             hdmi_out_jdata->jack_plugin_status = PA_PAL_JACK_UNAVAILABLE;
         }

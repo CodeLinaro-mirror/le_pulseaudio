@@ -36,9 +36,9 @@
 #include <pulsecore/core-util.h>
 
 #include <pulsecore/thread.h>
-#include "qal-jack.h"
-#include "qal-jack-common.h"
-#include "qal-utils.h"
+#include "pal-jack.h"
+#include "pal-jack-common.h"
+#include "pal-utils.h"
 
 struct userdata {
     struct pa_pal_jack_data **jdata;
@@ -92,7 +92,7 @@ pa_pal_jack_handle_t *pa_pal_jack_register_event_callback(pa_pal_jack_type_t jac
         goto fail;
 
     if (!is_jack_enabled(jack_type)) {
-        pa_log_info("jack_type 0x%x", jack_type);
+        pa_log_info("jack_type %d", jack_type);
         u->jack_type = jack_type;
 
        switch(jack_type) {
@@ -106,11 +106,6 @@ pa_pal_jack_handle_t *pa_pal_jack_register_event_callback(pa_pal_jack_type_t jac
            case PA_PAL_JACK_TYPE_BTSCO_OUT:
                jdata = pa_pal_external_jack_detection_enable(jack_type, m, &(u->hook_slot),
                        callback, client_data);
-               break;
-           case PA_PAL_JACK_TYPE_USB_OUT:
-           case PA_PAL_JACK_TYPE_USB_IN:
-               jdata = pa_pal_udev_jack_detection_enable(jack_type, m, &(u->hook_slot),
-                       callback, jack_in_config, client_data);
                break;
            default:
                break;
@@ -164,10 +159,6 @@ bool pa_pal_jack_deregister_event_callback(pa_pal_jack_handle_t *jack_handle, pa
             case PA_PAL_JACK_TYPE_BTSCO_IN:
             case PA_PAL_JACK_TYPE_BTSCO_OUT:
                 pa_pal_external_jack_detection_disable(jdata, m);
-                break;
-            case PA_PAL_JACK_TYPE_USB_OUT:
-            case PA_PAL_JACK_TYPE_USB_IN:
-                pa_pal_udev_jack_detection_disable(jdata, m);
                 break;
         }
         pa_hashmap_remove(registered_jacks, port_name);

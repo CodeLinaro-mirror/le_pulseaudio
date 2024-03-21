@@ -29,7 +29,7 @@
 #include <PalApi.h>
 #include <PalDefs.h>
 
-#include "qal-card.h"
+#include "pal-card.h"
 
 typedef struct {
     char *name;
@@ -101,8 +101,8 @@ typedef struct {
 } pa_pal_card_sink_info;
 
 typedef enum {
-    PA_QAL_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
-} pa_qal_sink_msgs_t;
+    PA_PAL_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
+} pa_pal_sink_msgs_t;
 
 bool pa_pal_sink_is_supported_sample_rate(uint32_t sample_rate);
 /* create pal session and pa sink */

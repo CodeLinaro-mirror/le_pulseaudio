@@ -36,17 +36,17 @@
 #include <PalDefs.h>
 #include <agm/agm_api.h>
 
-#include "qal-source.h"
-#include "qal-sink.h"
-#include "qal-card.h"
-#include "qal-config-parser.h"
+#include "pal-source.h"
+#include "pal-sink.h"
+#include "pal-card.h"
+#include "pal-config-parser.h"
 #include "pal-loopback.h"
 
-#include "qal-jack.h"
-#include "qal-jack-common.h"
-#include "qal-jack-format.h"
+#include "pal-jack.h"
+#include "pal-jack-common.h"
+#include "pal-jack-format.h"
 
-#include "qal-utils.h"
+#include "pal-utils.h"
 
 #ifdef ENABLE_PAL_SERVICE
 void load_pal_service();
@@ -104,6 +104,7 @@ struct userdata {
     char *conf_file_name;
 };
 
+
 typedef struct {
     pa_pal_jack_handle_t *handle;
     pa_pal_jack_type_t jack_type;
@@ -158,11 +159,6 @@ static void pa_pal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_h
         port_device_data->default_map = config_port->default_map;
         port_device_data->default_spec.channels = config_port->default_map.channels;
         port_device_data->default_spec.rate = config_port->default_spec.rate;
-        port_device_data->is_connected = (config_port->available == PA_AVAILABLE_YES) ? true : false;
-        port_device_data->is_connected = false;
-        if ((config_port->available == PA_AVAILABLE_YES) && (strstr(config_port->name, "speaker") ||
-                strstr(config_port->name, "handset-mic") || strstr(config_port->name, "speaker-mic")))
-            port_device_data->is_connected = true;
 
         if (config_port->pal_devicepp_config)
             port_device_data->pal_devicepp_config = pa_xstrdup(config_port->pal_devicepp_config);
@@ -213,16 +209,6 @@ static void pa_pal_card_create_profiles_and_add_ports(struct userdata *u, pa_has
     }
 }
 
-static void pa_pal_card_update_extra_conf_for_port(pa_pal_jack_type_t jack_type,
-                    void *conf, pa_device_port *port) {
-    if ((jack_type == PA_PAL_JACK_TYPE_USB_OUT) || (jack_type == PA_PAL_JACK_TYPE_USB_IN)) {
-        if (conf)
-            pa_assert_se(pa_proplist_set(port->proplist, PA_PROP_USB_ADDR, conf,
-                                         sizeof(pa_pal_jack_usb_device_address_t)) >= 0);
-        else
-          pa_proplist_unset(port->proplist, PA_PROP_USB_ADDR);
-    }
-}
 
 static int pa_pal_card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     pa_log_error("profile change not supported yet");
@@ -921,12 +907,8 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
         port = pa_hashmap_get(u->card->ports, port_name);
         if (port) {
             if (event == PA_PAL_JACK_AVAILABLE) {
-                pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
-                        (void *)event_data->pa_pal_jack_info, port);
                 pa_device_port_set_available(port, status);
             } else if (event == PA_PAL_JACK_UNAVAILABLE) {
-                pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
-                        (void *)event_data->pa_pal_jack_info, port);
                 pa_device_port_set_available(port, status);
 
                 if (port->direction == PA_DIRECTION_INPUT) {
@@ -934,6 +916,7 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
                 } else if (port->direction == PA_DIRECTION_OUTPUT) {
                     pa_pal_card_remove_dynamic_sink(port, u);
                 }
+
             } else if ((event == PA_PAL_JACK_CONFIG_UPDATE) && (port->available == PA_AVAILABLE_YES)) {
                 if (port->direction == PA_DIRECTION_INPUT) {
                     jack_info = pa_hashmap_get(u->jacks, port_name);
@@ -959,6 +942,7 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
                     pa_pal_card_set_source_param(port, u, jack_param);
                 else if (port->direction == PA_DIRECTION_OUTPUT)
                     pa_pal_card_set_sink_param(port, u, jack_param);
+
             } else {
                 pa_log_error("unsupported event %d", event);
             }
@@ -978,7 +962,7 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
     return PA_HOOK_OK;
 }
 
-static void pa_qal_card_enable_jack_detection(struct userdata *u) {
+static void pa_pal_card_enable_jack_detection(struct userdata *u) {
     pa_pal_jack_handle_t *jack_handle = NULL;
     pa_pal_jack_type_t jack_types = PA_PAL_JACK_TYPE_INVALID;
     pa_pal_card_jack_info *jack_info = NULL;
@@ -1041,7 +1025,7 @@ static void pa_qal_card_enable_jack_detection(struct userdata *u) {
     }
 }
 
-static void pa_qal_card_disable_jack_detection(struct userdata *u, pa_module *m) {
+static void pa_pal_card_disable_jack_detection(struct userdata *u, pa_module *m) {
     pa_pal_card_jack_info *jack_info;
     pa_pal_card_port_config *config_port = NULL;
     const char *port_name = NULL;
@@ -1055,9 +1039,6 @@ static void pa_qal_card_disable_jack_detection(struct userdata *u, pa_module *m)
         external_jack = false;
         port_name = pa_pal_util_get_port_name_from_jack_type(jack_info->jack_type);
         config_port = pa_hashmap_get(u->config_data->ports, port_name);
-
-        pa_pal_card_update_extra_conf_for_port(jack_info->jack_type, NULL,
-                pa_hashmap_get(u->card->ports, port_name));
 
         if (config_port->detection) {
             if (pa_streq(config_port->detection, "external"))
@@ -1167,7 +1148,7 @@ int pa__init(pa_module *m) {
             pa_log_error("Pal loopback init failed !!");
     }
 
-    pa_qal_card_enable_jack_detection(u);
+    pa_pal_card_enable_jack_detection(u);
 
 #ifdef ENABLE_PAL_SERVICE
     load_pal_service();
@@ -1210,7 +1191,7 @@ void pa__done(pa_module *m) {
         pa_hashmap_free(u->sources);
     }
 
-    pa_qal_card_disable_jack_detection(u, m);
+    pa_pal_card_disable_jack_detection(u, m);
 
     pal_deinit();
 

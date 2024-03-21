@@ -42,9 +42,8 @@
 #include <sys/time.h>
 #include <time.h>
 
-#include "qal-sink.h"
-#include "qal-utils.h"
-#include "qal-jack-format.h"
+#include "pal-sink.h"
+#include "pal-utils.h"
 
 /* #define SINK_DEBUG */
 
@@ -448,18 +447,28 @@ static int pa_pal_sink_standby(pa_pal_sink_data *sdata) {
     return 0;
 }
 
+static int pa_pal_set_device(pal_stream_handle_t *stream_handle,
+                          pa_pal_card_port_device_data *param_device_connection) {
+    struct pal_device device_connect;
+    int no_of_devices = 1;
+    int ret = 0;
+
+    device_connect.id = param_device_connection->device;
+
+    ret = pal_stream_set_device(stream_handle, no_of_devices, &device_connect);
+    if(ret)
+        pa_log_error("pal sink switch device %d failed %d", device_connect.id, ret);
+    return ret;
+}
+
 static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     pa_pal_card_port_device_data *port_device_data;
     pa_pal_card_port_device_data *active_port_device_data;
-    pa_assert(s);
-    pa_assert(p);
     pa_pal_sink_data *sdata = (pa_pal_sink_data *)s->userdata;
     pal_param_device_connection_t param_device_connection;
-    pa_device_port *switch_port = NULL;
-    pa_pal_card_port_device_data *switch_port_device_data = NULL;
-    bool port_changed = false;
-    size_t nbytes = 0;
+    int no_of_devices = 1;
     int ret = 0;
+    bool port_changed = false;
 
     pa_assert(sdata);
     pa_assert(sdata->pal_sdata);
@@ -473,85 +482,53 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     active_port_device_data = PA_DEVICE_PORT_DATA(s->active_port);
     pa_assert(active_port_device_data);
 
-    param_device_connection.id = port_device_data->device;
-    switch_port = p;
-    switch_port_device_data = port_device_data;
-
-    if (port_device_data->device == PAL_DEVICE_OUT_AUX_DIGITAL ||
-                    active_port_device_data->device == PAL_DEVICE_OUT_AUX_DIGITAL) {
+    /* For HDMI-out device, need set connect state */
+    if (port_device_data->device == PAL_DEVICE_OUT_AUX_DIGITAL |
+          active_port_device_data->device == PAL_DEVICE_OUT_AUX_DIGITAL) {
+        param_device_connection.device_config.dp_config.controller = 0;
+        param_device_connection.device_config.dp_config.stream = 0;
         param_device_connection.id = PAL_DEVICE_OUT_AUX_DIGITAL;
-        switch_port = pa_pal_util_get_port_from_device(s->ports, param_device_connection.id);
-        if (switch_port) {
-            switch_port_device_data = PA_DEVICE_PORT_DATA(switch_port);
-            param_device_connection.device_config.dp_config.controller = 0;
-            param_device_connection.device_config.dp_config.stream = 0;
-        }
-    } else if (port_device_data->device == PAL_DEVICE_OUT_USB_HEADSET ||
-                    active_port_device_data->device == PAL_DEVICE_OUT_USB_HEADSET) {
-        param_device_connection.id = PAL_DEVICE_OUT_USB_HEADSET;
-        switch_port = pa_pal_util_get_port_from_device(s->ports, param_device_connection.id);
-        if (switch_port) {
-            switch_port_device_data = PA_DEVICE_PORT_DATA(switch_port);
-            pa_pal_jack_usb_device_address_t *usb_addr;
-            ret = pa_proplist_get(switch_port->proplist, PA_PROP_USB_ADDR, (void *)&usb_addr, &nbytes);
-            if (PA_UNLIKELY(ret)) {
-                pa_log_error("Get usb out address failed %d", ret);
-                goto end;
-            }
-            param_device_connection.device_config.usb_addr.card_id = usb_addr->card_id;
-            param_device_connection.device_config.usb_addr.device_num = usb_addr->device_num;
-        }
-    }
 
-    if (!switch_port || !switch_port_device_data) {
-        pa_log_error("Unsupported port");
-        goto end;
-    }
-
-    pa_pal_util_port_change(port_device_data, active_port_device_data, param_device_connection.id,
-            &param_device_connection, &port_changed);
-    pa_log_debug("port_changed %d param_device_connection(id %d connection_state %d) switch_port_device_data(is_connected %d)",
-            port_changed, param_device_connection.id, param_device_connection.connection_state,
-            switch_port_device_data->is_connected);
-    if (port_changed &&
-            ((param_device_connection.connection_state && !switch_port_device_data->is_connected) ||
-            ((!param_device_connection.connection_state) && switch_port_device_data->is_connected))) {
-        ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION, (void*)&param_device_connection,
-                                                sizeof(pal_param_device_connection_t));
-        if (PA_UNLIKELY(ret)) {
-            pa_log_error("Set device %d %s failed %d", param_device_connection.id,
-                                            param_device_connection.connection_state ? "connect" : "disconnect", ret);
-            goto end;
+        if (port_device_data->device == PAL_DEVICE_OUT_AUX_DIGITAL) {
+            param_device_connection.connection_state = true;
+            if(port_device_data->is_connected != param_device_connection.connection_state)
+                port_changed = true;
+            port_device_data->is_connected = param_device_connection.connection_state;
         }
-        switch_port_device_data->is_connected = param_device_connection.connection_state;
-    }
+        else if (active_port_device_data->device == PAL_DEVICE_OUT_AUX_DIGITAL) {
+            param_device_connection.connection_state = false;
+            if(active_port_device_data->is_connected != param_device_connection.connection_state)
+                port_changed = true;
+            active_port_device_data->is_connected = param_device_connection.connection_state;
+        }
 
-    if (PA_SINK_IS_RUNNING(s->state)) {
-        ret = pa_pal_util_set_device(sdata->pal_sdata->stream_handle, port_device_data->device,
-                                                            &param_device_connection);
-        if (PA_UNLIKELY(ret)) {
-            pa_log_error("Set device %d of stream_handle %p failed %d", param_device_connection.id,
-                                            sdata->pal_sdata->stream_handle, ret);
-            goto end;
+        if (port_changed) {
+            ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION,
+                (void*)&param_device_connection,
+                sizeof(pal_param_device_connection_t));
+            if (ret != 0)
+                pa_log_error("pal sink set device %d connect status failed %d",
+                  PAL_DEVICE_OUT_AUX_DIGITAL, ret);
         }
     }
 
+    param_device_connection.id = port_device_data->device;
     sdata->pal_sdata->pal_device->id = port_device_data->device;
-    if (sdata->pal_sdata->pal_device->id == PAL_DEVICE_OUT_USB_HEADSET) {
-        sdata->pal_sdata->pal_device->address.card_id = param_device_connection.device_config.usb_addr.card_id;
-        sdata->pal_sdata->pal_device->address.device_num = param_device_connection.device_config.usb_addr.device_num;
-    }
-
-    if (port_device_data->pal_devicepp_config)
+    if (port_device_data->pal_devicepp_config){
         pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
                         sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
-    else
+    }
+    else {
         pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, "",
                         sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    }
 
-    pa_log_info("%s Set port of %p to %s", __func__, sdata->pal_sdata, p->name);
+    if (PA_SINK_IS_OPENED(s->state)) {
+        ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
+        if (ret != 0)
+            pa_log_error("pal sink switch device failed %d", ret);
+    }
 
-end:
     return ret;
 }
 
@@ -593,7 +570,7 @@ static int pa_pal_sink_io_process_msg(pa_msgobject *o, int code, void *data, int
             *((int64_t*) data) = pa_pal_sink_get_latency(sdata);
             return 0;
 
-        case PA_QAL_SINK_MESSAGE_DRAIN_READY:
+        case PA_PAL_SINK_MESSAGE_DRAIN_READY:
             pa_sink_drain_complete(sdata->pa_sdata->sink);
             return 0;
 
@@ -959,7 +936,7 @@ static int32_t pa_pal_out_cb(pal_stream_handle_t *stream_handle,
             pa_log_debug("[%d]Func:%s Received event WRITE_READY for handle %p",
                     __LINE__, __func__, pal_sdata->stream_handle);
 #endif
-            /* Wake up QAL thread */
+            /* Wake up PAL thread */
             pa_fdsem_post(pal_sdata->pal_fdsem);
 
             break;
@@ -971,7 +948,7 @@ static int32_t pa_pal_out_cb(pal_stream_handle_t *stream_handle,
 #endif
             /* post drain complete to i/o thread */
             pa_asyncmsgq_post(sdata->pa_sdata->thread_mq.inq, PA_MSGOBJECT(sdata->pa_sdata->sink),
-                                                PA_QAL_SINK_MESSAGE_DRAIN_READY, NULL, 0, NULL, NULL);
+                                                PA_PAL_SINK_MESSAGE_DRAIN_READY, NULL, 0, NULL, NULL);
 
             break;
 

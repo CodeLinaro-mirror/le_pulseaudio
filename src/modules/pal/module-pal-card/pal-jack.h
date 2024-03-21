@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -23,7 +23,7 @@
 
 #include <pulsecore/module.h>
 #include <pulsecore/thread.h>
-#include <qal-sink.h>
+#include <pal-sink.h>
 
 typedef enum {
     PA_PAL_JACK_TYPE_INVALID = -1,
@@ -41,9 +41,7 @@ typedef enum {
     PA_PAL_JACK_TYPE_HDMI_OUT = 0x800,
     PA_PAL_JACK_TYPE_SPDIF_OUT_OPTICAL = 0x1000,
     PA_PAL_JACK_TYPE_SPDIF_OUT_COAXIAL = 0x2000,
-    PA_PAL_JACK_TYPE_USB_OUT = 0x3000,
-    PA_PAL_JACK_TYPE_USB_IN = 0x4000,
-    PA_PAL_JACK_TYPE_LAST = PA_PAL_JACK_TYPE_USB_IN,
+    PA_PAL_JACK_TYPE_LAST = PA_PAL_JACK_TYPE_SPDIF_OUT_COAXIAL,
     PA_PAL_JACK_TYPE_MAX = PA_PAL_JACK_TYPE_LAST,
 } pa_pal_jack_type_t;
 

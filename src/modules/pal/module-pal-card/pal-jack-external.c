@@ -27,9 +27,9 @@
 #include <pulsecore/protocol-dbus.h>
 #include <pulsecore/core-util.h>
 
-#include "qal-jack-common.h"
-#include "qal-jack-format.h"
-#include "qal-utils.h"
+#include "pal-jack-common.h"
+#include "pal-jack-format.h"
+#include "pal-utils.h"
 
 #define PAL_DBUS_OBJECT_PATH_PREFIX        "/org/pulseaudio/ext/pal/port"
 #define PAL_DBUS_MODULE_IFACE              "org.PulseAudio.Ext.Pal.Module"

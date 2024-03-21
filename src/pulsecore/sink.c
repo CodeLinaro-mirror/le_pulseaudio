@@ -17,8 +17,8 @@
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
 
-  Changes from Qualcomm Innovation Center are provided under the following license:
-  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+  Changes from Qualcomm Innovation Center, Inc are provided under the following license:
+  Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
   SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
@@ -1518,9 +1518,10 @@ void pa_sink_reconfigure(pa_sink *s, pa_sample_spec *spec, bool passthrough) {
 
     } else if (avoid_resampling) {
         /* We just try to set the sink input's sample rate if it's not too low */
-        if (spec->rate >= default_rate || spec->rate >= alternate_rate)
+        if (spec->rate != default_rate || spec->rate >= alternate_rate)
             desired_spec.rate = spec->rate;
         desired_spec.format = spec->format;
+        desired_spec.channels = spec->channels;
 
     } else if (default_rate == spec->rate || alternate_rate == spec->rate) {
         /* We can directly try to use this rate */
