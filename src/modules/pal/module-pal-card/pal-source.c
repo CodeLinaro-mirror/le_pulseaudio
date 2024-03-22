@@ -340,7 +340,10 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     param_device_connection.id = port_device_data->device;
 
+    pa_mutex_lock(sdata->pal_sdata->mutex);
     ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
+    pa_mutex_unlock(sdata->pal_sdata->mutex);
+
     if (ret != 0) {
         pa_log_error("pal source switch device failed %d", ret);
         return ret;
@@ -533,13 +536,17 @@ static void pa_pal_source_thread_func(void *userdata) {
             in_buf.buffer = data;
             in_buf.size = chunk.length;
 
-            if ((ret = pal_stream_read(pal_sdata->stream_handle, &in_buf)) <= 0) {
-                pa_log_error("pal_stream_read failed, ret = %d", ret);
-                pa_msleep(pa_bytes_to_usec(in_buf.size, &pa_sdata->source->sample_spec)/1000);
-                ret = in_buf.size;
+            pa_mutex_lock(pal_sdata->mutex);
+            if (pal_sdata->stream_handle) {
+                if ((ret = pal_stream_read(pal_sdata->stream_handle, &in_buf)) <= 0) {
+                     pa_log_error("pal_stream_read failed, ret = %d", ret);
+                     pa_msleep(pa_bytes_to_usec(in_buf.size, &pa_sdata->source->sample_spec)/1000);
+                     ret = in_buf.size;
+                }
+                chunk.length = ret;
             }
+            pa_mutex_unlock(pal_sdata->mutex);
 
-            chunk.length = ret;
 #ifdef SOURCE_DUMP_ENABLED
             pa_log_error(" chunk length %d chunk index %d in_buf.size %d ",chunk.length, chunk.index, ret);
             if ((ret = write(pal_sdata->write_fd, in_buf.buffer, ret)) < 0)
@@ -640,6 +647,7 @@ static int close_pal_source(pa_pal_source_data *sdata) {
     pa_sdata = sdata->pa_sdata;
 
     pa_assert(pal_sdata->stream_handle);
+    pa_mutex_lock(pal_sdata->mutex);
 
     pa_log_debug("closing pal source %p", pal_sdata->stream_handle);
 
@@ -660,6 +668,8 @@ static int close_pal_source(pa_pal_source_data *sdata) {
         pal_sdata->standby = true;
         sdata->pal_source_opened = false;
     }
+
+    pa_mutex_unlock(pal_sdata->mutex);
 #ifdef SOURCE_DUMP_ENABLED
     close(pal_sdata->write_fd);
 #endif
@@ -715,6 +725,7 @@ static int free_pal_source(pal_source_data *pal_sdata) {
         }
     }
 
+    pa_mutex_free(pal_sdata->mutex);
     pa_xfree(pal_sdata->stream_attributes);
     pa_xfree(pal_sdata->pal_device);
     pa_xfree(pal_sdata);
@@ -728,6 +739,7 @@ static int create_pal_source(pa_pal_source_config *source, pa_pal_card_port_devi
 
     sdata->pal_sdata = pa_xnew0(pal_source_data, 1);
 
+    sdata->pal_sdata->mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
     rc = pa_pal_source_fill_info(source, sdata->pal_sdata, port_device_data);
     if (rc) {
         pa_log_error("pal source init failed, error %d", rc);
