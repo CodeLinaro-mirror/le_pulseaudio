@@ -551,7 +551,7 @@ static int pa_pal_sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new
 
     if (PA_SINK_IS_OPENED(new_state) && !PA_SINK_IS_OPENED(s->thread_info.state))
         r = pa_pal_sink_start(sdata);
-    else if (new_state == PA_SINK_SUSPENDED)
+    else if (new_state == PA_SINK_SUSPENDED || (new_state == PA_SINK_UNLINKED && sdata->pal_sink_opened))
         r = pa_pal_sink_standby(sdata);
 
     return r;

@@ -366,7 +366,7 @@ static int pa_pal_source_set_state_in_io_thread_cb(pa_source *s, pa_source_state
 
     if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(s->thread_info.state))
         r = pa_pal_source_start(source_data);
-    else if (new_state == PA_SOURCE_SUSPENDED)
+    else if (new_state == PA_SOURCE_SUSPENDED || (new_state == PA_SINK_UNLINKED && source_data->pal_source_opened))
         r = pa_pal_source_standby(source_data);
 
     return r;
