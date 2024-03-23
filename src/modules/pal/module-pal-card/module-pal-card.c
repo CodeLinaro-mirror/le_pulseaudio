@@ -1177,6 +1177,13 @@ void pa__done(pa_module *m) {
     pa_pal_module_extn_deinit();
     pa_pal_loopback_deinit();
 
+    if (u->sources) {
+        PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
+            pa_pal_card_free_sources(u, profile->name);
+
+        pa_hashmap_free(u->sources);
+    }
+
     if (u->sinks) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
             pa_pal_card_free_sinks(u, profile->name);
@@ -1185,13 +1192,6 @@ void pa__done(pa_module *m) {
     }
 
     pa_pal_sink_module_deinit();
-
-    if (u->sources) {
-        PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
-            pa_pal_card_free_sources(u, profile->name);
-
-        pa_hashmap_free(u->sources);
-    }
 
     pa_pal_card_disable_jack_detection(u, m);
 
