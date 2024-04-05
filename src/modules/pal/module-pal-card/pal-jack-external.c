@@ -51,6 +51,7 @@ enum module_method_handler_index {
 static char const *jack_prmkey_names[JACK_PARAM_KEY_MAX] = {
     [JACK_PARAM_KEY_DEVICE_CONNECTION]          = "device_connection",
     [JACK_PARAM_KEY_A2DP_SUSPEND]               = "a2dp_suspend",
+    [JACK_PARAM_KEY_DEVICE_SAMPLERATE]          = "sample_rate",
 };
 
 static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *msg, void *userdata);
