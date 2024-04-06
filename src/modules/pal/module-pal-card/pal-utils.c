@@ -273,6 +273,10 @@ pal_audio_fmt_t pa_pal_util_get_pal_format_from_pa_encoding(pa_encoding_t pa_for
             pal_format = PAL_AUDIO_FMT_MP3;
             break;
         case PA_ENCODING_AAC:
+            if (!pal_snd_dec) {
+                pa_log_error("pal_snd_dec is NULL\n");
+                return pal_format;
+            }
             pal_format = compress_metadata.aac.stream_format;
             pal_snd_dec->aac_dec.audio_obj_type = AAC_AOT_PS;
             pal_snd_dec->aac_dec.pce_bits_size = 0;

@@ -228,7 +228,7 @@ int pa_pal_external_jack_parse_kvpair(const char *kvpair, jack_prm_kvpair_t *kv)
 
     key_idx = parse_keyidx(key_name);
     if (key_idx != -1) {
-        value = strdup(strtok_r(NULL, "=", &tmpstr));
+        value = strtok_r(NULL, "=", &tmpstr);
         if (value == NULL) {
             ret = -EINVAL;
             goto exit;
