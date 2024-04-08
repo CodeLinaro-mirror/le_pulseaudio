@@ -208,6 +208,8 @@ static int pa_pal_source_fill_info(pa_pal_source_config *source, pal_source_data
     pal_sdata->index = source->id;
     pal_sdata->buffer_size = (size_t)(source->buffer_size);
     pal_sdata->buffer_count = (size_t)(source->buffer_count);
+    pal_sdata->source_event_id = PA_PAL_NO_EVENT;
+    pal_sdata->cond_ctrl_thread = pa_cond_new();
 
     pal_sdata->standby = true;
 
@@ -340,10 +342,12 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     param_device_connection.id = port_device_data->device;
 
+    sdata->pal_sdata->source_event_id = PA_PAL_DEVICE_SWITCH;
     pa_mutex_lock(sdata->pal_sdata->mutex);
     ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
+    sdata->pal_sdata->source_event_id = PA_PAL_NO_EVENT;
     pa_mutex_unlock(sdata->pal_sdata->mutex);
-
+    pa_cond_signal(sdata->pal_sdata->cond_ctrl_thread, 0);
     if (ret != 0) {
         pa_log_error("pal source switch device failed %d", ret);
         return ret;
@@ -537,6 +541,10 @@ static void pa_pal_source_thread_func(void *userdata) {
             in_buf.size = chunk.length;
 
             pa_mutex_lock(pal_sdata->mutex);
+            if (pal_sdata->source_event_id != PA_PAL_NO_EVENT) {
+                /* wait for response from ctrl thread */
+                pa_cond_wait(pal_sdata->cond_ctrl_thread, pal_sdata->mutex);
+            }
             if (pal_sdata->stream_handle) {
                 if ((ret = pal_stream_read(pal_sdata->stream_handle, &in_buf)) <= 0) {
                      pa_log_error("pal_stream_read failed, ret = %d", ret);
@@ -726,6 +734,7 @@ static int free_pal_source(pal_source_data *pal_sdata) {
     }
 
     pa_mutex_free(pal_sdata->mutex);
+    pa_cond_free(pal_sdata->cond_ctrl_thread);
     pa_xfree(pal_sdata->stream_attributes);
     pa_xfree(pal_sdata->pal_device);
     pa_xfree(pal_sdata);
