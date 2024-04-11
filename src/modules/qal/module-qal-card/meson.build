@@ -13,7 +13,12 @@ sources = [
   'bt-a2dp-split.c',
   'hfp.c',
   'pal-loopback.c',
+  'pal-jack-external.c',
 ]
+
+if udev_dep.found()
+  sources += ['qal-jack-udev.c']
+endif
 
 headers = [
   'qal-card.h',
@@ -35,11 +40,16 @@ extra_deps = [ dbus_dep,
                meson.get_compiler('c').find_library('pal'),
                meson.get_compiler('c').find_library('agm')
              ]
+
 if get_option('enable-pal-service') == 'yes'
 extra_deps += [ meson.get_compiler('c').find_library('palserverwrapper'),
                 meson.get_compiler('c').find_library('utils'),
                 meson.get_compiler('c').find_library('binder')
               ]
+endif
+
+if udev_dep.found()
+extra_deps += [udev_dep]
 endif
 
 if get_option('pal-support-card-status')

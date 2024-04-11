@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -42,6 +42,7 @@ typedef struct {
     pa_encoding_t default_encoding;
     pa_channel_map default_map;
     uint32_t alternate_sample_rate;
+    pa_pal_card_avoid_processing_config_id_t avoid_config_processing;
     pa_idxset *formats;
     pa_hashmap *ports;
     pa_hashmap *profiles;
@@ -81,6 +82,7 @@ typedef struct {
     pa_thread_mq thread_mq;
     pa_thread *thread;
     pa_idxset *formats;
+    pa_pal_card_avoid_processing_config_id_t avoid_config_processing;
 } pa_sink_data;
 
 typedef struct {
@@ -110,6 +112,7 @@ void pa_pal_sink_module_init(void);
 void pa_pal_sink_module_deinit(void);
 int pa_pal_sink_get_media_config(pa_pal_sink_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding);
 pa_idxset* pa_pal_sink_get_config(pa_pal_sink_handle_t *handle);
+int pa_pal_sink_set_a2dp_suspend(const char *prm_value);
 
 static inline bool pa_pal_sink_is_supported_encoding(pa_encoding_t encoding) {
     bool supported = true;

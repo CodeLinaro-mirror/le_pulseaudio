@@ -1,6 +1,17 @@
 /*
- * SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; version 2.1.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
 #ifdef HAVE_CONFIG_H
@@ -185,6 +196,53 @@ bool check_valid_usecase(char *uc)
     return false;
 }
 
+static DBusHandlerResult disconnection_filter_cb(DBusConnection *conn,
+        DBusMessage *msg, void *userdata) {
+    void *state = NULL;
+    const void* key = NULL;
+    pa_pal_loopback_module_data_t *m_data = NULL;
+    pa_pal_loopback_ses_data_t *ses_data = NULL;
+    pa_pal_loopback_config *loopback_config[MAX_LOOPBACK_PROFILES];
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    pa_log_debug("%s: Enter\n", __func__);
+    m_data = (pa_pal_loopback_module_data_t*)userdata;
+
+    if (dbus_message_is_signal(msg, "org.freedesktop.DBus.Local", "Disconnected")) {
+        /* connection died, deinit all the sessions for which callback got triggered */
+        pa_log_info("connection died for all sessions\n");
+
+        if (btsink) {
+            loopback_config[0] = pa_hashmap_get(m_data->loopback_confs, "bta2dp");
+            deinit_btsink(btsink, loopback_config[0]);
+            btsink = NULL;
+        }
+
+        if (btsco) {
+            loopback_config[LB_PROF_HFP_RX] = pa_hashmap_get(m_data->loopback_confs, "hfp_rx");
+            loopback_config[LB_PROF_HFP_TX] = pa_hashmap_get(m_data->loopback_confs, "hfp_tx");
+            deinit_btsco(btsco, loopback_config);
+            btsco = NULL;
+        }
+
+        while ((ses_data = pa_hashmap_iterate(m_data->session_data, &state, &key))) {
+            pa_assert_se(pa_dbus_protocol_remove_interface(m_data->dbus_protocol, ses_data->obj_path,
+                        pa_pal_loopback_session_interface_info.name) >= 0);
+
+            pa_hashmap_remove(m_data->session_data, key);
+            pa_xfree(ses_data->obj_path);
+            pa_xfree(ses_data);
+            m_data->session_count--;
+        }
+    }
+    pa_log_debug("%s: Exit\n", __func__);
+
+    return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+}
+
 /******* Module handler functions ********/
 static void pa_pal_bt_connect(DBusConnection *conn, DBusMessage *msg, void *userdata)
 {
@@ -274,6 +332,9 @@ static void pa_pal_bt_connect(DBusConnection *conn, DBusMessage *msg, void *user
         goto error_1;
     }
 
+    if (!m_data->session_count)
+        pa_assert_se(dbus_connection_add_filter(conn, disconnection_filter_cb, m_data, NULL));
+
     pa_strlcpy(ses_data->usecase, usecase, MAX_USECASE_NAME_LENGTH);
     ses_data->common = m_data;
     ses_data->obj_path = pa_sprintf_malloc("%s/ses_%u", m_data->dbus_path,
@@ -354,6 +415,9 @@ static void pa_pal_bt_disconnect(DBusConnection *conn, DBusMessage *msg, void *u
     pa_assert_se(pa_dbus_protocol_remove_interface(m_data->dbus_protocol, ses_data->obj_path,
                 pa_pal_loopback_session_interface_info.name) >= 0);
     --m_data->session_count;
+
+    if (!m_data->session_count)
+        dbus_connection_remove_filter(conn, disconnection_filter_cb, m_data);
 
     pa_hashmap_remove(m_data->session_data, usecase);
     pa_xfree(ses_data->obj_path);

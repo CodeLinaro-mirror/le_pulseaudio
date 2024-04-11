@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -34,6 +34,8 @@
 #define PA_PAL_SINK_PROP_FORMAT_FLAG    "stream-format"
 
 #define AAC_AOT_PS    29
+
+#define DEFAULT_NUM_DEVICES    1
 
 typedef struct{
     pa_channel_position_t pa_channel_map_position;
@@ -75,6 +77,8 @@ pa_pal_util_port_to_pal_device_mapping port_to_pal_device[] = {
     { (char *)"bta2dp-in",        PAL_DEVICE_IN_BLUETOOTH_A2DP,         (char *)"PAL_DEVICE_IN_BLUETOOTH_A2DP" },
     { (char *)"btsco-in",         PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET,  (char *)"PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
     { (char *)"btsco-out",        PAL_DEVICE_OUT_BLUETOOTH_SCO,         (char *)"PAL_DEVICE_OUT_BLUETOOTH_SCO" },
+    { (char *)"usb-out",          PAL_DEVICE_OUT_USB_HEADSET,      (char *)"PAL_DEVICE_OUT_USB_HEADSET" },
+    { (char *)"usb-in",          PAL_DEVICE_IN_USB_HEADSET,       (char *)"PAL_DEVICE_IN_USB_HEADSET" },
 };
 
 pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
@@ -92,6 +96,8 @@ pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_PAL_JACK_TYPE_HDMI_OUT, (char *)"hdmi-out"},
     { PA_PAL_JACK_TYPE_SPDIF_OUT_OPTICAL, (char *)"spdif-out-optical"},
     { PA_PAL_JACK_TYPE_SPDIF_OUT_COAXIAL, (char *)"spdif-out-coaxial"},
+    { PA_PAL_JACK_TYPE_USB_OUT, (char *)"usb-out"},
+    { PA_PAL_JACK_TYPE_USB_IN, (char *)"usb-in"},
 };
 
 static pa_channel_position_t pa_pal_be_channel_map[] = {
@@ -121,6 +127,36 @@ pal_device_id_t pa_pal_util_device_name_to_enum(const char *device_name) {
     pa_log_debug("%s: device_name %s pal device %u", __func__, device_name, device);
 
     return device;
+}
+
+pal_device_id_t pa_pal_util_port_name_to_enum(const char *port_name) {
+    uint32_t count;
+    pal_device_id_t device = PAL_DEVICE_NONE;
+
+    pa_assert(port_name);
+
+    for (count = 0; count < ARRAY_SIZE(port_to_pal_device); count++) {
+        if (pa_streq(port_name, port_to_pal_device[count].port_name)) {
+            device = port_to_pal_device[count].pal_device;
+            break;
+        }
+    }
+
+    pa_log_debug("%s: device_name %s pal device %u", __func__, port_name, device);
+
+    return device;
+}
+
+const pa_device_port *pa_pal_util_get_port_from_device(pa_hashmap *ports,
+                                                                        pal_device_id_t device_id) {
+    uint32_t count;
+
+    for (count = 0; count < ARRAY_SIZE(port_to_pal_device); count++) {
+        if (port_to_pal_device[count].pal_device == device_id)
+            return pa_hashmap_get(ports, port_to_pal_device[count].port_name);
+    }
+
+    return NULL;
 }
 
 int pa_pal_util_set_pal_metadata_from_pa_format(const pa_format_info *format) {
@@ -236,7 +272,9 @@ static pa_pal_util_pa_pal_channel_map pa_pal_channel_map[] = {
     { PA_CHANNEL_POSITION_TOP_CENTER, PAL_CHMAP_CHANNEL_TC },
     { PA_CHANNEL_POSITION_TOP_REAR_LEFT, PAL_CHMAP_CHANNEL_TBL },
     { PA_CHANNEL_POSITION_TOP_REAR_RIGHT, PAL_CHMAP_CHANNEL_TBR },
-    { PA_CHANNEL_POSITION_TOP_REAR_CENTER, PAL_CHMAP_CHANNEL_TBC }
+    { PA_CHANNEL_POSITION_TOP_REAR_CENTER, PAL_CHMAP_CHANNEL_TBC },
+    { PA_CHANNEL_POSITION_AUX0, PAL_CHMAP_CHANNEL_RLC },
+    { PA_CHANNEL_POSITION_AUX1, PAL_CHMAP_CHANNEL_RRC }
 };
 
 pal_audio_fmt_t pa_pal_util_get_pal_format_from_pa_encoding(pa_encoding_t pa_format, pal_snd_dec_t *pal_snd_dec) {
@@ -359,6 +397,23 @@ int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connecti
     return ret;
 }
 
+pa_pal_card_avoid_processing_config_id_t pa_pal_utils_get_config_id_from_string(const char *config_str) {
+    pa_pal_card_avoid_processing_config_id_t config_id = PA_PAL_CARD_AVOID_PROCESSING_FOR_NONE;
+
+    if (pa_streq(config_str, "all") || pa_streq(config_str, "true"))
+        config_id = PA_PAL_CARD_AVOID_PROCESSING_FOR_ALL;
+    else if (pa_streq(config_str, "rate"))
+        config_id = PA_PAL_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE;
+    else if (pa_streq(config_str, "bitwidth"))
+        config_id = PA_PAL_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH;
+    else if (pa_streq(config_str, "channels"))
+        config_id = PA_PAL_CARD_AVOID_PROCESSING_FOR_CHANNELS;
+    else
+        pa_log_error("%s: Unsupported config %s", __func__, config_str);
+
+    return config_id;
+}
+
 pa_pal_jack_type_t pa_pal_util_get_jack_type_from_port_name(const char *port_name) {
     uint32_t count;
 
@@ -461,5 +516,32 @@ void pa_pal_util_get_jack_sys_path(pa_pal_card_port_config *config_port, pa_pal_
 
     if (config_port->channel_status_path)
         jack_in_config->jack_sys_path.channel_status = config_port->channel_status_path;
+}
 
+void pa_pal_util_port_change(pa_pal_card_port_device_data *port_device_data,
+                                pa_pal_card_port_device_data *active_port_device_data,
+                                pal_device_id_t device_id,
+                                pal_param_device_connection_t *param_device_connection,
+                                bool *port_changed) {
+    if (port_device_data->device != active_port_device_data->device) {
+        *port_changed = true;
+        if (port_device_data->device == device_id)
+            param_device_connection->connection_state = true;
+        else if (active_port_device_data->device == device_id)
+            param_device_connection->connection_state = false;
+    }
+}
+
+int pa_pal_util_set_device(pal_stream_handle_t *stream_handle, pal_device_id_t id,
+                            pal_param_device_connection_t *param_device_connection) {
+    struct pal_device device;
+    int no_of_devices = DEFAULT_NUM_DEVICES;
+
+    device.id = id;
+    if ((device.id == PAL_DEVICE_OUT_USB_HEADSET) || (device.id == PAL_DEVICE_IN_USB_HEADSET)) {
+        device.address.card_id = param_device_connection->device_config.usb_addr.card_id;
+        device.address.device_num = param_device_connection->device_config.usb_addr.device_num;
+    }
+
+    return pal_stream_set_device(stream_handle, no_of_devices, &device);
 }

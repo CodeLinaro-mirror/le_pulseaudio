@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -222,4 +222,14 @@ bool pa_pal_format_detection_get_value_from_path(const char* path, int *node_val
     *node_value = value;
 
     return rc;
+}
+
+void pa_pal_format_set_jack_default_config(pa_pal_jack_out_config *config) {
+    config->preemph_status = 0;
+    config->ss.format = PA_SAMPLE_S16LE;
+    config->encoding = PA_ENCODING_PCM;
+    config->ss.rate = 48000;
+    config->ss.channels = 2;
+    pa_channel_map_init(&(config->map));
+    pa_channel_map_init_auto(&(config->map), 2, PA_CHANNEL_MAP_DEFAULT);
 }

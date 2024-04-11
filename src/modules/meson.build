@@ -138,6 +138,14 @@ if cdata.has('HAVE_QAL_VOICEUI')
   subdir('qal/module-qal-voiceui-card')
 endif
 
+if cdata.has('HAVE_PAL')
+  subdir('pal/module-pal-card')
+endif
+
+if cdata.has('HAVE_PAL_VOICEUI')
+  subdir('pal/module-pal-voiceui-card')
+endif
+
 if avahi_dep.found()
   all_modules += [
     [ 'module-zeroconf-discover', 'module-zeroconf-discover.c', [], [], [avahi_dep], libavahi_wrap ],

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -45,6 +45,7 @@ typedef struct {
     pa_encoding_t default_encoding;
     pa_channel_map default_map;
     uint32_t alternate_sample_rate;
+    pa_pal_card_avoid_processing_config_id_t avoid_config_processing;
     pa_idxset *formats;
     pa_hashmap *ports;
     pa_hashmap *profiles;
@@ -77,11 +78,13 @@ typedef struct {
     pa_thread_mq thread_mq;
     pa_thread *thread;
     pa_idxset *formats;
+    pa_pal_card_avoid_processing_config_id_t avoid_config_processing;
 } pa_source_data;
 
 typedef struct {
     pal_source_data *pal_sdata;
     pa_source_data *pa_sdata;
+    bool pal_source_opened;
 } pa_pal_source_data;
 
 /*create pal session and pa source */
@@ -91,6 +94,7 @@ void pa_pal_source_close(pa_pal_source_handle_t *handle);
 bool pa_pal_source_is_supported_sample_rate(uint32_t sample_rate);
 pa_idxset* pa_pal_source_get_config(pa_pal_source_handle_t *handle);
 int pa_pal_source_get_media_config(pa_pal_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding);
+int pa_pal_source_set_device_connection_params(pa_pal_source_handle_t *handle, const char *prm_value);
 
 static inline bool pa_pal_source_is_supported_type(char *source_type) {
     pa_assert(source_type);

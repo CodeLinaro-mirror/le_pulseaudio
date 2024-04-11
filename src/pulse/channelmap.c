@@ -16,6 +16,9 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
+  Changes from Qualcomm Innovation Center, Inc are provided under the following license:
+  Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
@@ -212,6 +215,27 @@ pa_channel_map* pa_channel_map_init_auto(pa_channel_map *m, unsigned channels, p
             switch (channels) {
                 case 1:
                     m->map[0] = PA_CHANNEL_POSITION_MONO;
+                    return m;
+
+                case 8:
+                    m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+                    m->map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+                    m->map[2] = PA_CHANNEL_POSITION_FRONT_CENTER;
+                    m->map[3] = PA_CHANNEL_POSITION_LFE;
+                    m->map[4] = PA_CHANNEL_POSITION_SIDE_LEFT;
+                    m->map[5] = PA_CHANNEL_POSITION_SIDE_RIGHT;
+                    m->map[6] = PA_CHANNEL_POSITION_REAR_LEFT;
+                    m->map[7] = PA_CHANNEL_POSITION_REAR_RIGHT;
+                    return m;
+
+                case 7:
+                    m->map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+                    m->map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+                    m->map[2] = PA_CHANNEL_POSITION_FRONT_CENTER;
+                    m->map[3] = PA_CHANNEL_POSITION_SIDE_LEFT;
+                    m->map[4] = PA_CHANNEL_POSITION_SIDE_RIGHT;
+                    m->map[5] = PA_CHANNEL_POSITION_REAR_LEFT;
+                    m->map[6] = PA_CHANNEL_POSITION_REAR_RIGHT;
                     return m;
 
                 case 6:

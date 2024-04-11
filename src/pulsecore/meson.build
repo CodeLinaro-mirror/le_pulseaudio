@@ -122,6 +122,12 @@ else
   database_c_args = '-DHAVE_SIMPLEDB'
 endif
 
+if get_option('pa-support-compress-volumeset')
+compress_c_args = '-DPA_SUPPORT_COMPRESS_VOLUMESET'
+else
+compress_c_args = []
+endif
+
 if dbus_dep.found()
   libpulsecore_sources += [
     'dbus-shared.c',
@@ -189,7 +195,7 @@ libpulsecore = shared_library('pulsecore-' + pa_version_major_minor,
   libpulsecore_sources, libpulsecore_headers,
   orc_sources, orc_headers,
   include_directories : [configinc, topinc],
-  c_args : [pa_c_args, server_c_args],
+  c_args : [pa_c_args, server_c_args, compress_c_args],
   link_args : [nodelete_link_args],
   install : true,
   install_rpath : privlibdir,
