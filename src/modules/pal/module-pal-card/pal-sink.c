@@ -212,9 +212,12 @@ static void pa_pal_sink_set_volume_cb(pa_sink *s) {
         volume_data->volume_pair[i].vol = gain;
     }
 
+    pal_sdata->sink_event_id = PA_PAL_VOLUME_APPLY;
     pa_mutex_lock(pal_sdata->mutex);
-    rc = pal_stream_set_volume(sdata->pal_sdata->stream_handle, volume_data);
+    rc = pal_stream_set_volume(pal_sdata->stream_handle, volume_data);
+    pal_sdata->sink_event_id = PA_PAL_NO_EVENT;
     pa_mutex_unlock(pal_sdata->mutex);
+    pa_cond_signal(pal_sdata->cond_ctrl_thread, 0);
     if (rc)
         pa_log_error("pal stream : unable to set volume error %d\n", rc);
     else
@@ -288,6 +291,8 @@ static int pa_pal_sink_fill_info(pa_pal_sink_config *sink, pal_sink_data *pal_sd
     pal_sdata->buffer_count = (size_t)(sink->buffer_count);
     /* FIXME: Add DSP latency */
     pal_sdata->sink_latency_us = pa_bytes_to_usec(pal_sdata->buffer_size, &sink->default_spec);
+    pal_sdata->sink_event_id = PA_PAL_NO_EVENT;
+    pal_sdata->cond_ctrl_thread = pa_cond_new();
     pa_log_debug("sink latency %dus", pal_sdata->sink_latency_us);
 
     pal_sdata->standby = true;
@@ -526,9 +531,12 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     }
 
     if (PA_SINK_IS_OPENED(s->state)) {
+        sdata->pal_sdata->sink_event_id = PA_PAL_DEVICE_SWITCH;
         pa_mutex_lock(sdata->pal_sdata->mutex);
         ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
+        sdata->pal_sdata->sink_event_id = PA_PAL_NO_EVENT;
         pa_mutex_unlock(sdata->pal_sdata->mutex);
+        pa_cond_signal(sdata->pal_sdata->cond_ctrl_thread, 0);
 
         if (ret != 0)
             pa_log_error("pal sink switch device failed %d", ret);
@@ -868,6 +876,10 @@ static void pa_pal_sink_thread_func(void *userdata) {
             }
 
             pa_mutex_lock(pal_sdata->mutex);
+            if (pal_sdata->sink_event_id != PA_PAL_NO_EVENT) {
+                /* wait for response from ctrl thread */
+                pa_cond_wait(pal_sdata->cond_ctrl_thread, pal_sdata->mutex);
+            }
             if (pal_sdata->stream_handle)
                 rc = pal_stream_write(pal_sdata->stream_handle, &out_buf);
             else
@@ -1206,6 +1218,7 @@ static int free_pal_sink(pa_pal_sink_data *sdata) {
     }
 
     pa_mutex_free(sdata->pal_sdata->mutex);
+    pa_cond_free(sdata->pal_sdata->cond_ctrl_thread);
     pa_xfree(sdata->pal_sdata->stream_attributes);
     pa_xfree(sdata->pal_sdata->pal_snd_dec);
     pa_xfree(sdata->pal_sdata->pal_device);
