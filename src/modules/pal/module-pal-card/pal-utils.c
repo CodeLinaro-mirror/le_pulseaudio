@@ -75,6 +75,8 @@ pa_pal_util_port_to_pal_device_mapping port_to_pal_device[] = {
     { (char *)"bta2dp-in",        PAL_DEVICE_IN_BLUETOOTH_A2DP,         (char *)"PAL_DEVICE_IN_BLUETOOTH_A2DP" },
     { (char *)"btsco-in",         PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET,  (char *)"PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
     { (char *)"btsco-out",        PAL_DEVICE_OUT_BLUETOOTH_SCO,         (char *)"PAL_DEVICE_OUT_BLUETOOTH_SCO" },
+    { (char *)"hdmi-in",          PAL_DEVICE_IN_HDMI,                   (char *)"PAL_DEVICE_IN_HDMI" },
+    { (char *)"dp-in",            PAL_DEVICE_IN_AUX_DIGITAL,            (char *)"PAL_DEVICE_IN_AUX_DIGITAL" },
 };
 
 pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
@@ -83,6 +85,7 @@ pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_PAL_JACK_TYPE_WIRED_HEADPHONE, (char*)"headphone" },
     { PA_PAL_JACK_TYPE_LINEOUT, (char*)"lineout"},
     { PA_PAL_JACK_TYPE_HDMI_IN, (char*)"hdmi-in" },
+    { PA_PAL_JACK_TYPE_DISPLAY_IN, (char*)"dp-in" },
     { PA_PAL_JACK_TYPE_BTA2DP_OUT, (char*)"bta2dp-out" },
     { PA_PAL_JACK_TYPE_BTA2DP_IN, (char*)"bta2dp-in" },
     { PA_PAL_JACK_TYPE_HDMI_ARC, (char *)"hdmi-arc"},

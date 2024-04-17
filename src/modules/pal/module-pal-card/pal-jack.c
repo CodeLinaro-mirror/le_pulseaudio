@@ -104,6 +104,8 @@ pa_pal_jack_handle_t *pa_pal_jack_register_event_callback(pa_pal_jack_type_t jac
            case PA_PAL_JACK_TYPE_BTA2DP_OUT:
            case PA_PAL_JACK_TYPE_BTSCO_IN:
            case PA_PAL_JACK_TYPE_BTSCO_OUT:
+           case PA_PAL_JACK_TYPE_HDMI_IN:
+           case PA_PAL_JACK_TYPE_DISPLAY_IN:
                jdata = pa_pal_external_jack_detection_enable(jack_type, m, &(u->hook_slot),
                        callback, client_data);
                break;
@@ -160,6 +162,8 @@ bool pa_pal_jack_deregister_event_callback(pa_pal_jack_handle_t *jack_handle, pa
             case PA_PAL_JACK_TYPE_BTA2DP_OUT:
             case PA_PAL_JACK_TYPE_BTSCO_IN:
             case PA_PAL_JACK_TYPE_BTSCO_OUT:
+           case PA_PAL_JACK_TYPE_HDMI_IN:
+           case PA_PAL_JACK_TYPE_DISPLAY_IN:
                 pa_pal_external_jack_detection_disable(jdata, m);
                 break;
         }

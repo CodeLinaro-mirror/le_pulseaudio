@@ -234,7 +234,11 @@ static int pa_pal_source_start(pa_pal_source_data *sdata) {
             }
         }
         rc = pal_stream_start(pal_sdata->stream_handle);
-        pa_log_debug("pal_stream_start returned %d", rc);
+        if (rc) {
+            pa_log_debug("pal_stream_start returned %d", rc);
+            if (close_pal_source(sdata->pal_sdata))
+                pa_log_error("could not close source handle %p", sdata->pal_sdata->stream_handle);
+        }
         pal_sdata->standby = false;
     } else {
         pa_log_debug("pal_stream already started");
@@ -281,6 +285,8 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
     pal_param_device_connection_t param_device_connection;
     pa_pal_card_port_device_data *active_port_device_data;
     bool port_changed = false;
+    bool dp_port_changed = false;
+    bool hdmi_port_changed = false;
 
     pa_assert(s);
     pa_assert(p);
@@ -320,6 +326,61 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
                  pa_log_error("pal source set device %d connect status failed %d",
                                 PAL_DEVICE_IN_WIRED_HEADSET, ret);
          }
+    }
+
+    /* For HDMI-in device, need set connect state */
+    if (port_device_data->device == PAL_DEVICE_IN_AUX_DIGITAL ||
+          active_port_device_data->device == PAL_DEVICE_IN_AUX_DIGITAL) {
+        param_device_connection.id = PAL_DEVICE_IN_AUX_DIGITAL;
+
+        if (port_device_data->device == PAL_DEVICE_IN_AUX_DIGITAL) {
+            param_device_connection.connection_state = true;
+            if(port_device_data->is_connected != param_device_connection.connection_state)
+                dp_port_changed = true;
+            port_device_data->is_connected = param_device_connection.connection_state;
+        }
+        else if (active_port_device_data->device == PAL_DEVICE_IN_AUX_DIGITAL) {
+            param_device_connection.connection_state = false;
+            if(active_port_device_data->is_connected != param_device_connection.connection_state)
+                dp_port_changed = true;
+            active_port_device_data->is_connected = param_device_connection.connection_state;
+        }
+
+        if (dp_port_changed) {
+            ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION,
+                (void*)&param_device_connection,
+                sizeof(pal_param_device_connection_t));
+            if (ret != 0)
+                pa_log_error("pal source set device %d connect status failed %d",
+                  PAL_DEVICE_IN_AUX_DIGITAL, ret);
+        }
+    }
+
+    if (port_device_data->device == PAL_DEVICE_IN_HDMI ||
+          active_port_device_data->device == PAL_DEVICE_IN_HDMI) {
+        param_device_connection.id = PAL_DEVICE_IN_HDMI;
+
+        if (port_device_data->device == PAL_DEVICE_IN_HDMI) {
+            param_device_connection.connection_state = true;
+            if(port_device_data->is_connected != param_device_connection.connection_state)
+                hdmi_port_changed = true;
+            port_device_data->is_connected = param_device_connection.connection_state;
+        }
+        else if (active_port_device_data->device == PAL_DEVICE_IN_HDMI) {
+            param_device_connection.connection_state = false;
+            if(active_port_device_data->is_connected != param_device_connection.connection_state)
+               hdmi_port_changed = true;
+            active_port_device_data->is_connected = param_device_connection.connection_state;
+        }
+
+        if (hdmi_port_changed) {
+            ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION,
+                (void*)&param_device_connection,
+                sizeof(pal_param_device_connection_t));
+            if (ret != 0)
+                pa_log_error("pal source set device %d connect status failed %d",
+                  PAL_DEVICE_IN_HDMI, ret);
+        }
     }
 
     /* Update required port info as per PA active port for next run */
