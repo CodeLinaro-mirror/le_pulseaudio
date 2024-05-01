@@ -67,6 +67,9 @@ static int open_pal_source(pa_pal_source_data *sdata);
 static const uint32_t supported_source_rates[] =
                           {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000};
 
+static const  pa_sample_format_t supported_source_formats[] =
+                                     {PA_SAMPLE_S16LE, PA_SAMPLE_S32LE, PA_SAMPLE_S24LE,PA_SAMPLE_S24_32LE};
+
 static size_t source_get_buffer_size (pa_sample_spec spec,pal_stream_type_t type) {
     uint32_t buffer_duration = PA_DEFAULT_BUFFER_DURATION_MS;
     size_t length = 0;
@@ -86,34 +89,14 @@ static size_t source_get_buffer_size (pa_sample_spec spec,pal_stream_type_t type
     return pa_frame_align(length ,&spec);
 }
 
-static pa_sample_format_t pa_pal_source_find_nearest_supported_pa_format(pa_sample_format_t format) {
-    pa_sample_format_t format1;
-
-    switch(format) {
-        case PA_SAMPLE_S16LE:
-        case PA_SAMPLE_U8:
-        case PA_SAMPLE_ALAW:
-        case PA_SAMPLE_S16BE:
-            format1 = PA_SAMPLE_S16LE;
-            break;
-        case PA_SAMPLE_S24LE:
-        case PA_SAMPLE_S24BE:
-        case PA_SAMPLE_S24_32LE:
-        case PA_SAMPLE_S24_32BE:
-            format1 = PA_SAMPLE_S24LE;
-            break;
-        case PA_SAMPLE_S32LE:
-        case PA_SAMPLE_FLOAT32LE:
-        case PA_SAMPLE_S32BE:
-            format1 = PA_SAMPLE_S32LE;
-            break;
-        default:
-            format1 = PA_SAMPLE_S16LE;
-            pa_log_error(" unsupport format %d hence defaulting to %d",format, format1);
-            break;
-    }
-
-    return format1;
+static bool source_check_supported_format(pa_sample_format_t format) {
+   uint32_t i;
+   for (i = 0; i < ARRAY_SIZE(supported_source_formats) ; i++) {
+        if (format == supported_source_formats[i]) {
+           return true;
+	}
+   }
+   return false;
 }
 
 static uint32_t pa_pal_source_find_nearest_supported_sample_rate(uint32_t sample_rate) {
@@ -208,6 +191,8 @@ static int pa_pal_source_fill_info(pa_pal_source_config *source, pal_source_data
     pal_sdata->index = source->id;
     pal_sdata->buffer_size = (size_t)(source->buffer_size);
     pal_sdata->buffer_count = (size_t)(source->buffer_count);
+    pal_sdata->source_event_id = PA_PAL_NO_EVENT;
+    pal_sdata->cond_ctrl_thread = pa_cond_new();
 
     pal_sdata->standby = true;
 
@@ -232,7 +217,11 @@ static int pa_pal_source_start(pa_pal_source_data *sdata) {
             }
         }
         rc = pal_stream_start(pal_sdata->stream_handle);
-        pa_log_debug("pal_stream_start returned %d", rc);
+        if (rc) {
+            pa_log_debug("pal_stream_start returned %d", rc);
+            if (close_pal_source(sdata->pal_sdata))
+                pa_log_error("could not close source handle %p", sdata->pal_sdata->stream_handle);
+        }
         pal_sdata->standby = false;
     } else {
         pa_log_debug("pal_stream already started");
@@ -279,6 +268,8 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
     pal_param_device_connection_t param_device_connection;
     pa_pal_card_port_device_data *active_port_device_data;
     bool port_changed = false;
+    bool dp_port_changed = false;
+    bool hdmi_port_changed = false;
 
     pa_assert(s);
     pa_assert(p);
@@ -320,6 +311,61 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
          }
     }
 
+    /* For HDMI-in device, need set connect state */
+    if (port_device_data->device == PAL_DEVICE_IN_AUX_DIGITAL ||
+          active_port_device_data->device == PAL_DEVICE_IN_AUX_DIGITAL) {
+        param_device_connection.id = PAL_DEVICE_IN_AUX_DIGITAL;
+
+        if (port_device_data->device == PAL_DEVICE_IN_AUX_DIGITAL) {
+            param_device_connection.connection_state = true;
+            if(port_device_data->is_connected != param_device_connection.connection_state)
+                dp_port_changed = true;
+            port_device_data->is_connected = param_device_connection.connection_state;
+        }
+        else if (active_port_device_data->device == PAL_DEVICE_IN_AUX_DIGITAL) {
+            param_device_connection.connection_state = false;
+            if(active_port_device_data->is_connected != param_device_connection.connection_state)
+                dp_port_changed = true;
+            active_port_device_data->is_connected = param_device_connection.connection_state;
+        }
+
+        if (dp_port_changed) {
+            ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION,
+                (void*)&param_device_connection,
+                sizeof(pal_param_device_connection_t));
+            if (ret != 0)
+                pa_log_error("pal source set device %d connect status failed %d",
+                  PAL_DEVICE_IN_AUX_DIGITAL, ret);
+        }
+    }
+
+    if (port_device_data->device == PAL_DEVICE_IN_HDMI ||
+          active_port_device_data->device == PAL_DEVICE_IN_HDMI) {
+        param_device_connection.id = PAL_DEVICE_IN_HDMI;
+
+        if (port_device_data->device == PAL_DEVICE_IN_HDMI) {
+            param_device_connection.connection_state = true;
+            if(port_device_data->is_connected != param_device_connection.connection_state)
+                hdmi_port_changed = true;
+            port_device_data->is_connected = param_device_connection.connection_state;
+        }
+        else if (active_port_device_data->device == PAL_DEVICE_IN_HDMI) {
+            param_device_connection.connection_state = false;
+            if(active_port_device_data->is_connected != param_device_connection.connection_state)
+               hdmi_port_changed = true;
+            active_port_device_data->is_connected = param_device_connection.connection_state;
+        }
+
+        if (hdmi_port_changed) {
+            ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION,
+                (void*)&param_device_connection,
+                sizeof(pal_param_device_connection_t));
+            if (ret != 0)
+                pa_log_error("pal source set device %d connect status failed %d",
+                  PAL_DEVICE_IN_HDMI, ret);
+        }
+    }
+
     /* Update required port info as per PA active port for next run */
     sdata->pal_sdata->pal_device->id = port_device_data->device;
     if (port_device_data->pal_devicepp_config) {
@@ -340,7 +386,12 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     param_device_connection.id = port_device_data->device;
 
+    sdata->pal_sdata->source_event_id = PA_PAL_DEVICE_SWITCH;
+    pa_mutex_lock(sdata->pal_sdata->mutex);
     ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
+    sdata->pal_sdata->source_event_id = PA_PAL_NO_EVENT;
+    pa_mutex_unlock(sdata->pal_sdata->mutex);
+    pa_cond_signal(sdata->pal_sdata->cond_ctrl_thread, 0);
     if (ret != 0) {
         pa_log_error("pal source switch device failed %d", ret);
         return ret;
@@ -363,7 +414,7 @@ static int pa_pal_source_set_state_in_io_thread_cb(pa_source *s, pa_source_state
 
     if (PA_SOURCE_IS_OPENED(new_state) && !PA_SOURCE_IS_OPENED(s->thread_info.state))
         r = pa_pal_source_start(source_data);
-    else if (new_state == PA_SOURCE_SUSPENDED)
+    else if (new_state == PA_SOURCE_SUSPENDED || (new_state == PA_SINK_UNLINKED && source_data->pal_source_opened))
         r = pa_pal_source_standby(source_data);
 
     return r;
@@ -401,7 +452,7 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
     pa_sample_spec tmp_spec;
     pa_volume_t volume;
     float gain ;
-
+    bool supported_format = false;
     bool supported = false;
     uint32_t i;
     int rc = 0;
@@ -429,9 +480,15 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
             break;
         }
     }
+    supported_format = source_check_supported_format(spec->format);
 
     if (!supported) {
         pa_log_info("Source does not support sample rate of %d Hz", spec->rate);
+        return -1;
+    }
+
+    if (!supported_format) {
+        pa_log_info("Source does not support sample format of %d ", spec->format);
         return -1;
     }
 
@@ -440,6 +497,7 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
 
         old_rate = pa_sdata->source->sample_spec.rate; /*take backup*/
         pa_sdata->source->sample_spec.rate = spec->rate;
+        pa_sdata->source->sample_spec.format = spec->format;
 
         if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_CHANNELS) {
             s->reference_volume.channels = tmp_spec.channels;
@@ -451,12 +509,7 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
 
         port_device_data = PA_DEVICE_PORT_DATA(pa_sdata->source->active_port);
 
-        /* find nearest suitable format */
-        if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH)
-            tmp_spec.format = pa_pal_source_find_nearest_supported_pa_format(spec->format);
-        else
-            tmp_spec.format = pa_sdata->source->sample_spec.format;
-
+        tmp_spec.format = spec->format;
         /* find nearest suitable rate */
         if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE) {
             tmp_spec.rate = pa_pal_source_find_nearest_supported_sample_rate(spec->rate);
@@ -533,13 +586,21 @@ static void pa_pal_source_thread_func(void *userdata) {
             in_buf.buffer = data;
             in_buf.size = chunk.length;
 
-            if ((ret = pal_stream_read(pal_sdata->stream_handle, &in_buf)) <= 0) {
-                pa_log_error("pal_stream_read failed, ret = %d", ret);
-                pa_msleep(pa_bytes_to_usec(in_buf.size, &pa_sdata->source->sample_spec)/1000);
-                ret = in_buf.size;
+            pa_mutex_lock(pal_sdata->mutex);
+            if (pal_sdata->source_event_id != PA_PAL_NO_EVENT) {
+                /* wait for response from ctrl thread */
+                pa_cond_wait(pal_sdata->cond_ctrl_thread, pal_sdata->mutex);
             }
+            if (pal_sdata->stream_handle) {
+                if ((ret = pal_stream_read(pal_sdata->stream_handle, &in_buf)) <= 0) {
+                     pa_log_error("pal_stream_read failed, ret = %d", ret);
+                     pa_msleep(pa_bytes_to_usec(in_buf.size, &pa_sdata->source->sample_spec)/1000);
+                     ret = in_buf.size;
+                }
+                chunk.length = ret;
+            }
+            pa_mutex_unlock(pal_sdata->mutex);
 
-            chunk.length = ret;
 #ifdef SOURCE_DUMP_ENABLED
             pa_log_error(" chunk length %d chunk index %d in_buf.size %d ",chunk.length, chunk.index, ret);
             if ((ret = write(pal_sdata->write_fd, in_buf.buffer, ret)) < 0)
@@ -640,6 +701,7 @@ static int close_pal_source(pa_pal_source_data *sdata) {
     pa_sdata = sdata->pa_sdata;
 
     pa_assert(pal_sdata->stream_handle);
+    pa_mutex_lock(pal_sdata->mutex);
 
     pa_log_debug("closing pal source %p", pal_sdata->stream_handle);
 
@@ -660,6 +722,8 @@ static int close_pal_source(pa_pal_source_data *sdata) {
         pal_sdata->standby = true;
         sdata->pal_source_opened = false;
     }
+
+    pa_mutex_unlock(pal_sdata->mutex);
 #ifdef SOURCE_DUMP_ENABLED
     close(pal_sdata->write_fd);
 #endif
@@ -670,10 +734,12 @@ static int close_pal_source(pa_pal_source_data *sdata) {
 static int restart_pal_source(pa_pal_source_data *sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map) {
     int rc;
     pal_source_data *pal_sdata = NULL;
+    pa_source_data *pa_sdata = NULL;
     pal_audio_fmt_t pal_format;
-
     pa_assert(sdata->pal_sdata);
+    pa_assert(sdata->pa_sdata);
 
+    pa_sdata = sdata->pa_sdata;
     pal_sdata = sdata->pal_sdata;
     if (!pal_sdata->standby) {
         rc = close_pal_source(sdata->pal_sdata);
@@ -688,8 +754,29 @@ static int restart_pal_source(pa_pal_source_data *sdata, pa_encoding_t encoding,
         pa_log_error("%s: unsupported format", __func__);
         return -1;
     }
+    if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH){
+       switch (ss->format) {
+           case PA_SAMPLE_S32LE:
+               sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S32_LE;
+               sdata->pal_sdata->stream_attributes->in_media_config.bit_width = 32;
+               break;
+           case PA_SAMPLE_S24_32LE:
+               sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S24_LE;
+               sdata->pal_sdata->stream_attributes->in_media_config.bit_width = 24;
+               break;
+           case PA_SAMPLE_S24LE:
+               sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S24_3LE;
+               sdata->pal_sdata->stream_attributes->in_media_config.bit_width = 24;
+               break;
+           default:
+               sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_DEFAULT_PCM;
+               sdata->pal_sdata->stream_attributes->in_media_config.bit_width = 16;
+               break;
+       }
+    }
+    else
+        sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = pal_format;
 
-    sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = pal_format;
     sdata->pal_sdata->stream_attributes->in_media_config.sample_rate = ss->rate;
     if (!pa_pal_channel_map_to_pal(map, &sdata->pal_sdata->stream_attributes->in_media_config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
@@ -715,6 +802,8 @@ static int free_pal_source(pal_source_data *pal_sdata) {
         }
     }
 
+    pa_mutex_free(pal_sdata->mutex);
+    pa_cond_free(pal_sdata->cond_ctrl_thread);
     pa_xfree(pal_sdata->stream_attributes);
     pa_xfree(pal_sdata->pal_device);
     pa_xfree(pal_sdata);
@@ -728,6 +817,7 @@ static int create_pal_source(pa_pal_source_config *source, pa_pal_card_port_devi
 
     sdata->pal_sdata = pa_xnew0(pal_source_data, 1);
 
+    sdata->pal_sdata->mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
     rc = pa_pal_source_fill_info(source, sdata->pal_sdata, port_device_data);
     if (rc) {
         pa_log_error("pal source init failed, error %d", rc);

@@ -68,8 +68,12 @@ typedef struct {
     int index;
 
     bool standby;
+    pa_mutex *mutex;
 
     pa_fdsem *pal_fdsem;
+    pa_cond *cond_ctrl_thread;
+    pa_pal_ctrl_event_t sink_event_id;
+
     pa_encoding_t encoding;
     bool compressed;
     pal_snd_dec_t *pal_snd_dec;
