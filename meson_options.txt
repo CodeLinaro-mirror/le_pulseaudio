@@ -7,6 +7,9 @@ option('pal-support-card-status',
 option('pal-support-cutils',
        type : 'boolean', value : true,
        description : 'pal-support-cutils')
+option('pa-support-compress-volumeset',
+       type : 'boolean', value : false,
+       description : 'pa-support-compress-volumeset')
 option('daemon',
        type : 'boolean', value : true,
        description : 'Enable building and installation of pulseaudio daemon and supporting configuration files')
@@ -99,12 +102,18 @@ option('with-qsthw',
 option('with-qal',
        type : 'string',
        description : 'Optional qal module support')
+option('with-pal',
+       type : 'string',
+       description : 'Optional pal module support')
 option('enable-pal-service',
        type : 'string',
        description : 'Enable qal module as server')
 option('with-qal-voiceui',
        type : 'string',
        description : 'Optional qal voiceui module support')
+option('with-pal-voiceui',
+       type : 'string',
+       description : 'Optional pal voiceui module support')
 option('asyncns',
        type : 'feature', value : 'auto',
        description : 'Optional Async DNS support')

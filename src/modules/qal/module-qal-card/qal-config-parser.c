@@ -256,6 +256,57 @@ exit:
     return ret;
 }
 
+static int pa_pal_config_parse_avoid_processing(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = NULL;
+    pa_pal_sink_config *sink = NULL;
+    pa_pal_source_config *source = NULL;
+    char **items = NULL;
+    char *item = NULL;
+    char *name = NULL;
+    int i = 0;
+    int ret = -1;
+
+    pa_assert(state);
+    pa_assert(state->rvalue);
+    pa_assert(state->userdata);
+
+    config_data = state->userdata;
+    items = pa_split_spaces_strv(state->rvalue);
+
+    if (!items) {
+        pa_log_error("%s: [%s:%u] flag list missing", __func__, state->filename, state->lineno);
+        goto exit;
+    }
+
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
+        name = sink->name;
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
+        name = source->name;
+    } else {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    /* add list to sink/source */
+    while ((item = items[i++])) {
+        if (sink) {
+            sink->avoid_config_processing |= pa_pal_utils_get_config_id_from_string(item);
+            pa_log_debug("%s: Adding %s to the list of configs to avoid processing for sink %s", __func__, item, name);
+        } else {
+            source->avoid_config_processing |= pa_pal_utils_get_config_id_from_string(item);
+            pa_log_debug("%s: Adding %s to the list of configs to avoid processing for source %s", __func__, item, name);
+        }
+    }
+
+    ret = 0;
+
+exit:
+    if (items)
+        pa_xstrfreev(items);
+
+    return ret;
+}
+
 static int pa_pal_config_parse_default_encoding(pa_config_parser_state *state) {
     pa_pal_config_data* config_data = state->userdata;
     pa_pal_sink_config *sink = NULL;
@@ -1532,6 +1583,7 @@ pa_pal_config_data* pa_pal_config_parse_new(char *dir, char *conf_file_name) {
 
         /* common between sink and source*/
         { "type",                        pa_pal_config_parse_type,                                NULL, NULL },
+        { "avoid-processing",            pa_pal_config_parse_avoid_processing,                    NULL, NULL },
         { "alternate-sample-rate",       pa_pal_config_parse_alternative_sample_rate,             NULL, NULL },
 
         /* common between profile, sink and source */

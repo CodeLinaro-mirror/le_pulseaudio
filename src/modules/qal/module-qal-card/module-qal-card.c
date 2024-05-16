@@ -104,7 +104,6 @@ struct userdata {
     char *conf_file_name;
 };
 
-
 typedef struct {
     pa_pal_jack_handle_t *handle;
     pa_pal_jack_type_t jack_type;
@@ -159,6 +158,11 @@ static void pa_pal_card_create_ports(struct userdata *u, pa_hashmap *ports, pa_h
         port_device_data->default_map = config_port->default_map;
         port_device_data->default_spec.channels = config_port->default_map.channels;
         port_device_data->default_spec.rate = config_port->default_spec.rate;
+        port_device_data->is_connected = (config_port->available == PA_AVAILABLE_YES) ? true : false;
+        port_device_data->is_connected = false;
+        if ((config_port->available == PA_AVAILABLE_YES) && (strstr(config_port->name, "speaker") ||
+                strstr(config_port->name, "handset-mic") || strstr(config_port->name, "speaker-mic")))
+            port_device_data->is_connected = true;
 
         if (config_port->pal_devicepp_config)
             port_device_data->pal_devicepp_config = pa_xstrdup(config_port->pal_devicepp_config);
@@ -209,6 +213,16 @@ static void pa_pal_card_create_profiles_and_add_ports(struct userdata *u, pa_has
     }
 }
 
+static void pa_pal_card_update_extra_conf_for_port(pa_pal_jack_type_t jack_type,
+                    void *conf, pa_device_port *port) {
+    if ((jack_type == PA_PAL_JACK_TYPE_USB_OUT) || (jack_type == PA_PAL_JACK_TYPE_USB_IN)) {
+        if (conf)
+            pa_assert_se(pa_proplist_set(port->proplist, PA_PROP_USB_ADDR, conf,
+                                         sizeof(pa_pal_jack_usb_device_address_t)) >= 0);
+        else
+          pa_proplist_unset(port->proplist, PA_PROP_USB_ADDR);
+    }
+}
 
 static int pa_pal_card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     pa_log_error("profile change not supported yet");
@@ -485,16 +499,16 @@ static void pa_pal_card_add_dynamic_source(pa_device_port *port, pa_pal_jack_out
 
     pa_pal_card_source_info *source_info = NULL;
 
-    pa_pal_source_config *source;
+    pa_pal_source_config *source = NULL;
     pa_pal_source_config new_source;
 
-    pa_idxset *requested_formats;
-    pa_format_info *requested_format;
+    pa_idxset *requested_formats = NULL;
+    pa_format_info *requested_format = NULL;
 
-    pa_format_info *current_format;
+    pa_format_info *current_format = NULL;
     pa_format_info *config_format = NULL;
 
-    pa_idxset *current_formats;
+    pa_idxset *current_formats = NULL;
 
     pa_sample_spec ss;
     pa_channel_map map;
@@ -503,7 +517,7 @@ static void pa_pal_card_add_dynamic_source(pa_device_port *port, pa_pal_jack_out
     char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
 
-    void *state;
+    void *state = NULL;
     uint32_t i;
 
     pa_assert(port);
@@ -746,16 +760,16 @@ static void pa_pal_card_add_dynamic_sink(pa_device_port *port, pa_pal_jack_out_c
 
     pa_pal_card_sink_info *sink_info = NULL;
 
-    pa_pal_sink_config *sink;
+    pa_pal_sink_config *sink = NULL;
     pa_pal_sink_config new_sink;
 
-    pa_idxset *requested_formats;
-    pa_format_info *requested_format;
+    pa_idxset *requested_formats = NULL;
+    pa_format_info *requested_format = NULL;
 
-    pa_format_info *current_format;
-    pa_format_info *config_format;
+    pa_format_info *current_format = NULL;
+    pa_format_info *config_format = NULL;
 
-    pa_idxset *current_formats;
+    pa_idxset *current_formats = NULL;
 
     pa_sample_spec ss;
     pa_channel_map map;
@@ -764,7 +778,7 @@ static void pa_pal_card_add_dynamic_sink(pa_device_port *port, pa_pal_jack_out_c
     char fmt[PA_FORMAT_INFO_SNPRINT_MAX];
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
 
-    void *state;
+    void *state = NULL;
     uint32_t i;
 
     pa_assert(port);
@@ -907,8 +921,12 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
         port = pa_hashmap_get(u->card->ports, port_name);
         if (port) {
             if (event == PA_PAL_JACK_AVAILABLE) {
+                pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
+                        (void *)event_data->pa_pal_jack_info, port);
                 pa_device_port_set_available(port, status);
             } else if (event == PA_PAL_JACK_UNAVAILABLE) {
+                pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
+                        (void *)event_data->pa_pal_jack_info, port);
                 pa_device_port_set_available(port, status);
 
                 if (port->direction == PA_DIRECTION_INPUT) {
@@ -916,7 +934,6 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
                 } else if (port->direction == PA_DIRECTION_OUTPUT) {
                     pa_pal_card_remove_dynamic_sink(port, u);
                 }
-
             } else if ((event == PA_PAL_JACK_CONFIG_UPDATE) && (port->available == PA_AVAILABLE_YES)) {
                 if (port->direction == PA_DIRECTION_INPUT) {
                     jack_info = pa_hashmap_get(u->jacks, port_name);
@@ -942,7 +959,6 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
                     pa_pal_card_set_source_param(port, u, jack_param);
                 else if (port->direction == PA_DIRECTION_OUTPUT)
                     pa_pal_card_set_sink_param(port, u, jack_param);
-
             } else {
                 pa_log_error("unsupported event %d", event);
             }
@@ -1039,6 +1055,9 @@ static void pa_qal_card_disable_jack_detection(struct userdata *u, pa_module *m)
         external_jack = false;
         port_name = pa_pal_util_get_port_name_from_jack_type(jack_info->jack_type);
         config_port = pa_hashmap_get(u->config_data->ports, port_name);
+
+        pa_pal_card_update_extra_conf_for_port(jack_info->jack_type, NULL,
+                pa_hashmap_get(u->card->ports, port_name));
 
         if (config_port->detection) {
             if (pa_streq(config_port->detection, "external"))
