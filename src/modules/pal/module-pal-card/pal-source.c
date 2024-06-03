@@ -217,11 +217,8 @@ static int pa_pal_source_start(pa_pal_source_data *sdata) {
             }
         }
         rc = pal_stream_start(pal_sdata->stream_handle);
-        if (rc) {
+        if (rc)
             pa_log_debug("pal_stream_start returned %d", rc);
-            if (close_pal_source(sdata->pal_sdata))
-                pa_log_error("could not close source handle %p", sdata->pal_sdata->stream_handle);
-        }
         pal_sdata->standby = false;
     } else {
         pa_log_debug("pal_stream already started");
