@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -799,9 +800,12 @@ static void pa_qahw_source_io_thread_func(void *userdata) {
         if (timer_enabled) {
             if (pa_rtpoll_timer_elapsed(pa_sdata->rtpoll)) {
                 if (source_data->qahw_sdata) {
-                    pa_log_info("%s: timer exceeded. unblock read() by calling stop()", __func__);
-                    qahw_in_stop(qahw_sdata->in_handle);
-                    pa_atomic_store(&qahw_sdata->first_read, 0);
+                    /* Avoiding calling qahw_in_stop(),if it already has been called as part of source stop_qahw_source() */
+                    if (!pa_atomic_load(&qahw_sdata->stopped)) {
+                        pa_log_info("%s: timer exceeded. unblock read() by calling stop()", __func__);
+                        qahw_in_stop(qahw_sdata->in_handle);
+                        pa_atomic_store(&qahw_sdata->first_read, 0);
+                    }
                 }
             }
 
@@ -864,6 +868,10 @@ static int open_qahw_source(qahw_module_handle_t *module_handle, pa_encoding_t e
 
     if (buffer_duration > 0)
         qahw_sdata->config.offload_info.duration_us = buffer_duration * 1000;
+
+#ifdef QAHW_UPDATE_DEVICE_LIST_ENABLED
+    qahw_sdata->device_url = "input_stream";
+#endif
 
     rc = qahw_open_input_stream(module_handle, qahw_sdata->handle, qahw_sdata->devices, &qahw_sdata->config, &qahw_sdata->in_handle, qahw_sdata->flags,
                                 qahw_sdata->device_url, qahw_sdata->source_type);
@@ -946,8 +954,18 @@ static int close_qahw_source(qahw_source_data *qahw_sdata) {
     if (PA_UNLIKELY(qahw_sdata->in_handle == NULL)) {
         pa_log_error("Invalid source handle %p", qahw_sdata->in_handle);
     } else {
-        pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
-                                      QAHW_SOURCE_MESSAGE_CLOSE_INPUT, &rc, 0, NULL);
+        if (qahw_sdata->qahw_thread) {
+            pa_log_debug("%s, QAHW thread active: True", __func__);
+            pa_asyncmsgq_send(qahw_sdata->qahw_thread_mq.inq, PA_MSGOBJECT(qahw_sdata->qahw_msg),
+                                          QAHW_SOURCE_MESSAGE_CLOSE_INPUT, &rc, 0, NULL);
+        } else {
+            pa_log_debug("%s, QAHW thread active: False", __func__);
+            rc = qahw_close_input_stream(qahw_sdata->in_handle);
+            if (PA_UNLIKELY(rc)) {
+                pa_log_error("%s, could not close source handle %p, error  %d", __func__, qahw_sdata->in_handle, rc);
+            }
+            qahw_sdata->in_handle = NULL;
+        }
         pa_log_debug("%s, Ack closing qahw source rc: %d", __func__, rc);
     }
 #ifdef SOURCE_DUMP_ENABLED
@@ -1059,7 +1077,7 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
 
     pa_source_new_data_set_name(&new_data, source_name);
 
-    pa_log_info("ss->rate %d ss->channels %d", ss->rate, ss->channels);
+    pa_log_info("ss->rate %d ss->channels %d, map->channels: %d", ss->rate, ss->channels, map->channels);
 
     if (source_data->qahw_sdata->config.format == AUDIO_FORMAT_DSD) {
         ss->channels = 1;
@@ -1284,6 +1302,7 @@ int pa_qahw_source_create(pa_module *m, pa_card *card, const char *driver, qahw_
     }
 
     sdata->qahw_sdata->qahw_source_mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
+    sdata->qahw_sdata->qahw_thread = NULL;
 
     rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate,
                           source->avoid_config_processing, card, ports, driver, sdata, source->proplist, source->priority);
@@ -1320,7 +1339,6 @@ exit:
 static int stop_qahw_source(qahw_source_data *qahw_sdata) {
     int rc;
     bool got_lock = false;
-
     pa_assert(qahw_sdata);
 
     pa_log_debug("%s", __func__);
