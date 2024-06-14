@@ -7,6 +7,9 @@ option('pal-support-card-status',
 option('pal-support-cutils',
        type : 'boolean', value : true,
        description : 'pal-support-cutils')
+option('pa-support-compress-volumeset',
+       type : 'boolean', value : false,
+       description : 'pa-support-compress-volumeset')
 option('daemon',
        type : 'boolean', value : true,
        description : 'Enable building and installation of pulseaudio daemon and supporting configuration files')

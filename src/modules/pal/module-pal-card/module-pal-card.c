@@ -63,6 +63,7 @@ void load_pal_service();
 #define PAL_CARD_NAME_PREFIX "pal."
 #define DEFAULT_PROFILE "default"
 #define DEFAULT_SCO_SAMPLE_RATE 16000
+#define SCO_SAMPLE_RATE_8K 8000
 
 PA_MODULE_AUTHOR("QTI");
 PA_MODULE_DESCRIPTION("pal card module");
@@ -691,10 +692,17 @@ static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *
             ret = pa_pal_set_device_connection_state(pa_pal_util_port_name_to_enum(port->name), connection_state);
             if(ret)
                 pa_log_error("Set source device connection params failed ret=%d", ret);
-
+            ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
+            break;
+        case JACK_PARAM_KEY_DEVICE_SAMPLERATE:
             if (!strcmp(port->name, "btsco-in")) {
                 /* setting common params for SCO  mode */
-                ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
+                if (!strcmp(kvpair.value, "16000"))
+                    ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
+                else if (!strcmp(kvpair.value, "8000"))
+                    ret = pa_pal_set_sco_params(SCO_SAMPLE_RATE_8K);
+                else
+                    pa_log_error("sample rate %s not supported", kvpair.value);
                 if(ret)
                     pa_log_error("Set common sco params failed. ret=%d", ret);
             }
@@ -920,12 +928,14 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
             } else if ((event == PA_PAL_JACK_CONFIG_UPDATE) && (port->available == PA_AVAILABLE_YES)) {
                 if (port->direction == PA_DIRECTION_INPUT) {
                     jack_info = pa_hashmap_get(u->jacks, port_name);
-                    jack_info->jack_curr_config = *((pa_pal_jack_out_config *)event_data->pa_pal_jack_info);
+                    if (jack_info)
+                        jack_info->jack_curr_config = *((pa_pal_jack_out_config *)event_data->pa_pal_jack_info);
 
                     pa_pal_card_add_dynamic_source(port, (pa_pal_jack_out_config *)event_data->pa_pal_jack_info, u);
                 } else if (port->direction == PA_DIRECTION_OUTPUT) {
                     jack_info = pa_hashmap_get(u->jacks, port_name);
-                    jack_info->jack_curr_config = *((pa_pal_jack_out_config *)event_data->pa_pal_jack_info);
+                    if (jack_info)
+                        jack_info->jack_curr_config = *((pa_pal_jack_out_config *)event_data->pa_pal_jack_info);
 
                     pa_pal_card_add_dynamic_sink(port, (pa_pal_jack_out_config *)event_data->pa_pal_jack_info, u);
                 }
@@ -1040,12 +1050,12 @@ static void pa_pal_card_disable_jack_detection(struct userdata *u, pa_module *m)
         port_name = pa_pal_util_get_port_name_from_jack_type(jack_info->jack_type);
         config_port = pa_hashmap_get(u->config_data->ports, port_name);
 
-        if (config_port->detection) {
+        if (config_port && config_port->detection) {
             if (pa_streq(config_port->detection, "external"))
                 external_jack = true;
         }
 
-        if (config_port->port_type) {
+        if (config_port && config_port->port_type) {
             /* no need to deregister secondary port */
             if (pa_streq(config_port->port_type, "secondary") && !external_jack)
                 continue;
@@ -1175,6 +1185,13 @@ void pa__done(pa_module *m) {
     pa_pal_module_extn_deinit();
     pa_pal_loopback_deinit();
 
+    if (u->sources) {
+        PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
+            pa_pal_card_free_sources(u, profile->name);
+
+        pa_hashmap_free(u->sources);
+    }
+
     if (u->sinks) {
         PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
             pa_pal_card_free_sinks(u, profile->name);
@@ -1183,13 +1200,6 @@ void pa__done(pa_module *m) {
     }
 
     pa_pal_sink_module_deinit();
-
-    if (u->sources) {
-        PA_HASHMAP_FOREACH(profile, u->card->profiles, state)
-            pa_pal_card_free_sources(u, profile->name);
-
-        pa_hashmap_free(u->sources);
-    }
 
     pa_pal_card_disable_jack_detection(u, m);
 
