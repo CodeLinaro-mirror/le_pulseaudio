@@ -65,6 +65,9 @@ typedef struct {
     int write_fd;
 
     pa_mutex *mutex;
+    pa_cond *cond_ctrl_thread;
+    pa_pal_ctrl_event_t source_event_id;
+
     size_t buffer_size;
     size_t buffer_count;
     int index;

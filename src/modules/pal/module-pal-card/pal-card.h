@@ -125,6 +125,12 @@ typedef enum {
     PA_PAL_CARD_USECASE_TYPE_DYNAMIC = 1,
 } pa_pal_card_usecase_type_t;
 
+typedef enum {
+    PA_PAL_NO_EVENT = -1,
+    PA_PAL_VOLUME_APPLY = 1,
+    PA_PAL_DEVICE_SWITCH,
+} pa_pal_ctrl_event_t;
+
 typedef struct {
     pal_device_id_t device;
     pa_pal_card_usecase_id_t usecase_id;

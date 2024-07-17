@@ -63,6 +63,7 @@ void load_pal_service();
 #define PAL_CARD_NAME_PREFIX "pal."
 #define DEFAULT_PROFILE "default"
 #define DEFAULT_SCO_SAMPLE_RATE 16000
+#define SCO_SAMPLE_RATE_8K 8000
 
 PA_MODULE_AUTHOR("QTI");
 PA_MODULE_DESCRIPTION("pal card module");
@@ -691,10 +692,17 @@ static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *
             ret = pa_pal_set_device_connection_state(pa_pal_util_port_name_to_enum(port->name), connection_state);
             if(ret)
                 pa_log_error("Set source device connection params failed ret=%d", ret);
-
+            ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
+            break;
+        case JACK_PARAM_KEY_DEVICE_SAMPLERATE:
             if (!strcmp(port->name, "btsco-in")) {
                 /* setting common params for SCO  mode */
-                ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
+                if (!strcmp(kvpair.value, "16000"))
+                    ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
+                else if (!strcmp(kvpair.value, "8000"))
+                    ret = pa_pal_set_sco_params(SCO_SAMPLE_RATE_8K);
+                else
+                    pa_log_error("sample rate %s not supported", kvpair.value);
                 if(ret)
                     pa_log_error("Set common sco params failed. ret=%d", ret);
             }
