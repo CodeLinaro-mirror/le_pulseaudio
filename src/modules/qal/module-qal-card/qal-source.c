@@ -1018,6 +1018,11 @@ int pa_pal_source_create(pa_module *m, pa_card *card, const char *driver, const 
         goto exit;
     }
 
+    rc = pa_pal_fill_dynamic_port_info(card_port, sdata->pal_sdata->pal_device);
+    if (PA_UNLIKELY(rc)) {
+        pa_log_error("fill dynamic port(%s) info failed %d", card_port->name, rc);
+    }
+
     rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate, card, source->avoid_config_processing, ports, driver, sdata);
     pa_hashmap_free(ports);
     if (PA_UNLIKELY(rc)) {

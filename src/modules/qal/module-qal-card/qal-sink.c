@@ -1513,6 +1513,11 @@ int pa_pal_sink_create(pa_module *m, pa_card *card, const char *driver, const ch
         goto exit;
     }
 
+    rc = pa_pal_fill_dynamic_port_info(card_port, sdata->pal_sdata->pal_device);
+    if (PA_UNLIKELY(rc)) {
+        pa_log_error("fill dynamic port(%s) info failed %d", card_port->name, rc);
+    }
+
     rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &sink->default_spec, &sink->default_map, sink->use_hw_volume, sink->alternate_sample_rate, card, sink->avoid_config_processing, ports, driver, sdata);
     pa_hashmap_free(ports);
     if (PA_UNLIKELY(rc)) {

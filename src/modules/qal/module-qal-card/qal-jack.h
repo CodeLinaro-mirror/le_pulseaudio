@@ -104,5 +104,6 @@ typedef pa_hook_result_t (* pa_pal_jack_callback_t) (void *dummy __attribute__((
 pa_pal_jack_handle_t *pa_pal_jack_register_event_callback(pa_pal_jack_type_t jack_type, pa_pal_jack_callback_t callback, pa_module *m,
                          pa_pal_jack_in_config *jack_in_config, void *client_data, bool is_external);
 bool pa_pal_jack_deregister_event_callback(pa_pal_jack_handle_t *handle, pa_module *m, bool is_external);
+int pa_pal_fill_dynamic_port_info(pa_device_port *card_port, struct pal_device *pal_device);
 
 #endif
