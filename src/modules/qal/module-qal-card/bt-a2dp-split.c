@@ -57,7 +57,7 @@ int init_btsink(btsink_t **btsink, pa_pal_loopback_config *loopback_conf)
     btsink_p->volume = 10.0;
     *btsink = btsink_p;
 
-    if (pa_pal_set_device_connection_state(config_port_in->device, true)) {
+    if (pa_pal_device_connection_state(NULL, config_port_in->device, true)) {
         pa_log_error("bta2dp set_device_connection failed");
         free(btsink_p);
         *btsink = NULL;
@@ -199,7 +199,7 @@ void deinit_btsink(btsink_t *btsink, pa_pal_loopback_config *loopback_conf)
     pa_assert(loopback_conf);
     config_port_in = pa_hashmap_first(loopback_conf->in_ports);
 
-    if (config_port_in && pa_pal_set_device_connection_state(config_port_in->device, false)) {
+    if (config_port_in && pa_pal_device_connection_state(NULL, config_port_in->device, false)) {
         pa_log_error("%s: set_device_connection failed for device id %u", __func__,
                 config_port_in->device);
     }

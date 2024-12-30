@@ -270,7 +270,6 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
     pal_param_device_connection_t param_device_connection;
     pa_device_port *switch_port = NULL;
     pa_pal_card_port_device_data *switch_port_device_data = NULL;
-    bool port_changed = false;
     size_t nbytes = 0;
     int ret = 0;
 
@@ -318,25 +317,7 @@ static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
         goto end;
     }
 
-    pa_pal_util_port_change(port_device_data, active_port_device_data, param_device_connection.id,
-            &param_device_connection, &port_changed);
-    pa_log_debug("port_changed %d param_device_connection(id %d connection_state %d) switch_port_device_data(is_connected %d)",
-            port_changed, param_device_connection.id, param_device_connection.connection_state,
-            switch_port_device_data->is_connected);
-    if (port_changed &&
-            ((param_device_connection.connection_state && !switch_port_device_data->is_connected) ||
-            ((!param_device_connection.connection_state) && switch_port_device_data->is_connected))) {
-        ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION, (void*)&param_device_connection,
-                                                sizeof(pal_param_device_connection_t));
-        if (PA_UNLIKELY(ret)) {
-            pa_log_error("Set device %d %s failed %d", param_device_connection.id,
-                                            param_device_connection.connection_state ? "connect" : "disconnect", ret);
-            goto end;
-        }
-        switch_port_device_data->is_connected = param_device_connection.connection_state;
-    }
-
-    if (PA_SINK_IS_RUNNING(s->state)) {
+    if (PA_SOURCE_IS_RUNNING(s->state)) {
         pa_mutex_lock(sdata->pal_sdata->mutex);
         ret = pa_pal_util_set_device(sdata->pal_sdata->stream_handle, port_device_data->device,
                                                             &param_device_connection);
