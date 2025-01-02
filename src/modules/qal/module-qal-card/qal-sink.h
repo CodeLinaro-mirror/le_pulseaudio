@@ -68,6 +68,7 @@ typedef struct {
     int index;
 
     bool standby;
+    pa_mutex *mutex;
 
     pa_fdsem *pal_fdsem;
     pa_encoding_t encoding;
