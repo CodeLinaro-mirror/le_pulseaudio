@@ -213,7 +213,9 @@ static void pa_pal_sink_set_volume_cb(pa_sink *s) {
         volume_data->volume_pair[i].vol = gain;
     }
 
-    rc = pal_stream_set_volume(sdata->pal_sdata->stream_handle, volume_data);
+    pa_mutex_lock(pal_sdata->mutex);
+    rc = pal_stream_set_volume(pal_sdata->stream_handle, volume_data);
+    pa_mutex_unlock(pal_sdata->mutex);
     if (rc)
         pa_log_error("pal stream : unable to set volume error %d\n", rc);
     else
@@ -527,8 +529,10 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     }
 
     if (PA_SINK_IS_RUNNING(s->state)) {
+        pa_mutex_lock(sdata->pal_sdata->mutex);
         ret = pa_pal_util_set_device(sdata->pal_sdata->stream_handle, port_device_data->device,
                                                             &param_device_connection);
+        pa_mutex_unlock(sdata->pal_sdata->mutex);
         if (PA_UNLIKELY(ret)) {
             pa_log_error("Set device %d of stream_handle %p failed %d", param_device_connection.id,
                                             sdata->pal_sdata->stream_handle, ret);
@@ -836,7 +840,7 @@ static void pa_pal_sink_thread_func(void *userdata) {
     memset(&chunk, 0, sizeof(pa_memchunk));
 
     void *data;
-    int rc;
+    int rc = -1;
 
     pa_assert(userdata);
 
@@ -884,7 +888,10 @@ static void pa_pal_sink_thread_func(void *userdata) {
                 out_buf.buffer = (uint8_t *)out_buf.buffer + sink_buffer_size - out_buf.size;
             }
 
-            rc = pal_stream_write(pal_sdata->stream_handle, &out_buf);
+            pa_mutex_lock(pal_sdata->mutex);
+            if (pal_sdata->stream_handle)
+                rc = pal_stream_write(pal_sdata->stream_handle, &out_buf);
+            pa_mutex_unlock(pal_sdata->mutex);
 
             if (rc < 0) {
                 pa_log_error("Could not write data: %d", rc);
@@ -1130,6 +1137,7 @@ static int close_pal_sink(pa_pal_sink_data *sdata) {
     pa_sdata = sdata->pa_sdata;
 
     pa_assert(pal_sdata->stream_handle);
+    pa_mutex_lock(pal_sdata->mutex);
 
     pa_log_debug("closing pal sink %p", pal_sdata->stream_handle);
 
@@ -1152,6 +1160,7 @@ static int close_pal_sink(pa_pal_sink_data *sdata) {
         sdata->pal_sink_opened = false;
     }
 
+    pa_mutex_unlock(pal_sdata->mutex);
 #ifdef SINK_DUMP_ENABLED
     close(pal_sdata->write_fd);
 #endif
@@ -1213,6 +1222,7 @@ static int free_pal_sink(pa_pal_sink_data *sdata) {
         }
     }
 
+    pa_mutex_free(sdata->pal_sdata->mutex);
     pa_xfree(sdata->pal_sdata->stream_attributes);
     pa_xfree(sdata->pal_sdata->pal_snd_dec);
     pa_xfree(sdata->pal_sdata->pal_device);
@@ -1226,7 +1236,7 @@ static int create_pal_sink(pa_pal_sink_config *sink, pa_pal_card_port_device_dat
     int rc = 0;
 
     sdata->pal_sdata = pa_xnew0(pal_sink_data, 1);
-
+    sdata->pal_sdata->mutex = pa_mutex_new(false /* recursive  */, false /* inherit_priority */);
     sdata->pal_sdata->pal_fdsem = pa_fdsem_new();
     if (!sdata->pal_sdata->pal_fdsem) {
         pa_log_error("Could not create pal fdsem");
