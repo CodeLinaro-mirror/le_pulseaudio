@@ -1000,6 +1000,7 @@ static void pa_qal_card_enable_jack_detection(struct userdata *u) {
     /* register for jack detection for dynamic port, PA_AVAILABLE_NO means its dynamic port */
     PA_HASHMAP_FOREACH(port, u->card->ports, state) {
         external_jack = false;
+        jack_in_config = NULL;
 
         config_port = pa_hashmap_get(u->config_data->ports, port->name);
         if (!config_port)
