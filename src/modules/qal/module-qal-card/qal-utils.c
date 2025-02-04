@@ -30,6 +30,7 @@
 #include <math.h>
 
 #include "qal-utils.h"
+#include "qal-jack-format.h"
 
 #define PA_PAL_SINK_PROP_FORMAT_FLAG    "stream-format"
 
@@ -379,10 +380,48 @@ int pa_pal_set_volume(pal_stream_handle_t *handle, uint32_t num_channels, float 
     return ret;
 }
 
-int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connection_state)
+int pa_pal_device_connection_state(pa_device_port *port, pal_device_id_t pal_device_id, bool connection_state)
 {
     int ret = 0;
     pal_param_device_connection_t param_device_connection;
+    pa_pal_card_port_device_data *port_device_data;
+    size_t nbytes = 0;
+    pal_device_id_t pal_dev_id = 0;
+
+    if (!port && !pal_device_id) {
+        pa_log_error("%s: both port and pal_dev_id are null", __func__);
+        ret = -EINVAL;
+        goto end;
+    }
+
+    if (port) {
+        pal_dev_id = pa_pal_util_port_name_to_enum(port->name);
+        port_device_data = PA_DEVICE_PORT_DATA(port);
+
+        switch (pal_dev_id) {
+            case PAL_DEVICE_OUT_AUX_DIGITAL:
+                param_device_connection.device_config.dp_config.controller = 0;
+                param_device_connection.device_config.dp_config.stream = 0;
+                break;
+            case PAL_DEVICE_OUT_USB_HEADSET:
+            case PAL_DEVICE_IN_USB_HEADSET:
+                pa_pal_jack_usb_device_address_t *usb_addr;
+
+                ret = pa_proplist_get(port->proplist, PA_PROP_USB_ADDR, (void *)&usb_addr, &nbytes);
+                if (PA_UNLIKELY(ret)) {
+                    pa_log_error("Get usb device address failed %d", ret);
+                    goto end;
+                } else {
+                    param_device_connection.device_config.usb_addr.card_id = usb_addr->card_id;
+                    param_device_connection.device_config.usb_addr.device_num = usb_addr->device_num;
+                }
+                break;
+            default:
+                break;
+        }
+    } else {
+        pal_dev_id = pal_device_id;
+    }
 
     param_device_connection.id = pal_dev_id;
     param_device_connection.connection_state = connection_state;
@@ -392,8 +431,13 @@ int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connecti
             sizeof(pal_param_device_connection_t));
     if (ret != 0) {
         pa_log_error("Set PAL_PARAM_ID_DEVICE_CONNECTION for %d failed", param_device_connection.id);
+        goto end;
     }
 
+    if (port_device_data)
+        port_device_data->is_connected = connection_state;
+
+end:
     return ret;
 }
 
