@@ -91,12 +91,12 @@ int init_btsco(btsco_t **btsco, pa_pal_loopback_config **loopback_config)
     btsco_p->sample_rate = config_port_in->default_spec.rate =
         config_port_out->default_spec.rate;
 
-    if (pa_pal_set_device_connection_state(config_port_in->device, true)) {
+    if (pa_pal_device_connection_state(NULL, config_port_in->device, true)) {
         pa_log_error("%s: set_device_connection failed for pal device %d", __func__,
                 config_port_in->device);
         goto error_1;
     }
-    if (pa_pal_set_device_connection_state(config_port_out->device, true)) {
+    if (pa_pal_device_connection_state(NULL, config_port_out->device, true)) {
         pa_log_error("%s: set_device_connection failed for pal device %d", __func__,
                 config_port_out->device);
         goto error_1;
@@ -346,13 +346,13 @@ void deinit_btsco(btsco_t *btsco, pa_pal_loopback_config **loopback_config)
         pa_log_error("%s: set_params failed for btsco", __func__);
     }
 
-    if (config_port_in && pa_pal_set_device_connection_state(config_port_in->device,
-                false)) {
+    if (config_port_in && pa_pal_device_connection_state(NULL,
+                config_port_in->device, false)) {
         pa_log_error("%s: set_device_connection failed for pal device %d", __func__,
                 config_port_in->device);
     }
-    if (config_port_out && pa_pal_set_device_connection_state(config_port_out->device,
-                false)) {
+    if (config_port_out && pa_pal_device_connection_state(NULL,
+                config_port_out->device, false)) {
         pa_log_error("%s: set_device_connection failed for pal device %d", __func__,
                 config_port_out->device);
     }

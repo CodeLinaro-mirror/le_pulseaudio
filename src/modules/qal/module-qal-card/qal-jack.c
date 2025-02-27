@@ -39,6 +39,7 @@
 #include "qal-jack.h"
 #include "qal-jack-common.h"
 #include "qal-utils.h"
+#include "qal-jack-format.h"
 
 struct userdata {
     struct pa_pal_jack_data **jdata;
@@ -183,4 +184,30 @@ bool pa_pal_jack_deregister_event_callback(pa_pal_jack_handle_t *jack_handle, pa
     }
 
     return true;
+}
+
+int pa_pal_fill_dynamic_port_info(pa_device_port *card_port, struct pal_device *pal_device) {
+    pa_pal_jack_usb_device_address_t *usb_addr;
+    pa_pal_card_port_device_data *port_device_data;
+    size_t nbytes = 0;
+    int rc = 0;
+
+    port_device_data = PA_DEVICE_PORT_DATA(card_port);
+
+    switch (port_device_data->device) {
+        case PAL_DEVICE_OUT_USB_HEADSET:
+        case PAL_DEVICE_IN_USB_HEADSET:
+            rc = pa_proplist_get(card_port->proplist, PA_PROP_USB_ADDR, (void *)&usb_addr, &nbytes);
+            if (PA_UNLIKELY(rc)) {
+                pa_log_error("Get usb device address failed %d", rc);
+            } else {
+                pal_device->address.card_id = usb_addr->card_id;
+                pal_device->address.device_num = usb_addr->device_num;
+            }
+            break;
+        default:
+            break;
+    }
+
+    return rc;
 }
