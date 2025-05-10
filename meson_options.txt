@@ -114,6 +114,9 @@ option('with-qal-voiceui',
 option('with-pal-voiceui',
        type : 'string',
        description : 'Optional pal voiceui module support')
+option('with-refactored-pal',
+       type : 'boolean', value : false,
+       description : 'new pal have refactored, Added many sub-libraries')
 option('asyncns',
        type : 'feature', value : 'auto',
        description : 'Optional Async DNS support')
