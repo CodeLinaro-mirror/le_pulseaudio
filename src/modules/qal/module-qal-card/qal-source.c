@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -879,6 +879,8 @@ static int free_pa_source(pa_source_data *pa_sdata) {
 
     pa_log_debug("closing pa source %p", pa_sdata->source);
 
+    if (PA_SOURCE_IS_OPENED(pa_sdata->source->state))
+        pa_source_suspend(pa_sdata->source, true, PA_SUSPEND_USER);
     pa_source_unlink(pa_sdata->source);
 
     pa_asyncmsgq_send(pa_sdata->thread_mq.inq, NULL, PA_MESSAGE_SHUTDOWN, NULL, 0, NULL);
