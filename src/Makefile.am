@@ -1712,7 +1712,9 @@ module_pal_card_la_SOURCES = \
         modules/pal/module-pal-card/module-pal-card-extn.c \
         modules/pal/module-pal-card/bt-a2dp-split.c modules/pal/module-pal-card/bt-a2dp-split.h \
         modules/pal/module-pal-card/hfp.c modules/pal/module-pal-card/hfp.h \
-        modules/pal/module-pal-card/pal-loopback.c modules/pal/module-pal-card/pal-loopback.h
+        modules/pal/module-pal-card/pal-loopback.c modules/pal/module-pal-card/pal-loopback.h \
+		modules/pal/module-pal-card/pal-jack.c modules/pal/module-pal-card/pal-jack.h \
+		modules/pal/module-pal-card/pal-jack-external.c
 module_pal_card_la_CFLAGS = $(PAL_CFLAGS) $(AGM_CFLAGS) $(AM_CFLAGS) $(DBUS_CFLAGS) -DPA_MODULE_NAME=module_pal_card
 module_pal_card_la_LDFLAGS = $(MODULE_LDFLAGS) -lcutils
 module_pal_card_la_LIBADD = $(MODULE_LIBADD) $(DBUS_LIBS) -lpal -lagm

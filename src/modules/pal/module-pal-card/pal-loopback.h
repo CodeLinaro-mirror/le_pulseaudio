@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef __PAL_LOOPBACK_H__
@@ -28,6 +28,7 @@ typedef struct {
 typedef struct pa_pal_loopback_module_data {
     char *dbus_path;
     void *prv_data;
+    int session_count;
     pa_card *card;
     pa_module *m;
     pa_dbus_protocol *dbus_protocol;

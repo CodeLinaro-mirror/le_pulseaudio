@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -15,10 +16,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
  */
-
- /*
-  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
-  */
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -54,6 +51,7 @@
 #define PA_DEFAULT_SOURCE_FORMAT PA_SAMPLE_S16LE
 #define PA_DEFAULT_SOURCE_RATE 48000
 #define PA_DEFAULT_SOURCE_CHANNELS 2
+#define PA_NUM_DEVICES 1
 
 static int restart_pal_source(pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
                               int source_id, pal_source_data *pal_sdata, uint32_t buffer_size, uint32_t buffer_count);
@@ -73,6 +71,10 @@ static const char *pa_pal_source_get_name_from_type(pal_stream_type_t type) {
         name = "low-latency";
     else if (type == PAL_STREAM_COMPRESSED)
         name = "compress";
+    else if (type == PAL_STREAM_VOIP_TX)
+        name = "voip_tx";
+    else if (type == PAL_STREAM_VOIP_RX)
+        name = "voip_Rx";
     else if (type == PAL_STREAM_DEEP_BUFFER)
         name = "deep-buffer";
 
@@ -512,6 +514,73 @@ static int create_pal_source(pa_pal_source_config *source, pa_pal_card_port_devi
     }
     return rc;
 }
+static int pa_pal_set_device(pal_stream_handle_t *stream_handle,
+                          pa_pal_card_port_device_data *param_device_connection) {
+    struct pal_device device_connect;
+    int ret = 0;
+
+    device_connect.id = param_device_connection->device;
+
+    ret = pal_stream_set_device(stream_handle, PA_NUM_DEVICES, &device_connect);
+    if(ret)
+        pa_log_error("pal source switch device %d failed %d", device_connect.id, ret);
+
+    return ret;
+}
+
+static int pa_pal_source_set_port_cb(pa_source *s, pa_device_port *p) {
+    int ret = 0;
+    pal_param_device_connection_t param_device_connection;
+    pa_pal_card_port_device_data *active_port_device_data;
+    bool port_changed = false;
+    bool dp_port_changed = false;
+    bool hdmi_port_changed = false;
+
+    pa_assert(s);
+    pa_assert(p);
+    pa_pal_card_port_device_data *port_device_data = PA_DEVICE_PORT_DATA(p);
+    pa_pal_source_data *sdata = (pa_pal_source_data *)s->userdata;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pal_sdata);
+    pa_assert(sdata->pal_sdata->pal_device);
+    pa_assert(port_device_data);
+    active_port_device_data = PA_DEVICE_PORT_DATA(s->active_port);
+    pa_assert(active_port_device_data);
+
+    sdata->pal_sdata->pal_device->id = port_device_data->device;
+    if (port_device_data->pal_devicepp_config) {
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
+                sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    }
+    else {
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, "",
+                sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    }
+
+    if (PA_SOURCE_IS_OPENED(s->state)) {
+        pa_assert(sdata->pal_sdata->stream_handle);
+    }
+    else {
+        return ret;
+    }
+
+    param_device_connection.id = port_device_data->device;
+
+    sdata->pal_sdata->source_event_id = PA_PAL_DEVICE_SWITCH;
+    pa_mutex_lock(sdata->pal_sdata->mutex);
+    ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
+    sdata->pal_sdata->source_event_id = PA_PAL_NO_EVENT;
+    pa_mutex_unlock(sdata->pal_sdata->mutex);
+    pa_cond_signal(sdata->pal_sdata->cond_ctrl_thread, 0);
+    if (ret != 0) {
+        pa_log_error("pal source switch device failed %d", ret);
+        return ret;
+    }
+
+    return ret;
+}
+
 
 static int create_pa_source(pa_module *m, char *source_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, uint32_t alternate_sample_rate, pa_card *card,
                             pa_hashmap *ports, const char *driver, pa_pal_source_data *source_data) {
@@ -579,7 +648,7 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_sdata->source->userdata = (void *)source_data;
     pa_sdata->source->parent.process_msg = pa_pal_source_process_msg;
     pa_sdata->source->set_state_in_io_thread = pa_pal_source_set_state_in_io_thread_cb;
-    pa_sdata->source->set_port = NULL; //Need to update with set port callback function
+    pa_sdata->source->set_port = pa_pal_source_set_port_cb;
 
     /* FIXME: check reconfigure needed for non pcm */
     pa_sdata->source->reconfigure = pa_pal_source_reconfigure_cb;
@@ -666,6 +735,40 @@ bool pa_pal_source_is_supported_sample_rate(uint32_t sample_rate) {
     }
 
     return supported;
+}
+
+pa_idxset* pa_pal_source_get_config(pa_pal_source_handle_t *handle) {
+    pa_pal_source_data *sdata = (pa_pal_source_data *)handle;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->source);
+
+    return pa_pal_source_get_formats(sdata->pa_sdata->source);
+}
+
+int pa_pal_source_get_media_config(pa_pal_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
+    pa_pal_source_data *sdata = (pa_pal_source_data *)handle;
+    pa_format_info *f;
+
+    uint32_t i;
+    int ret = -1;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->source);
+
+    *ss = sdata->pa_sdata->source->sample_spec;
+    *map = sdata->pa_sdata->source->channel_map;
+
+    PA_IDXSET_FOREACH(f, sdata->pa_sdata->formats, i) {
+        /* currently a source supports single format */
+        *encoding = f->encoding;
+        ret = 0;
+        break;
+    }
+
+    return ret;
 }
 
 int pa_pal_source_create(pa_module *m, pa_card *card, const char *driver, const char *module_name, pa_pal_source_config *source,
