@@ -62,6 +62,7 @@
 #define PA_DEFAULT_BUFFER_DURATION_MS 25
 #define PA_LOW_LATENCY_BUFFER_DURATION_MS 5
 #define PA_DEEP_BUFFER_BUFFER_DURATION_MS 20
+#define PA_DEVICE_OUT_USB_HEADSET_BUFFER_SIZE 192
 
 
 typedef struct {
@@ -72,7 +73,7 @@ static pa_pal_sink_module_data *mdata = NULL;
 
 static int restart_pal_sink(pa_sink *s, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map,
                             pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type, int sink_id,
-                            pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count);
+                            pa_pal_sink_data *sdata, uint32_t buffer_size, uint32_t buffer_count, bool start_stream);
 static int create_pal_sink(pa_pal_sink_config *sink, pa_pal_card_port_device_data *port_device_data, pa_pal_sink_data *sdata);
 static int close_pal_sink(pa_pal_sink_data *sdata);
 static int free_pa_sink(pa_pal_sink_data *sdata);
@@ -459,6 +460,7 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     pal_param_device_connection_t param_device_connection;
     pa_device_port *switch_port = NULL;
     pa_pal_card_port_device_data *switch_port_device_data = NULL;
+    pal_device_id_t old_device_id, new_device_id;
     size_t nbytes = 0;
     int ret = 0;
 
@@ -520,7 +522,8 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
             goto end;
         }
     }
-
+    old_device_id = sdata->pal_sdata->pal_device->id;
+    new_device_id = port_device_data->device;
     sdata->pal_sdata->pal_device->id = port_device_data->device;
     if (sdata->pal_sdata->pal_device->id == PAL_DEVICE_OUT_USB_HEADSET) {
         sdata->pal_sdata->pal_device->address.card_id = param_device_connection.device_config.usb_addr.card_id;
@@ -535,6 +538,15 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
                         sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
 
     pa_log_info("%s Set port of %p to %s", __func__, sdata->pal_sdata, p->name);
+    if (PA_SINK_IS_RUNNING(s->state) && (!sdata->pal_sdata->compressed) &&
+       (old_device_id == PAL_DEVICE_OUT_USB_HEADSET ||
+        new_device_id == PAL_DEVICE_OUT_USB_HEADSET)) {
+         ret = restart_pal_sink(s, sdata->pal_sdata->encoding, &sdata->pa_sdata->sink->sample_spec,
+                                &sdata->pa_sdata->sink->channel_map, port_device_data,
+                                sdata->pal_sdata->stream_attributes->type, sdata->pal_sdata->index, sdata,
+                                (uint32_t)sdata->pal_sdata->buffer_size, sdata->pal_sdata->buffer_count, true);
+         pa_log_info("%s: restart stream, ret: %d", __func__, ret);
+    }
 
 end:
     return ret;
@@ -666,7 +678,7 @@ static int pa_pal_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, bool pas
         pa_cvolume_set(&s->reference_volume, s->reference_volume.channels, volume);
         rc = restart_pal_sink(s, PA_ENCODING_PCM, &tmp_spec, &new_map, port_device_data,
                 pal_sdata->stream_attributes->type, pal_sdata->index, sdata,
-                (uint32_t)pal_sdata->buffer_size, pal_sdata->buffer_count);
+                (uint32_t)pal_sdata->buffer_size, pal_sdata->buffer_count, false);
         if (PA_UNLIKELY(rc)) {
             pa_sdata->sink->sample_spec.rate = old_rate; /* restore old rate if failed */
             pa_log_error("Could create reopen pal sink, error %d", rc);
@@ -760,7 +772,7 @@ static bool pa_pal_sink_set_format_cb(pa_sink *s, const pa_format_info *format) 
 
        if (restart_pal_sink(s, encoding, &pa_sdata->sink->sample_spec, &map, port_device_data,
                                 pal_sdata->stream_attributes->type, pal_sdata->index, sdata,
-                                (uint32_t)pal_sdata->buffer_size, pal_sdata->buffer_count)) {
+                                (uint32_t)pal_sdata->buffer_size, pal_sdata->buffer_count, false)) {
            pa_log_error("%s: Failed to restart pal_sink with %s encoding", __func__, format == NULL ? "default" : "requested");
            goto exit;
        } else {
@@ -1082,6 +1094,11 @@ static int open_pal_sink(pa_pal_sink_data *sdata) {
     in_buf_cfg.buf_size = 0;
     in_buf_cfg.buf_count = 0;
     out_buf_cfg.buf_size = pal_sdata->buffer_size;
+    if (pal_sdata->pal_device->id == PAL_DEVICE_OUT_USB_HEADSET) {
+        out_buf_cfg.buf_size = PA_DEVICE_OUT_USB_HEADSET_BUFFER_SIZE;
+        pa_log_info("%s: set buffer size: %d for usb device.", __func__, out_buf_cfg.buf_size);
+    }
+
     out_buf_cfg.buf_count = pal_sdata->buffer_count;
     rc = pal_stream_set_buffer_size(pal_sdata->stream_handle, &in_buf_cfg, &out_buf_cfg);
     if(rc) {
@@ -1150,7 +1167,7 @@ static int close_pal_sink(pa_pal_sink_data *sdata) {
 }
 
 static int restart_pal_sink(pa_sink *s, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map, pa_pal_card_port_device_data *port_device_data, pal_stream_type_t type,
-                            int sink_id, pa_pal_sink_data *sdata,uint32_t buffer_size, uint32_t buffer_count) {
+                            int sink_id, pa_pal_sink_data *sdata,uint32_t buffer_size, uint32_t buffer_count, bool start_stream) {
     int rc;
     pal_audio_fmt_t pal_format;
 
@@ -1180,10 +1197,12 @@ static int restart_pal_sink(pa_sink *s, pa_encoding_t encoding, pa_sample_spec *
     }
 
     sdata->pal_sdata->compressed = (pal_format != PAL_AUDIO_FMT_PCM_S16_LE ? true : false);
-
-    rc = open_pal_sink(sdata);
+    if (start_stream)
+        rc = pa_pal_sink_start(sdata);
+    else
+        rc = open_pal_sink(sdata);
     if (rc) {
-        pa_log_error("open_pal_sink failed during recreation, error %d", rc);
+        pa_log_error("%s failed during re-create, error %d", (start_stream? "pa_pal_sink_start": "open_pal_sink"), rc);
     }
 
 exit:
