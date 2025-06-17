@@ -682,7 +682,7 @@ static int restart_pal_source(pa_pal_source_data *sdata, pa_encoding_t encoding,
 
     pal_sdata = sdata->pal_sdata;
     if (!pal_sdata->standby) {
-        rc = close_pal_source(sdata->pal_sdata);
+        rc = close_pal_source((pa_pal_source_data *)sdata->pal_sdata);
         if (rc) {
             pa_log_error("close_pal_source failed, error %d", rc);
             goto exit;
@@ -715,7 +715,7 @@ static int free_pal_source(pal_source_data *pal_sdata) {
     int rc = 0;
 
     if (!pal_sdata->standby) {
-        rc = close_pal_source(pal_sdata);
+        rc = close_pal_source((pa_pal_source_data *)pal_sdata);
         if (rc) {
             pa_log_error("close_pal_source failed, error %d", rc);
         }
@@ -826,7 +826,8 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_sdata->source->set_port = pa_pal_source_set_port_cb;
 
     /* FIXME: check reconfigure needed for non pcm */
-    pa_sdata->source->reconfigure = pa_pal_source_reconfigure_cb;
+    pa_sdata->source->reconfigure =
+        (void (*)(pa_source *, pa_sample_spec *, _Bool))pa_pal_source_reconfigure_cb;
 
     if (pa_idxset_size(formats) > 0 ) {
         pa_sdata->source->get_formats = pa_pal_source_get_formats;
