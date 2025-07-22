@@ -780,6 +780,14 @@ static bool pa_pal_sink_set_format_cb(pa_sink *s, const pa_format_info *format) 
            ret = true;
        }
    } else {
+          if (sdata->pal_sdata->stream_handle != NULL) {
+          /* stream should be in paused state during flush */
+          pal_stream_pause(sdata->pal_sdata->stream_handle);
+          if (pal_stream_flush(sdata->pal_sdata->stream_handle) != 0) {
+              pa_log_error("%s: stream flush failed", __func__);
+          }
+          } else
+               pa_log_error("%s: Invalid stream handle", __func__);
         pa_log_debug("%s: Exit compress playback", __func__);
         ret = true;
    }
