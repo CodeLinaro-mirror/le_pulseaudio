@@ -48,6 +48,17 @@ extra_deps += [ meson.get_compiler('c').find_library('palserverwrapper'),
               ]
 endif
 
+if get_option('with-refactored-pal')
+extra_deps += [ dbus_dep,
+               meson.get_compiler('c').find_library('session_compress'),
+               meson.get_compiler('c').find_library('session_agm'),
+               meson.get_compiler('c').find_library('session_pcm'),
+               meson.get_compiler('c').find_library('stream_compress'),
+               meson.get_compiler('c').find_library('stream_pcm'),
+               meson.get_compiler('c').find_library('stream_soundtrigger')
+             ]
+endif
+
 if udev_dep.found()
 extra_deps += [udev_dep]
 endif

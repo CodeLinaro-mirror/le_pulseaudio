@@ -141,16 +141,16 @@ static void check_usb_audio_connection(pa_pal_udev_jack_data_t *udev_jdata) {
     }
 
     /* Get card id */
-    while (fgets(card_string, USB_BUFF_SIZE - 1, pf) != NULL) {
-        pa_strip_nl(card_string);
+    while (fgets((char *)card_string, USB_BUFF_SIZE - 1, pf) != NULL) {
+        pa_strip_nl((char *)card_string);
 
-        items = pa_split_spaces_strv(card_string);
+        items = pa_split_spaces_strv((char *)card_string);
         if (!items) {
             pa_log_error("%s: invalid sound card name %s", __func__, card_string);
             continue;
         }
 
-        if (strstr(card_string, " ["))
+        if (strstr((char *)card_string, " ["))
             card_id = atoi(items[0]);
 
         i = 0;
