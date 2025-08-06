@@ -290,8 +290,8 @@ static void pal_module_get_parameters(DBusConnection *conn, DBusMessage *msg, vo
 		pal_device_mute_t *pdev_mute = NULL;
 		param_payload = (pal_param_payload *)calloc(1, sizeof(pal_param_payload) +
 					sizeof(pal_device_mute_t));
-		status = pal_get_param(PAL_PARAM_ID_DEVICE_MUTE, &param_payload,
-					sizeof(param_payload->payload_size), NULL);
+		status = pal_get_param(PAL_PARAM_ID_DEVICE_MUTE, (void **)&param_payload,
+					(size_t *)sizeof(param_payload->payload_size), NULL);
 		if (status) {
 			pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "get_param failed");
 			dbus_error_free(&error);

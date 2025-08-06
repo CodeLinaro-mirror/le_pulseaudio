@@ -1382,10 +1382,10 @@ static char *pa_pal_config_get_conf_file_name() {
         goto exit;
     }
 
-    while (fgets(card_string, MAX_BUF_SIZE - 1, pf) != NULL) {
-        pa_strip_nl(card_string);
+    while (fgets((char *)card_string, MAX_BUF_SIZE - 1, pf) != NULL) {
+        pa_strip_nl((char *)card_string);
 
-        items = pa_split_spaces_strv(card_string);
+        items = pa_split_spaces_strv((char *)card_string);
         if (!items) {
             pa_log_error("%s: invalid sound card name %s", __func__, card_string);
             goto exit;
