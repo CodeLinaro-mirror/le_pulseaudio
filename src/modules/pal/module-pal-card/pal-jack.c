@@ -139,6 +139,8 @@ bool pa_pal_jack_deregister_event_callback(pa_pal_jack_handle_t *jack_handle, pa
             case PA_PAL_JACK_TYPE_BTA2DP_OUT:
             case PA_PAL_JACK_TYPE_BTSCO_IN:
             case PA_PAL_JACK_TYPE_BTSCO_OUT:
+                pa_pal_external_jack_detection_disable(jdata, m);
+                break;
         }
         pa_hashmap_remove(registered_jacks, port_name);
         toggle_jack_status_bits(jdata->jack_type);
