@@ -780,6 +780,14 @@ static bool pa_pal_sink_set_format_cb(pa_sink *s, const pa_format_info *format) 
            ret = true;
        }
    } else {
+          if (sdata->pal_sdata->stream_handle != NULL) {
+          /* stream should be in paused state during flush */
+          pal_stream_pause(sdata->pal_sdata->stream_handle);
+          if (pal_stream_flush(sdata->pal_sdata->stream_handle) != 0) {
+              pa_log_error("%s: stream flush failed", __func__);
+          }
+          } else
+               pa_log_error("%s: Invalid stream handle", __func__);
         pa_log_debug("%s: Exit compress playback", __func__);
         ret = true;
    }
@@ -1079,7 +1087,7 @@ static int open_pal_sink(pa_pal_sink_data *sdata) {
                  pal_sdata->stream_attributes->out_media_config.sample_rate,
                  pal_sdata->stream_attributes->out_media_config.ch_info.channels);
 
-    rc = pal_stream_open(pal_sdata->stream_attributes, 1, pal_sdata->pal_device, 0, NULL, pa_pal_out_cb, sdata,
+    rc = pal_stream_open(pal_sdata->stream_attributes, 1, pal_sdata->pal_device, 0, NULL, pa_pal_out_cb, (uint64_t)sdata,
                              &pal_sdata->stream_handle);
 
     if (rc) {
@@ -1352,7 +1360,8 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_sdata->sink->parent.process_msg = pa_pal_sink_io_process_msg;
     pa_sdata->sink->set_state_in_io_thread = pa_pal_sink_set_state_in_io_thread_cb;
     pa_sdata->sink->set_port = pa_pal_sink_set_port_cb;
-    pa_sdata->sink->reconfigure = pa_pal_sink_reconfigure_cb;
+    pa_sdata->sink->reconfigure =
+        (void (*)(pa_sink *, pa_sample_spec *, _Bool))pa_pal_sink_reconfigure_cb;
     pa_sdata->avoid_config_processing = avoid_config_processing;
 
     if (pa_idxset_size(formats) > 0 ) {
