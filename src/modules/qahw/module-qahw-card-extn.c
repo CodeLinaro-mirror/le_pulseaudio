@@ -417,7 +417,7 @@ static void qahw_module_set_port_config(DBusConnection *conn, DBusMessage *msg, 
     dbus_message_iter_recurse(&struct_i, &array_i);
 
     dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
-    if (n_elements > AUDIO_CHANNEL_COUNT_MAX) {
+    if (n_elements > (int)AUDIO_CHANNEL_COUNT_MAX) {
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED , "set_param_data failed, unsupported channel count %d", n_elements);
         dbus_error_free(&error);
     }
