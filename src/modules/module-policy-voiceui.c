@@ -117,7 +117,7 @@ int pa__init(pa_module *m) {
     u->null_src_index = PA_INVALID_INDEX;
     u->loopback_index = PA_INVALID_INDEX;
 
-    u->qsthw = pa_shared_get(m->core, "voice-ui-session");
+    u->qsthw = (pa_qsthw_hooks *)pa_shared_get(m->core, "voice-ui-session");
 
     u->qsthw_detection_session_start_slot = pa_hook_connect(
             &u->qsthw->hooks[PA_HOOK_QSTHW_START_DETECTION], PA_HOOK_NORMAL,
