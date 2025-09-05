@@ -116,6 +116,8 @@ static int pa_pal_card_add_source(pa_module *module, pa_card *card, const char *
                                   pa_pal_source_handle_t **source_handle);
 static int pa_pal_card_add_sink(pa_module *module, pa_card *card, const char *driver, char *module_name, pa_pal_sink_config *sink,
                                 pa_pal_sink_handle_t **sink_handle);
+extern int pa_pal_module_extn_init(pa_core *core, pa_card *card);
+extern void pa_pal_module_extn_deinit(void);
 
 static void pa_pal_card_profiles_free(struct userdata *u, pa_hashmap *profiles) {
     pa_card_profile *p;
