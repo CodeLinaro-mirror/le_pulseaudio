@@ -541,11 +541,11 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     if (PA_SINK_IS_RUNNING(s->state) && (!sdata->pal_sdata->compressed) &&
        (old_device_id == PAL_DEVICE_OUT_USB_HEADSET ||
         new_device_id == PAL_DEVICE_OUT_USB_HEADSET)) {
-         ret = restart_pal_sink(s, sdata->pal_sdata->encoding, &sdata->pa_sdata->sink->sample_spec,
+        ret = restart_pal_sink(s, sdata->pal_sdata->encoding, &sdata->pa_sdata->sink->sample_spec,
                                 &sdata->pa_sdata->sink->channel_map, port_device_data,
                                 sdata->pal_sdata->stream_attributes->type, sdata->pal_sdata->index, sdata,
                                 (uint32_t)sdata->pal_sdata->buffer_size, sdata->pal_sdata->buffer_count, true);
-         pa_log_info("%s: restart stream, ret: %d", __func__, ret);
+        pa_log_info("%s: restart stream, ret: %d", __func__, ret);
     }
 
 end:
@@ -713,7 +713,6 @@ static bool pa_pal_sink_set_format_cb(pa_sink *s, const pa_format_info *format) 
     pa_sink_data *pa_sdata;
     pa_sample_spec ss;
     pa_channel_map map;
-    pa_encoding_t encoding;
     pa_pal_card_port_device_data *port_device_data;
     char ch_map_buf[PA_CHANNEL_MAP_SNPRINT_MAX];
     char ss_buf[PA_SAMPLE_SPEC_SNPRINT_MAX];
@@ -742,7 +741,7 @@ static bool pa_pal_sink_set_format_cb(pa_sink *s, const pa_format_info *format) 
             goto exit;
         }
 
-        encoding = format->encoding;
+        pal_sdata->encoding = format->encoding;
 
         if (pa_format_info_to_sample_spec2(format, &ss, &map,
                     &pa_sdata->sink->sample_spec, &pa_sdata->sink->channel_map)) {
@@ -770,7 +769,7 @@ static bool pa_pal_sink_set_format_cb(pa_sink *s, const pa_format_info *format) 
 
        port_device_data = PA_DEVICE_PORT_DATA(pa_sdata->sink->active_port);
 
-       if (restart_pal_sink(s, encoding, &pa_sdata->sink->sample_spec, &map, port_device_data,
+       if (restart_pal_sink(s, pal_sdata->encoding, &pa_sdata->sink->sample_spec, &map, port_device_data,
                                 pal_sdata->stream_attributes->type, pal_sdata->index, sdata,
                                 (uint32_t)pal_sdata->buffer_size, pal_sdata->buffer_count, false)) {
            pa_log_error("%s: Failed to restart pal_sink with %s encoding", __func__, format == NULL ? "default" : "requested");
@@ -780,6 +779,14 @@ static bool pa_pal_sink_set_format_cb(pa_sink *s, const pa_format_info *format) 
            ret = true;
        }
    } else {
+          if (sdata->pal_sdata->stream_handle != NULL) {
+          /* stream should be in paused state during flush */
+          pal_stream_pause(sdata->pal_sdata->stream_handle);
+          if (pal_stream_flush(sdata->pal_sdata->stream_handle) != 0) {
+              pa_log_error("%s: stream flush failed", __func__);
+          }
+          } else
+               pa_log_error("%s: Invalid stream handle", __func__);
         pa_log_debug("%s: Exit compress playback", __func__);
         ret = true;
    }
@@ -1094,7 +1101,7 @@ static int open_pal_sink(pa_pal_sink_data *sdata) {
     in_buf_cfg.buf_size = 0;
     in_buf_cfg.buf_count = 0;
     out_buf_cfg.buf_size = pal_sdata->buffer_size;
-    if (pal_sdata->pal_device->id == PAL_DEVICE_OUT_USB_HEADSET) {
+    if ((pal_sdata->pal_device->id == PAL_DEVICE_OUT_USB_HEADSET) && (!pal_sdata->compressed)) {
         out_buf_cfg.buf_size = PA_DEVICE_OUT_USB_HEADSET_BUFFER_SIZE;
         pa_log_info("%s: set buffer size: %d for usb device.", __func__, out_buf_cfg.buf_size);
     }
@@ -1196,7 +1203,6 @@ static int restart_pal_sink(pa_sink *s, pa_encoding_t encoding, pa_sample_spec *
         return -1;
     }
 
-    sdata->pal_sdata->compressed = (pal_format != PAL_AUDIO_FMT_PCM_S16_LE ? true : false);
     if (start_stream)
         rc = pa_pal_sink_start(sdata);
     else
