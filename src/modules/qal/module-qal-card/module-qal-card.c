@@ -34,7 +34,6 @@
 
 #include <PalApi.h>
 #include <PalDefs.h>
-#include <agm/agm_api.h>
 
 #include "qal-source.h"
 #include "qal-sink.h"
@@ -1118,12 +1117,6 @@ int pa__init(pa_module *m) {
         goto fail;
     }
 
-    ret = agm_init();
-    if (ret) {
-        pa_log_error("%s: agm init failed\n", __func__);
-        goto fail;
-    }
-
     ret = pal_init();
     if (ret) {
         pa_log_error("%s: pal init failed\n", __func__);
@@ -1213,8 +1206,6 @@ void pa__done(pa_module *m) {
     pa_qal_card_disable_jack_detection(u, m);
 
     pal_deinit();
-
-    agm_deinit();
 
     pa_pal_card_free(u);
 

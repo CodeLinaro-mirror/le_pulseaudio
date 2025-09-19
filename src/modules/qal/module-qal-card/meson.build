@@ -37,8 +37,7 @@ headers = [
 extra_inc = [include_directories(qal_inc)]
 extra_flags = []
 extra_deps = [ dbus_dep,
-               meson.get_compiler('c').find_library('pal'),
-               meson.get_compiler('c').find_library('agm')
+               meson.get_compiler('c').find_library('pal')
              ]
 
 if get_option('enable-pal-service') == 'yes'
