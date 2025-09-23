@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -15,10 +16,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
  */
-
- /*
-  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
-  */
 
 #ifndef foopalpasourcehfoo
 #define foopalpasourcehfoo
@@ -46,6 +43,8 @@ typedef struct {
     pal_stream_type_t stream_type;
     pa_sample_spec default_spec;
     pa_encoding_t default_encoding;
+    pa_pal_card_avoid_processing_config_id_t avoid_config_processing;
+    bool use_hw_volume;
     pa_channel_map default_map;
     uint32_t alternate_sample_rate;
     pa_idxset *formats;
@@ -66,9 +65,14 @@ typedef struct {
 
     int write_fd;
 
+    pa_mutex *mutex;
+    pa_cond *cond_ctrl_thread;
+    pa_pal_ctrl_event_t source_event_id;
+
     size_t buffer_size;
     size_t buffer_count;
     int index;
+    bool dynamic_usecase;
 
     bool standby;
 } pal_source_data;
@@ -80,6 +84,7 @@ typedef struct {
     pa_thread_mq thread_mq;
     pa_thread *thread;
     pa_idxset *formats;
+    pa_pal_card_avoid_processing_config_id_t avoid_config_processing;
 } pa_source_data;
 
 typedef struct {
@@ -92,6 +97,9 @@ int pa_pal_source_create(pa_module *m, pa_card *card, const char *driver, const 
                          pa_pal_source_handle_t **handle);
 void pa_pal_source_close(pa_pal_source_handle_t *handle);
 bool pa_pal_source_is_supported_sample_rate(uint32_t sample_rate);
+int pa_pal_source_get_media_config(pa_pal_source_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding);
+pa_idxset* pa_pal_source_get_config(pa_pal_source_handle_t *handle);
+
 
 static inline bool pa_pal_source_is_supported_type(char *source_type) {
     pa_assert(source_type);
@@ -129,6 +137,10 @@ static inline pal_stream_type_t pa_pal_source_get_type_from_string(const char *s
         type = PAL_STREAM_DEEP_BUFFER;
     } else if (pa_streq(stream_type, "PAL_STREAM_COMPRESSED")) {
         type = PAL_STREAM_COMPRESSED;
+    } else if (pa_streq(stream_type, "PAL_STREAM_VOIP_TX")) {
+        type = PAL_STREAM_VOIP_TX;
+    } else if (pa_streq(stream_type, "PAL_STREAM_VOIP_RX")) {
+        type = PAL_STREAM_VOIP_RX;
     } else if (pa_streq(stream_type, "PAL_STREAM_RAW")) {
         type = PAL_STREAM_RAW;
     } else {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -38,7 +38,6 @@
 #include "pal-sink.h"
 #include "pal-config-parser.h"
 
-//to be updated in PalDefs.h
 #define PAL_PARAM_SET_CUSTOM_VOLUME_INDEX 52
 #define PAL_PARAM_SET_CUSTOM_VOIP_ENABLE 53
 #define PAL_PARAM_SET_CUSTOM_VOICE_RECOGNITION_ENABLE 54
@@ -50,8 +49,8 @@
 #define PAL_PARAM_KEY_VOICE_RECOGNITION "l_voice_recognition_enable"
 #define PAL_PARAM_KEY_BARGEIN "l_bargein_enable"
 
-#define PAL_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qal"
-#define PAL_DBUS_MODULE_IFACE "org.PulseAudio.Ext.Qal.Module"
+#define PAL_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/pal"
+#define PAL_DBUS_MODULE_IFACE "org.PulseAudio.Ext.Pal.Module"
 
 #define OK 0
 
