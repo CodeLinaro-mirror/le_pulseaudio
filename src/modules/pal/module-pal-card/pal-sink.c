@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -15,10 +16,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
  */
-
- /*
-  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
-  */
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -59,6 +56,7 @@
 #define PA_DEFAULT_SINK_FORMAT PA_SAMPLE_S16LE
 #define PA_DEFAULT_SINK_RATE 48000
 #define PA_DEFAULT_SINK_CHANNELS 2
+#define PA_NUM_DEVICES 1
 
 
 typedef struct {
@@ -85,6 +83,10 @@ static const char *pa_pal_sink_get_name_from_type(pal_stream_type_t type) {
         name = "low_latency";
     else if (type == PAL_STREAM_DEEP_BUFFER)
         name = "deep_buffer";
+    else if (type == PAL_STREAM_VOIP_TX)
+        name = "voip_tx";
+    else if (type == PAL_STREAM_VOIP_RX)
+        name = "voip_rx";
     else if (type == PAL_STREAM_COMPRESSED)
         name = "offload";
     else if (type == PAL_STREAM_GENERIC)
@@ -721,6 +723,67 @@ static int pa_pal_sink_alloc_common_resources(pa_pal_sink_data *sdata) {
 
    return 0;
 }
+static int pa_pal_set_device(pal_stream_handle_t *stream_handle,
+                          pa_pal_card_port_device_data *param_device_connection) {
+    struct pal_device device_connect;
+    int ret = 0;
+
+    device_connect.id = param_device_connection->device;
+
+    ret = pal_stream_set_device(stream_handle, PA_NUM_DEVICES, &device_connect);
+    if(ret)
+        pa_log_error("pal source switch device %d failed %d", device_connect.id, ret);
+
+    return ret;
+}
+
+static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
+    pa_pal_card_port_device_data *port_device_data;
+    pa_pal_card_port_device_data *active_port_device_data;
+    pa_pal_sink_data *sdata = (pa_pal_sink_data *)s->userdata;
+    pal_param_device_connection_t param_device_connection;
+    int no_of_devices = 1;
+    int ret = 0;
+    bool port_changed = false;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pal_sdata);
+    pa_assert(sdata->pal_sdata->pal_device);
+    if (PA_SINK_IS_OPENED(s->state))
+        pa_assert(sdata->pal_sdata->stream_handle);
+
+    port_device_data = PA_DEVICE_PORT_DATA(p);
+    pa_assert(port_device_data);
+
+    active_port_device_data = PA_DEVICE_PORT_DATA(s->active_port);
+    pa_assert(active_port_device_data);
+
+    param_device_connection.id = port_device_data->device;
+    sdata->pal_sdata->pal_device->id = port_device_data->device;
+    if (port_device_data->pal_devicepp_config){
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, port_device_data->pal_devicepp_config,
+                        sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    }
+    else {
+        pa_strlcpy(sdata->pal_sdata->pal_device->custom_config.custom_key, "",
+                        sizeof(sdata->pal_sdata->pal_device->custom_config.custom_key));
+    }
+
+    if (PA_SINK_IS_OPENED(s->state)) {
+        sdata->pal_sdata->sink_event_id = PA_PAL_DEVICE_SWITCH;
+        pa_mutex_lock(sdata->pal_sdata->mutex);
+        ret = pa_pal_set_device(sdata->pal_sdata->stream_handle, &param_device_connection);
+        sdata->pal_sdata->sink_event_id = PA_PAL_NO_EVENT;
+        pa_mutex_unlock(sdata->pal_sdata->mutex);
+        pa_cond_signal(sdata->pal_sdata->cond_ctrl_thread, 0);
+
+        if (ret != 0)
+            pa_log_error("pal sink switch device failed %d", ret);
+    }
+
+	pa_log_error("Enter exit");
+    return ret;
+}
 
 static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, bool use_hw_volume, uint32_t alternate_sample_rate, pa_card *card, pa_hashmap *ports, const char *driver, pa_pal_sink_data *sdata) {
     pa_sink_new_data new_data;
@@ -787,7 +850,7 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
     pa_sdata->sink->userdata = (void *)sdata;
     pa_sdata->sink->parent.process_msg = pa_pal_sink_process_msg;
     pa_sdata->sink->set_state_in_io_thread = pa_pal_sink_set_state_in_io_thread_cb;
-    pa_sdata->sink->set_port = NULL;
+    pa_sdata->sink->set_port = pa_pal_sink_set_port_cb;
     pa_sdata->sink->reconfigure = pa_pal_sink_reconfigure_cb;
 
     if (pa_idxset_size(formats) > 0 ) {
@@ -953,6 +1016,60 @@ int pa_pal_sink_create(pa_module *m, pa_card *card, const char *driver, const ch
 
 exit:
     return rc;
+}
+
+int pa_pal_sink_set_a2dp_suspend(const char *prm_value)
+{
+    int ret = 0;
+    pal_param_bta2dp_t param_bt_a2dp;
+
+    pa_assert(prm_value);
+
+    memset(&param_bt_a2dp, 0, sizeof(pal_param_bta2dp_t));
+    param_bt_a2dp.a2dp_suspended = (!strcmp(prm_value, "true")) ? true : false;
+    param_bt_a2dp.is_suspend_setparam = false;
+    param_bt_a2dp.dev_id = PAL_DEVICE_OUT_BLUETOOTH_A2DP;
+
+    ret = pal_set_param(PAL_PARAM_ID_BT_A2DP_SUSPENDED, (void *)&param_bt_a2dp,
+            sizeof(pal_param_bta2dp_t));
+    if (ret)
+        pa_log_error("BT set param for a2dp suspend failed");
+
+    return ret;
+}
+
+int pa_pal_sink_get_media_config(pa_pal_sink_handle_t *handle, pa_sample_spec *ss, pa_channel_map *map, pa_encoding_t *encoding) {
+    pa_pal_sink_data *sdata = (pa_pal_sink_data *)handle;
+    pa_format_info *f;
+
+    uint32_t i;
+    int ret = -1;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->sink);
+
+    *ss = sdata->pa_sdata->sink->sample_spec;
+    *map = sdata->pa_sdata->sink->channel_map;
+
+    PA_IDXSET_FOREACH(f, sdata->pa_sdata->formats, i) {
+        /* currently a sink supports single format */
+        *encoding = f->encoding;
+        ret = 0;
+        break;
+    }
+
+    return ret;
+}
+
+pa_idxset* pa_pal_sink_get_config(pa_pal_sink_handle_t *handle) {
+    pa_pal_sink_data *sdata = (pa_pal_sink_data *)handle;
+
+    pa_assert(sdata);
+    pa_assert(sdata->pa_sdata);
+    pa_assert(sdata->pa_sdata->sink);
+
+    return pa_pal_sink_get_formats(sdata->pa_sdata->sink);
 }
 
 void pa_pal_sink_close(pa_pal_sink_handle_t *handle) {
