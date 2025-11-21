@@ -19,7 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301  USA
  *
- * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -1126,7 +1126,7 @@ static int pa_qahw_sink_reconfigure_cb(pa_sink *s, pa_sample_spec *spec, pa_chan
 
     encoding = (qahw_sdata->config.format != AUDIO_FORMAT_DSD) ? PA_ENCODING_PCM : PA_ENCODING_DSD;
 
-    if (!PA_SOURCE_IS_OPENED(s->state)) {
+    if (!PA_SOURCE_IS_OPENED((pa_source_state_t)s->state)) {
         pa_log_info("%s: old sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &pa_sdata->sink->sample_spec));
         pa_log_info("%s: requested sample spec %s", __func__, pa_sample_spec_snprint(ss_buf, sizeof(ss_buf), &tmp_spec));
 
