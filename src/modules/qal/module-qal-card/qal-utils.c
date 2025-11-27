@@ -380,6 +380,24 @@ int pa_pal_set_volume(pal_stream_handle_t *handle, uint32_t num_channels, float 
     return ret;
 }
 
+int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connection_state)
+{
+    int ret = 0;
+    pal_param_device_connection_t param_device_connection;
+
+    param_device_connection.id = pal_dev_id;
+    param_device_connection.connection_state = connection_state;
+
+    ret = pal_set_param(PAL_PARAM_ID_DEVICE_CONNECTION,
+            (void*)&param_device_connection,
+            sizeof(pal_param_device_connection_t));
+    if (ret != 0) {
+        pa_log_error("Set PAL_PARAM_ID_DEVICE_CONNECTION for %d failed", param_device_connection.id);
+    }
+
+    return ret;
+}
+
 int pa_pal_device_connection_state(pa_device_port *port, pal_device_id_t pal_device_id, bool connection_state)
 {
     int ret = 0;
