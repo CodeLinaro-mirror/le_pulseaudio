@@ -68,6 +68,9 @@ static int open_pal_source(pa_pal_source_data *sdata);
 static const uint32_t supported_source_rates[] =
                           {8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000};
 
+static const  pa_sample_format_t supported_source_formats[] =
+                                     {PA_SAMPLE_S16LE, PA_SAMPLE_S32LE, PA_SAMPLE_S24LE,PA_SAMPLE_S24_32LE};
+
 static size_t source_get_buffer_size (pa_sample_spec spec,pal_stream_type_t type) {
     uint32_t buffer_duration = PA_DEFAULT_BUFFER_DURATION_MS;
     size_t length = 0;
@@ -87,34 +90,15 @@ static size_t source_get_buffer_size (pa_sample_spec spec,pal_stream_type_t type
     return pa_frame_align(length ,&spec);
 }
 
-static pa_sample_format_t pa_pal_source_find_nearest_supported_pa_format(pa_sample_format_t format) {
-    pa_sample_format_t format1;
 
-    switch(format) {
-        case PA_SAMPLE_S16LE:
-        case PA_SAMPLE_U8:
-        case PA_SAMPLE_ALAW:
-        case PA_SAMPLE_S16BE:
-            format1 = PA_SAMPLE_S16LE;
-            break;
-        case PA_SAMPLE_S24LE:
-        case PA_SAMPLE_S24BE:
-        case PA_SAMPLE_S24_32LE:
-        case PA_SAMPLE_S24_32BE:
-            format1 = PA_SAMPLE_S24LE;
-            break;
-        case PA_SAMPLE_S32LE:
-        case PA_SAMPLE_FLOAT32LE:
-        case PA_SAMPLE_S32BE:
-            format1 = PA_SAMPLE_S32LE;
-            break;
-        default:
-            format1 = PA_SAMPLE_S16LE;
-            pa_log_error(" unsupport format %d hence defaulting to %d",format, format1);
-            break;
-    }
-
-    return format1;
+static bool source_check_supported_format(pa_sample_format_t format) {
+   uint32_t i;
+   for (i = 0; i < ARRAY_SIZE(supported_source_formats) ; i++) {
+        if (format == supported_source_formats[i]) {
+           return true;
+        }
+   }
+   return false;
 }
 
 static uint32_t pa_pal_source_find_nearest_supported_sample_rate(uint32_t sample_rate) {
@@ -400,6 +384,7 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
     pa_sample_spec tmp_spec;
     pa_volume_t volume;
     float gain ;
+    bool supported_format = false;
 
     bool supported = false;
     uint32_t i;
@@ -429,16 +414,25 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
         }
     }
 
+    supported_format = source_check_supported_format(spec->format);
+
     if (!supported) {
         pa_log_info("Source does not support sample rate of %d Hz", spec->rate);
         return -1;
     }
+
+    if (!supported_format) {
+        pa_log_info("Source does not support sample format of %d ", spec->format);
+        return -1;
+    }
+
 
     if (!PA_SOURCE_IS_OPENED(s->state)) {
         pa_channel_map_init_auto(&new_map, spec->channels, PA_CHANNEL_MAP_DEFAULT);
 
         old_rate = pa_sdata->source->sample_spec.rate; /*take backup*/
         pa_sdata->source->sample_spec.rate = spec->rate;
+        pa_sdata->source->sample_spec.format = spec->format;
 
         if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_CHANNELS) {
             s->reference_volume.channels = tmp_spec.channels;
@@ -449,12 +443,7 @@ static int pa_pal_source_reconfigure_cb(pa_source *s, pa_sample_spec *spec, pa_c
         }
 
         port_device_data = PA_DEVICE_PORT_DATA(pa_sdata->source->active_port);
-
-        /* find nearest suitable format */
-        if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH)
-            tmp_spec.format = pa_pal_source_find_nearest_supported_pa_format(spec->format);
-        else
-            tmp_spec.format = pa_sdata->source->sample_spec.format;
+        tmp_spec.format = spec->format;
 
         /* find nearest suitable rate */
         if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_SAMPLE_RATE) {
@@ -676,9 +665,10 @@ static int close_pal_source(pa_pal_source_data *sdata) {
 static int restart_pal_source(pa_pal_source_data *sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map) {
     int rc;
     pal_source_data *pal_sdata = NULL;
+    pa_source_data *pa_sdata = NULL;
     pal_audio_fmt_t pal_format;
-
     pa_assert(sdata->pal_sdata);
+    pa_assert(sdata->pa_sdata);
 
     pal_sdata = sdata->pal_sdata;
     if (!pal_sdata->standby) {
@@ -694,8 +684,29 @@ static int restart_pal_source(pa_pal_source_data *sdata, pa_encoding_t encoding,
         pa_log_error("%s: unsupported format", __func__);
         return -1;
     }
+    if (pa_sdata->avoid_config_processing & PA_PAL_CARD_AVOID_PROCESSING_FOR_BIT_WIDTH){
+       switch (ss->format) {
+           case PA_SAMPLE_S32LE:
+               sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S32_LE;
+               sdata->pal_sdata->stream_attributes->in_media_config.bit_width = 32;
+               break;
+           case PA_SAMPLE_S24_32LE:
+               sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S24_LE;
+               sdata->pal_sdata->stream_attributes->in_media_config.bit_width = 24;
+               break;
+           case PA_SAMPLE_S24LE:
+               sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S24_3LE;
+               sdata->pal_sdata->stream_attributes->in_media_config.bit_width = 24;
+               break;
+           default:
+               sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_DEFAULT_PCM;
+               sdata->pal_sdata->stream_attributes->in_media_config.bit_width = 16;
+               break;
+       }
+    }
+    else
+        sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = pal_format;
 
-    sdata->pal_sdata->stream_attributes->in_media_config.aud_fmt_id = pal_format;
     sdata->pal_sdata->stream_attributes->in_media_config.sample_rate = ss->rate;
     if (!pa_pal_channel_map_to_pal(map, &sdata->pal_sdata->stream_attributes->in_media_config.ch_info)) {
         pa_log_error("%s: unsupported channel map", __func__);
