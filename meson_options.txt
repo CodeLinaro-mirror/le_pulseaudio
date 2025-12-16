@@ -114,6 +114,9 @@ option('with-qal-voiceui',
 option('with-pal-voiceui',
        type : 'string',
        description : 'Optional pal voiceui module support')
+option('with-qal-sourcetrack',
+       type : 'string',
+       description : 'Optional Sound position tracking module support')
 option('with-refactored-pal',
        type : 'boolean', value : false,
        description : 'new pal have refactored, Added many sub-libraries')
