@@ -79,8 +79,13 @@ pa_pal_util_port_to_pal_device_mapping port_to_pal_device[] = {
     { (char *)"bta2dp-in",        PAL_DEVICE_IN_BLUETOOTH_A2DP,         (char *)"PAL_DEVICE_IN_BLUETOOTH_A2DP" },
     { (char *)"btsco-in",         PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET,  (char *)"PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
     { (char *)"btsco-out",        PAL_DEVICE_OUT_BLUETOOTH_SCO,         (char *)"PAL_DEVICE_OUT_BLUETOOTH_SCO" },
-    { (char *)"usb-out",          PAL_DEVICE_OUT_USB_HEADSET,      (char *)"PAL_DEVICE_OUT_USB_HEADSET" },
-    { (char *)"usb-in",          PAL_DEVICE_IN_USB_HEADSET,       (char *)"PAL_DEVICE_IN_USB_HEADSET" },
+    { (char *)"usb-out",          PAL_DEVICE_OUT_USB_HEADSET,           (char *)"PAL_DEVICE_OUT_USB_HEADSET" },
+    { (char *)"usb-in",           PAL_DEVICE_IN_USB_HEADSET,            (char *)"PAL_DEVICE_IN_USB_HEADSET" },
+    { (char *)"btle-out",         PAL_DEVICE_OUT_BLUETOOTH_BLE,         (char *)"PAL_DEVICE_OUT_BLUETOOTH_BLE" },
+    { (char *)"btle-in",          PAL_DEVICE_IN_BLUETOOTH_BLE,          (char *)"PAL_DEVICE_IN_BLUETOOTH_BLE" },
+    { (char *)"btle-voip-out",    PAL_DEVICE_OUT_BLUETOOTH_BLE,         (char *)"PAL_DEVICE_OUT_BLUETOOTH_BLE" },
+    { (char *)"btle-voip-in",     PAL_DEVICE_IN_BLUETOOTH_BLE,          (char *)"PAL_DEVICE_IN_BLUETOOTH_BLE" },
+
 };
 
 pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
@@ -101,6 +106,10 @@ pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_PAL_JACK_TYPE_SPDIF_OUT_COAXIAL, (char *)"spdif-out-coaxial"},
     { PA_PAL_JACK_TYPE_USB_OUT, (char *)"usb-out"},
     { PA_PAL_JACK_TYPE_USB_IN, (char *)"usb-in"},
+    { PA_PAL_JACK_TYPE_BTLE_OUT, (char *)"btle-out"},
+    { PA_PAL_JACK_TYPE_BTLE_IN, (char *)"btle-in"},
+    { PA_PAL_JACK_TYPE_BTLE_VOIP_OUT, (char *)"btle-voip-out"},
+    { PA_PAL_JACK_TYPE_BTLE_VOIP_IN, (char *)"btle-voip-in"},
 };
 
 static pa_channel_position_t pa_pal_be_channel_map[] = {

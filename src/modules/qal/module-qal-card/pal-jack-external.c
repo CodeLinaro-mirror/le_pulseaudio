@@ -91,7 +91,11 @@ static void set_default_config(pa_pal_jack_type_t jack_type, pa_pal_jack_out_con
     config->preemph_status = 0;
     config->ss.format = PA_SAMPLE_S16LE;
     config->encoding = PA_ENCODING_PCM;
-    if (jack_type == PA_PAL_JACK_TYPE_BTA2DP_OUT)
+    if ((jack_type == PA_PAL_JACK_TYPE_BTA2DP_OUT)    ||
+        (jack_type == PA_PAL_JACK_TYPE_BTLE_VOIP_OUT) ||
+        (jack_type == PA_PAL_JACK_TYPE_BTLE_VOIP_IN)  ||
+        (jack_type == PA_PAL_JACK_TYPE_BTLE_OUT)      ||
+        (jack_type == PA_PAL_JACK_TYPE_BTLE_IN))
         config->ss.rate = 48000;
     else
         config->ss.rate = 16000;
