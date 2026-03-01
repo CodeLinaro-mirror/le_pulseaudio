@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -637,7 +637,7 @@ static void pa_pal_card_set_sink_param(pa_device_port *port, struct userdata *u,
     switch(kvpair.key) {
         case JACK_PARAM_KEY_DEVICE_CONNECTION:
             connection_state = (!strcmp(kvpair.value, "true")) ? true : false;
-            ret = pa_pal_device_connection_state(NULL, pa_pal_util_port_name_to_enum(port->name), connection_state);
+            ret = pa_pal_set_device_connection_state(pa_pal_util_port_name_to_enum(port->name), connection_state);
             if(ret)
                 pa_log_error("Set sink device connection params for connection=%d failed ret =%d", connection_state, ret);
             break;
@@ -704,7 +704,7 @@ static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *
     switch(kvpair.key) {
         case JACK_PARAM_KEY_DEVICE_CONNECTION:
             connection_state = (!strcmp(kvpair.value, "true")) ? true : false;
-            ret = pa_pal_device_connection_state(NULL, pa_pal_util_port_name_to_enum(port->name), connection_state);
+            ret = pa_pal_set_device_connection_state(pa_pal_util_port_name_to_enum(port->name), connection_state);
             if(ret)
                 pa_log_error("Set source device connection params failed ret=%d", ret);
 
@@ -886,6 +886,13 @@ exit:
    return;
 }
 
+bool pa_pal_is_bt_jack_type(pa_pal_jack_type_t jack_type) {
+    return jack_type == PA_PAL_JACK_TYPE_BTA2DP_OUT ||
+           jack_type == PA_PAL_JACK_TYPE_BTA2DP_IN  ||
+           jack_type == PA_PAL_JACK_TYPE_BTSCO_IN   ||
+           jack_type == PA_PAL_JACK_TYPE_BTSCO_OUT;
+}
+
 static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused)), pa_pal_jack_event_data_t *event_data, void *prv_data) {
     const char *port_name = NULL;
     pa_available_t status = PA_AVAILABLE_UNKNOWN;
@@ -923,14 +930,18 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
         port = pa_hashmap_get(u->card->ports, port_name);
         if (port) {
             if (event == PA_PAL_JACK_AVAILABLE) {
-                pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
+                if (!pa_pal_is_bt_jack_type(event_data->jack_type)) {
+                    pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
                         (void *)event_data->pa_pal_jack_info, port);
-                pa_pal_device_connection_state(port, 0, true);
+                    pa_pal_device_connection_state(port, 0, true);
+                }
                 pa_device_port_set_available(port, status);
             } else if (event == PA_PAL_JACK_UNAVAILABLE) {
-                pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
+                if(!pa_pal_is_bt_jack_type(event_data->jack_type)) {
+                    pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
                         (void *)event_data->pa_pal_jack_info, port);
-                pa_pal_device_connection_state(port, 0, false);
+                    pa_pal_device_connection_state(port, 0, false);
+                }
                 pa_device_port_set_available(port, status);
 
                 if (port->direction == PA_DIRECTION_INPUT) {

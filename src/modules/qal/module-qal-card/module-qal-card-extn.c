@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -31,6 +31,9 @@
 
 #ifdef PAL_USES_CUTILS
 #include <cutils/str_parms.h>
+#ifdef HAVE_QAL_SOURCETRACK
+#include <cutils/properties.h>
+#endif
 #endif
 
 #include <PalApi.h>
@@ -70,10 +73,14 @@ struct str_parms *str_parms_create(void){return NULL;}
 void str_parms_del(struct str_parms *str_parms, const char *key){return;}
 void str_parms_destroy(struct str_parms *str_parms){return;}
 #endif
+
 struct pal_module_extn_data {
 	char *obj_path;
 	pa_dbus_protocol *dbus_protocol;
 	pa_card *card;
+#ifdef HAVE_QAL_SOURCETRACK
+	pa_core *core;
+#endif
 };
 
 static struct pal_module_extn_data *pal_extn_mdata = NULL;
@@ -81,11 +88,21 @@ static struct pal_module_extn_data *pal_extn_mdata = NULL;
 /* key,value based set params*/
 static void pal_module_set_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pal_module_get_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
+#ifdef HAVE_QAL_SOURCETRACK
+static void pal_module_get_doa_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void pal_module_set_doa_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata);
+#endif
 
 enum module_method_handler_index {
 	METHOD_HANDLER_SET_PARAMETERS,
 	METHOD_HANDLER_GET_PARAMETERS,
+#ifdef HAVE_QAL_SOURCETRACK
+	METHOD_HANDLER_SET_DOA_PARAMETERS,
+	METHOD_HANDLER_GET_DOA_PARAMETERS,
+	METHOD_HANDLER_MODULE_LAST = METHOD_HANDLER_GET_DOA_PARAMETERS,
+#else
 	METHOD_HANDLER_MODULE_LAST = METHOD_HANDLER_GET_PARAMETERS,
+#endif
 	METHOD_HANDLER_MODULE_MAX = METHOD_HANDLER_MODULE_LAST + 1,
 };
 
@@ -98,6 +115,17 @@ static pa_dbus_arg_info get_parameters_args[] = {
 	{"value", "s", "out"}
 };
 
+#ifdef HAVE_QAL_SOURCETRACK
+static pa_dbus_arg_info set_doa_parameters_args[] = {
+	{"payload", "ay", "in"},
+};
+
+static pa_dbus_arg_info get_doa_parameters_args[] = {
+	{"param", "s", "in"},
+	{"payload", "ay", "out"},
+};
+#endif
+
 static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] = {
 	[METHOD_HANDLER_SET_PARAMETERS] = {
 		.method_name = "SetParameters",
@@ -109,6 +137,18 @@ static pa_dbus_method_handler module_method_handlers[METHOD_HANDLER_MODULE_MAX] 
 		.arguments = get_parameters_args,
 		.n_arguments = sizeof(get_parameters_args)/sizeof(pa_dbus_arg_info),
 		.receive_cb = pal_module_get_parameters},
+#ifdef HAVE_QAL_SOURCETRACK
+	[METHOD_HANDLER_SET_DOA_PARAMETERS] = {
+		.method_name = "SetDoaParameters",
+		.arguments = set_doa_parameters_args,
+		.n_arguments = sizeof(set_doa_parameters_args)/sizeof(pa_dbus_arg_info),
+		.receive_cb = pal_module_set_doa_parameters},
+	[METHOD_HANDLER_GET_DOA_PARAMETERS] = {
+		.method_name = "GetDoaParameters",
+		.arguments = get_doa_parameters_args,
+		.n_arguments = sizeof(get_doa_parameters_args)/sizeof(pa_dbus_arg_info),
+		.receive_cb = pal_module_get_doa_parameters},
+#endif
 };
 
 static pa_dbus_interface_info module_interface_info = {
@@ -303,6 +343,197 @@ static void pal_module_get_parameters(DBusConnection *conn, DBusMessage *msg, vo
 	}
 }
 
+#ifdef HAVE_QAL_SOURCETRACK
+static void pal_module_set_doa_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata)
+{
+	int status = 0;
+	DBusError error;
+	DBusMessageIter arg_i, array_i;
+	void *array_ptr = NULL;
+	int n_elements = 0;
+
+	pal_param_payload *payload = NULL;
+	struct pal_module_extn_data *mdata = (struct pal_module_extn_data *)userdata;
+	pa_source *s;
+	pal_source_data *pal_sdata;
+	char prop_value[PROPERTY_VALUE_MAX] = {0};
+	pal_param_id_type_t param_id;
+
+	pa_assert(conn);
+	pa_assert(msg);
+	pa_assert(mdata && mdata->core);
+
+	s = mdata->core->default_source;
+	if (!s || !s->userdata) {
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "No default source active");
+		return;
+	}
+
+	pal_sdata = ((pa_pal_source_data *)s->userdata)->pal_sdata;
+	if (!pal_sdata || !pal_sdata->stream_handle) {
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Stream not ready");
+		return;
+	}
+
+	dbus_error_init(&error);
+
+	property_get("ro.vendor.audio.sdk.fluencetype", prop_value, "");
+
+	if (strncmp(prop_value, "fluencepro", sizeof("fluencepro")) == 0) {
+		param_id = PAL_PARAM_ID_FLUENCE_SOUNDFOCUS;
+		pa_log_debug("Selected PAL Param ID: %d for fluence type: %s",
+			(int)param_id, prop_value);
+	} else {
+		/*
+		 * For 'fluencenn' or 'none', no valid param_id exists in this context.
+		 * Return specific error to client.
+		 */
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_NOT_SUPPORTED,
+			"Unsupported PAL parameter id");
+		dbus_error_free(&error);
+		return;
+	}
+
+	if (!pa_streq(dbus_message_get_signature(msg), "ay")) {
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
+			"Invalid signature: expected 'ay', got '%s'",
+			dbus_message_get_signature(msg));
+		dbus_error_free(&error);
+		return;
+	}
+
+	if (!dbus_message_iter_init(msg, &arg_i)) {
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "No arguments");
+		dbus_error_free(&error);
+		return;
+	}
+
+	/* Extract the raw fixed array directly */
+	dbus_message_iter_recurse(&arg_i, &array_i);
+	dbus_message_iter_get_fixed_array(&array_i, &array_ptr, &n_elements);
+
+	if (n_elements != sizeof(struct qcmn_sector_interf_param_t)) {
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
+			"Invalid data size: expected %zu, got %d",
+			sizeof(struct qcmn_sector_interf_param_t), n_elements);
+		dbus_error_free(&error);
+		return;
+	}
+
+	payload = (pal_param_payload *)calloc(1,
+			sizeof(pal_param_payload) + n_elements);
+
+	if (!payload) {
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "OOM");
+		dbus_error_free(&error);
+		return;
+	}
+
+	payload->payload_size = n_elements;
+	memcpy(payload->payload, array_ptr, n_elements);
+	status = pal_stream_set_param(pal_sdata->stream_handle, (uint32_t)param_id, payload);
+
+	if (status != 0) {
+		pa_log_error("Failed to set SoundFocus param, status %d", status);
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "PAL set_param failed");
+	} else {
+		pa_dbus_send_empty_reply(conn, msg);
+	}
+
+	free(payload);
+	dbus_error_free(&error);
+}
+
+static void pal_module_get_doa_parameters(DBusConnection *conn, DBusMessage *msg, void *userdata)
+{
+	int status = 0;
+	DBusError error;
+	const char *param = NULL;
+	pal_param_id_type_t param_id;
+	pal_param_payload *payload = NULL;
+	DBusMessage *reply = NULL;
+	DBusMessageIter arg_i, array_i;
+	struct qcmn_source_tracking_interf_param_t *doa = NULL;
+	pal_source_data *pal_sdata;
+	struct pal_module_extn_data *mdata = (struct pal_module_extn_data *)userdata;
+	pa_source *s;
+	const void *array_data_ptr;
+	char prop_value[PROPERTY_VALUE_MAX] = {0};
+
+	pa_assert(conn);
+	pa_assert(msg);
+	pa_assert(mdata && mdata->core);
+
+	s = mdata->core->default_source;
+	if (!s || !s->userdata) {
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "No default source active");
+		return;
+	}
+
+	pal_sdata = ((pa_pal_source_data *)s->userdata)->pal_sdata;
+
+	if (!pal_sdata || !pal_sdata->stream_handle) {
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Stream not ready");
+		return;
+	}
+
+	dbus_error_init(&error);
+	if (!dbus_message_get_args(msg, &error, DBUS_TYPE_STRING, &param, DBUS_TYPE_INVALID)) {
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+		dbus_error_free(&error);
+		return;
+	}
+
+	if (!param || !pa_streq("st_direction_of_arrival", param)) {
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "Unsupported parameter");
+		dbus_error_free(&error);
+		return;
+	}
+
+	property_get("ro.vendor.audio.sdk.fluencetype", prop_value, "");
+
+	if (strncmp(prop_value, "fluencepro", sizeof("fluencepro")) == 0) {
+		param_id = PAL_PARAM_ID_FLUENCE_SOURCETRACKING;
+		pa_log_debug("Selected PAL Param ID: %d for fluence type: %s",
+			(int)param_id, prop_value);
+	} else {
+		/*
+		 * For 'fluencenn' or 'none', no valid param_id exists in this context.
+		 * Return specific error to client.
+		 */
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_NOT_SUPPORTED,
+			"Unsupported PAL parameter id");
+		dbus_error_free(&error);
+		return;
+	}
+
+	status = pal_stream_get_param(pal_sdata->stream_handle, (uint32_t)param_id, &payload);
+
+	if (status != 0 || payload == NULL) {
+		if (payload) free(payload);
+		pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Failed to get param from PAL");
+		dbus_error_free(&error);
+		return;
+	}
+
+	doa = (struct qcmn_source_tracking_interf_param_t *)payload;
+
+	pa_assert_se((reply = dbus_message_new_method_return(msg)));
+	dbus_message_iter_init_append(reply, &arg_i);
+	dbus_message_iter_open_container(&arg_i, DBUS_TYPE_ARRAY, "y", &array_i);
+
+	array_data_ptr = (const void *)doa;
+	dbus_message_iter_append_fixed_array(&array_i, DBUS_TYPE_BYTE, &array_data_ptr,
+			sizeof(struct qcmn_source_tracking_interf_param_t));
+
+	dbus_message_iter_close_container(&arg_i, &array_i);
+	pa_assert_se(dbus_connection_send(conn, reply, NULL));
+
+	dbus_message_unref(reply);
+	free(payload);
+}
+#endif
+
 int pa_pal_module_extn_init(pa_core *core, pa_card *card)
 {
 	pa_assert(core);
@@ -318,6 +549,9 @@ int pa_pal_module_extn_init(pa_core *core, pa_card *card)
 	pal_extn_mdata->obj_path = pa_sprintf_malloc("%s", QAL_DBUS_OBJECT_PATH_PREFIX);
 	pal_extn_mdata->dbus_protocol = pa_dbus_protocol_get(core);
 	pal_extn_mdata->card = card;
+#ifdef HAVE_QAL_SOURCETRACK
+	pal_extn_mdata->core = core;
+#endif
 
 	pa_assert_se(pa_dbus_protocol_add_interface(pal_extn_mdata->dbus_protocol,
 					pal_extn_mdata->obj_path, &module_interface_info, pal_extn_mdata) >= 0);
