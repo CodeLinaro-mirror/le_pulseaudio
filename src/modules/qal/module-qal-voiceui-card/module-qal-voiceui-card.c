@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -110,6 +111,7 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
 static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_interface_version(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void force_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata);
 
 enum module_handler_index {
     MODULE_HANDLER_LOAD_SOUND_MODEL,
@@ -129,6 +131,7 @@ enum session_handler_index {
     SESSION_HANDLER_STOP_BUFFERING,
     SESSION_HANDLER_REQUEST_READ_BUFFER,
     SESSION_HANDLER_GET_PARAM_DATA,
+    SESSION_HANDLER_FORCE_RECOGNITION,
     SESSION_HANDLER_MAX
 };
 
@@ -166,6 +169,10 @@ pa_dbus_arg_info read_buffer_args[] = {
 };
 
 pa_dbus_arg_info stop_buffering_args[] = {
+};
+
+pa_dbus_arg_info force_recognition_args[] = {
+    /* No IN/OUT args. */
 };
 
 pa_dbus_arg_info request_read_buffer_args[] = {
@@ -261,6 +268,11 @@ static pa_dbus_method_handler pal_voiceui_session_handlers[SESSION_HANDLER_MAX] 
         .arguments = get_param_data_args,
         .n_arguments = sizeof(get_param_data_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = get_param_data},
+    [SESSION_HANDLER_FORCE_RECOGNITION] = {
+        .method_name = "ForceRecognition",
+        .arguments = force_recognition_args,
+        .n_arguments = sizeof(force_recognition_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = force_recognition},
 };
 
 enum signal_index {
@@ -592,7 +604,7 @@ static int32_t event_callback(pal_stream_handle_t *stream_handle, uint32_t event
         }
     } else
 #endif
-    {
+    if (event->type == PAL_SOUND_MODEL_TYPE_KEYPHRASE) {
         for (i = 0; i < phrase_event->num_phrases; i++) {
             dbus_message_iter_open_container(&array_i, DBUS_TYPE_STRUCT, NULL, &struct_i);
             dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
@@ -853,6 +865,37 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
     pa_cond_signal(ses_data->cond, 0);
     pa_mutex_unlock(ses_data->mutex);
 
+    pa_dbus_send_empty_reply(conn, msg);
+}
+
+static void force_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata)
+{
+    struct pal_voiceui_session_data *ses_data = userdata;
+    int status = 0;
+    bool started;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+    pa_log_debug("force recognition");
+    pa_mutex_lock(ses_data->mutex);
+    started = ses_data->recognition_started;
+    if (started) {
+        status = pal_stream_set_param(ses_data->ses_handle,
+                                      PAL_PARAM_ID_FORCE_RECOGNITION,
+                                      NULL);
+        pa_log_debug("force recognition status: %d", status);
+    }
+    pa_mutex_unlock(ses_data->mutex);
+    if (!started) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED,
+                           "recognition session is not started");
+        dbus_error_free(&error);
+        return;
+    }
     pa_dbus_send_empty_reply(conn, msg);
 }
 
@@ -1318,13 +1361,30 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
 
     ses_data = pa_xnew0(struct pal_voiceui_session_data, 1);
     ses_data->common = (struct pal_voiceui_module_data *)userdata;
+
+    /* Re-determine stream type if the type is GENERIC. */
+    if (sm_type == PAL_SOUND_MODEL_TYPE_GENERIC) {
+        common_sound_model->data_offset = sizeof(struct pal_st_sound_model);
+        /*skip phrase related fields */
+        dbus_message_iter_next(&arg_i);
+        dbus_message_iter_recurse(&arg_i, &array_i);
+        dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
+        sm_data_size = sizeof(struct pal_st_sound_model) + n_elements;
+        common_sound_model->data_size = n_elements;
+
+        /* Overwrite stream type to VOICE_UI as ACD stream has data_size=0. */
+        if (common_sound_model->data_size != 0 && stream_attr->type == PAL_STREAM_ACD) {
+            stream_attr->type = PAL_STREAM_VOICE_UI;
+        }
+    }
+
 #ifdef ENABLE_ACD
     ses_data->type = stream_attr->type;
 #endif
 
     rc = pal_stream_open(stream_attr, no_of_devices, devices, no_of_modifiers, modifiers, event_callback, (uint64_t)ses_data, &stream_handle);
     if (rc != 0) {
-        free(ses_data);
+        pa_xfree(ses_data);
         ses_data = NULL;
         pa_log_error("pal stream open failed\n");
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "load_sound_model failed");
@@ -1386,19 +1446,14 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
         memcpy((char*)p_sound_model + common_sound_model->data_offset, value,
                common_sound_model->data_size);
     } else if (sm_type == PAL_SOUND_MODEL_TYPE_GENERIC) {
-        common_sound_model->data_offset = sizeof(struct pal_st_sound_model);
-        /*skip phrase related fields */
-        dbus_message_iter_next(&arg_i);
-        dbus_message_iter_recurse(&arg_i, &array_i);
-        dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
-        sm_data_size = sizeof(struct pal_st_sound_model) + n_elements;
         prm_payload = (pal_param_payload *)pa_xmalloc0(sizeof(pal_param_payload) + sm_data_size);
         prm_payload->payload_size = sizeof(pal_param_payload) + sm_data_size;
-        common_sound_model = (struct pal_st_sound_model *) prm_payload->payload;
-        common_sound_model->data_size = n_elements;
-        memcpy((char*)common_sound_model + common_sound_model->data_offset,
+        p_sound_model = (struct pal_st_sound_model *) prm_payload->payload;
+        memcpy(p_sound_model, common_sound_model, sizeof(struct pal_st_sound_model));
+        memcpy((char*)p_sound_model + common_sound_model->data_offset,
                value, common_sound_model->data_size);
     }
+    pa_log_debug("smtype: %d, opaque_size: %d", sm_type, common_sound_model->data_size);
 
     status = pal_stream_set_param(stream_handle, PAL_PARAM_ID_LOAD_SOUND_MODEL, prm_payload);
 
@@ -1407,7 +1462,7 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     p_sound_model = NULL;
     common_sound_model = NULL;
     if (status != 0) {
-        free(ses_data);
+        pa_xfree(ses_data);
         ses_data = NULL;
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "load_sound_model failed");
         dbus_error_free(&error);
