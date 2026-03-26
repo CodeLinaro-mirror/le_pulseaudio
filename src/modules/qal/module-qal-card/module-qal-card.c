@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -621,8 +621,6 @@ exit:
 static void pa_pal_card_set_sink_param(pa_device_port *port, struct userdata *u, const char *jack_param) {
     int ret = 0;
     jack_prm_kvpair_t kvpair;
-    pa_pal_card_sink_info *sink_info = NULL;
-    pa_pal_sink_data *sdata = NULL;
     bool connection_state = false;
 
     pa_assert(port);
@@ -636,29 +634,20 @@ static void pa_pal_card_set_sink_param(pa_device_port *port, struct userdata *u,
         return;
     }
 
-    /* check if any dynamic sink is already created on same port */
-    sink_info = pa_pal_card_is_dynamic_sink_present_for_port(port->name, u);
-    if (sink_info && sink_info->handle) {
-        switch(kvpair.key) {
-            case JACK_PARAM_KEY_DEVICE_CONNECTION:
-                sdata = (pa_pal_sink_data *)sink_info->handle;
-                connection_state = (!strcmp(kvpair.value, "true")) ? true : false;
-                ret = pa_pal_set_device_connection_state(sdata->pal_sdata->pal_device->id, connection_state);
-                if(ret)
-                    pa_log_error("Set sink device connection params for connection=%d failed ret =%d", connection_state, ret);
-                break;
-            case JACK_PARAM_KEY_A2DP_SUSPEND:
-                ret = pa_pal_sink_set_a2dp_suspend(kvpair.value);
-                if (ret)
-                    pa_log_error("Set sink param for a2dp suspend=%s failed", kvpair.value);
-                break;
-            default:
-                break;
-        }
-    }
-    else {
-        pa_log_error("No sink exists for the port %s", port->name);
-        return;
+    switch(kvpair.key) {
+        case JACK_PARAM_KEY_DEVICE_CONNECTION:
+            connection_state = (!strcmp(kvpair.value, "true")) ? true : false;
+            ret = pa_pal_set_device_connection_state(pa_pal_util_port_name_to_enum(port->name), connection_state);
+            if(ret)
+                pa_log_error("Set sink device connection params for connection=%d failed ret =%d", connection_state, ret);
+            break;
+        case JACK_PARAM_KEY_A2DP_SUSPEND:
+            ret = pa_pal_sink_set_a2dp_suspend(kvpair.value);
+            if (ret)
+                pa_log_error("Set sink param for a2dp suspend=%s failed", kvpair.value);
+            break;
+        default:
+            break;
     }
 }
 
@@ -698,9 +687,6 @@ static int pa_pal_set_sco_params(uint32_t sample_rate) {
 static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *u, const char *jack_param) {
     int ret = 0;
     jack_prm_kvpair_t kvpair;
-    pa_pal_card_source_info *source_info = NULL;
-    pa_pal_source_data *sdata = NULL;
-    struct pal_device *pal_device = NULL;
     bool connection_state = false;
 
     pa_assert(port);
@@ -715,33 +701,22 @@ static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *
     }
 
     /* check if any dynamic source is already created on same port */
-    source_info = pa_pal_card_is_dynamic_source_present_for_port(port->name, u);
-    if (source_info && source_info->handle) {
-        switch(kvpair.key) {
-            case JACK_PARAM_KEY_DEVICE_CONNECTION:
-                sdata = (pa_pal_source_data *)source_info->handle;
-                pa_assert(sdata->pal_sdata);
-                pa_assert(sdata->pal_sdata->pal_device);
-                pal_device = sdata->pal_sdata->pal_device;
-                connection_state = (!strcmp(kvpair.value, "true")) ? true : false;
-                ret = pa_pal_set_device_connection_state(pal_device->id, connection_state);
-                if(ret)
-                    pa_log_error("Set source device connection params failed ret=%d", ret);
+    switch(kvpair.key) {
+        case JACK_PARAM_KEY_DEVICE_CONNECTION:
+            connection_state = (!strcmp(kvpair.value, "true")) ? true : false;
+            ret = pa_pal_set_device_connection_state(pa_pal_util_port_name_to_enum(port->name), connection_state);
+            if(ret)
+                pa_log_error("Set source device connection params failed ret=%d", ret);
 
-                if (!strcmp(port->name, "btsco-in")) {
-                    /* setting common params for SCO  mode */
-                    ret = pa_pal_set_sco_params(sdata->pa_sdata->source->default_sample_rate);
-                    if(ret)
-                        pa_log_error("Set common sco params failed. ret=%d", ret);
-                }
-                break;
-            default:
-                break;
-        }
-    }
-    else {
-        pa_log_error("No source exists for port %s", port->name);
-        return;
+            if (!strcmp(port->name, "btsco-in")) {
+                /* setting common params for SCO  mode */
+                ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
+                if(ret)
+                    pa_log_error("Set common sco params failed. ret=%d", ret);
+            }
+            break;
+        default:
+            break;
     }
 }
 
@@ -911,6 +886,13 @@ exit:
    return;
 }
 
+bool pa_pal_is_bt_jack_type(pa_pal_jack_type_t jack_type) {
+    return jack_type == PA_PAL_JACK_TYPE_BTA2DP_OUT ||
+           jack_type == PA_PAL_JACK_TYPE_BTA2DP_IN  ||
+           jack_type == PA_PAL_JACK_TYPE_BTSCO_IN   ||
+           jack_type == PA_PAL_JACK_TYPE_BTSCO_OUT;
+}
+
 static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused)), pa_pal_jack_event_data_t *event_data, void *prv_data) {
     const char *port_name = NULL;
     pa_available_t status = PA_AVAILABLE_UNKNOWN;
@@ -948,14 +930,18 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
         port = pa_hashmap_get(u->card->ports, port_name);
         if (port) {
             if (event == PA_PAL_JACK_AVAILABLE) {
-                pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
+                if (!pa_pal_is_bt_jack_type(event_data->jack_type)) {
+                    pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
                         (void *)event_data->pa_pal_jack_info, port);
-                pa_pal_device_connection_state(port, 0, true);
+                    pa_pal_device_connection_state(port, 0, true);
+                }
                 pa_device_port_set_available(port, status);
             } else if (event == PA_PAL_JACK_UNAVAILABLE) {
-                pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
+                if(!pa_pal_is_bt_jack_type(event_data->jack_type)) {
+                    pa_pal_card_update_extra_conf_for_port(event_data->jack_type,
                         (void *)event_data->pa_pal_jack_info, port);
-                pa_pal_device_connection_state(port, 0, false);
+                    pa_pal_device_connection_state(port, 0, false);
+                }
                 pa_device_port_set_available(port, status);
 
                 if (port->direction == PA_DIRECTION_INPUT) {

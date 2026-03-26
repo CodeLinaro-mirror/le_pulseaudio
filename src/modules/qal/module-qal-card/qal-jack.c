@@ -98,6 +98,7 @@ pa_pal_jack_handle_t *pa_pal_jack_register_event_callback(pa_pal_jack_type_t jac
 
        switch(jack_type) {
            case PA_PAL_JACK_TYPE_HDMI_OUT:
+           case PA_PAL_JACK_TYPE_NATIVE_HDMI_OUT :
                jdata = pa_pal_hdmi_out_jack_detection_enable(jack_type, m, &(u->hook_slot),
                        callback, jack_in_config, client_data);
                break;
@@ -158,6 +159,7 @@ bool pa_pal_jack_deregister_event_callback(pa_pal_jack_handle_t *jack_handle, pa
 
         switch (jdata->jack_type) {
             case PA_PAL_JACK_TYPE_HDMI_OUT:
+            case PA_PAL_JACK_TYPE_NATIVE_HDMI_OUT:
                 pa_pal_hdmi_out_jack_detection_disable(jdata, m);
                 break;
             case PA_PAL_JACK_TYPE_BTA2DP_IN:
