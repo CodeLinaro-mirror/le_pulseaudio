@@ -19,6 +19,13 @@ extra_deps += [meson.get_compiler('c').find_library('cutils')]
 endif
 extra_libs = []
 
+if get_option('enable-acd')
+extra_flags += ['-DENABLE_ACD']
+vui_intf_headers_dep = dependency('vui-intf-header', required: true)
+else
+vui_intf_headers_dep = dependency('', required: false)
+endif
+
 # build shared module
 mod = shared_module(name,
   sources,
@@ -28,7 +35,7 @@ mod = shared_module(name,
   install : true,
   install_rpath : rpath_dirs,
   install_dir : modlibexecdir,
-  dependencies : [thread_dep, libpulse_dep, libpulsecommon_dep, libpulsecore_dep, libintl_dep, platform_dep, platform_socket_dep] + extra_deps,
+  dependencies : [thread_dep, libpulse_dep, libpulsecommon_dep, libpulsecore_dep, libintl_dep, platform_dep, platform_socket_dep, vui_intf_headers_dep] + extra_deps,
   link_args : [nodelete_link_args, '-Wl,--no-undefined' ],
   link_with : extra_libs,
   name_prefix : '',

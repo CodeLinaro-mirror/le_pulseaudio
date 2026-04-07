@@ -75,6 +75,7 @@ pa_pal_util_port_to_pal_device_mapping port_to_pal_device[] = {
     { (char *)"headset-mic",      PAL_DEVICE_IN_WIRED_HEADSET,          (char *)"PAL_DEVICE_IN_WIRED_HEADSET" },
     { (char *)"linein",           PAL_DEVICE_IN_LINE,                   (char *)"PAL_DEVICE_IN_LINE" },
     { (char *)"hdmi-out",         PAL_DEVICE_OUT_AUX_DIGITAL,           (char *)"PAL_DEVICE_OUT_AUX_DIGITAL" },
+    { (char *)"native-hdmi-out",  PAL_DEVICE_OUT_HDMI,                  (char *)"PAL_DEVICE_OUT_HDMI" },
     { (char *)"bta2dp-in",        PAL_DEVICE_IN_BLUETOOTH_A2DP,         (char *)"PAL_DEVICE_IN_BLUETOOTH_A2DP" },
     { (char *)"btsco-in",         PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET,  (char *)"PAL_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
     { (char *)"btsco-out",        PAL_DEVICE_OUT_BLUETOOTH_SCO,         (char *)"PAL_DEVICE_OUT_BLUETOOTH_SCO" },
@@ -95,6 +96,7 @@ pa_pal_util_jack_type_to_port_name jack_type_to_port_name[] = {
     { PA_PAL_JACK_TYPE_BTSCO_IN, (char *)"btsco-in"},
     { PA_PAL_JACK_TYPE_BTSCO_OUT, (char *)"btsco-out"},
     { PA_PAL_JACK_TYPE_HDMI_OUT, (char *)"hdmi-out"},
+    { PA_PAL_JACK_TYPE_NATIVE_HDMI_OUT, (char *)"native-hdmi-out"},
     { PA_PAL_JACK_TYPE_SPDIF_OUT_OPTICAL, (char *)"spdif-out-optical"},
     { PA_PAL_JACK_TYPE_SPDIF_OUT_COAXIAL, (char *)"spdif-out-coaxial"},
     { PA_PAL_JACK_TYPE_USB_OUT, (char *)"usb-out"},
@@ -419,6 +421,10 @@ int pa_pal_device_connection_state(pa_device_port *port, pal_device_id_t pal_dev
         switch (pal_dev_id) {
             case PAL_DEVICE_OUT_AUX_DIGITAL:
                 param_device_connection.device_config.dp_config.controller = 0;
+                param_device_connection.device_config.dp_config.stream = 0;
+                break;
+            case PAL_DEVICE_OUT_HDMI:
+                param_device_connection.device_config.dp_config.controller = 1;
                 param_device_connection.device_config.dp_config.stream = 0;
                 break;
             case PAL_DEVICE_OUT_USB_HEADSET:
