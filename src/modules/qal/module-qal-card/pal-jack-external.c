@@ -1,6 +1,6 @@
 /*
  ** Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
- ** Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ ** Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  **
  ** This library is free software; you can redistribute it and/or modify
  ** it under the terms of the GNU Lesser General Public License version
@@ -51,6 +51,7 @@ enum module_method_handler_index {
 static char const *jack_prmkey_names[JACK_PARAM_KEY_MAX] = {
     [JACK_PARAM_KEY_DEVICE_CONNECTION]          = "device_connection",
     [JACK_PARAM_KEY_A2DP_SUSPEND]               = "a2dp_suspend",
+    [JACK_PARAM_KEY_DEVICE_SAMPLERATE]          = "sample_rate",
 };
 
 static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -91,7 +92,11 @@ static void set_default_config(pa_pal_jack_type_t jack_type, pa_pal_jack_out_con
     config->preemph_status = 0;
     config->ss.format = PA_SAMPLE_S16LE;
     config->encoding = PA_ENCODING_PCM;
-    if (jack_type == PA_PAL_JACK_TYPE_BTA2DP_OUT)
+    if ((jack_type == PA_PAL_JACK_TYPE_BTA2DP_OUT)    ||
+        (jack_type == PA_PAL_JACK_TYPE_BTLE_VOIP_OUT) ||
+        (jack_type == PA_PAL_JACK_TYPE_BTLE_VOIP_IN)  ||
+        (jack_type == PA_PAL_JACK_TYPE_BTLE_OUT)      ||
+        (jack_type == PA_PAL_JACK_TYPE_BTLE_IN))
         config->ss.rate = 48000;
     else
         config->ss.rate = 16000;

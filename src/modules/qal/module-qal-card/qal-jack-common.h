@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018, 2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -50,6 +50,7 @@ struct pa_pal_jack_data {
 typedef enum {
     JACK_PARAM_KEY_DEVICE_CONNECTION = 1,
     JACK_PARAM_KEY_A2DP_SUSPEND,
+    JACK_PARAM_KEY_DEVICE_SAMPLERATE,
     JACK_PARAM_KEY_MAX
 } jack_param_key_t;
 
