@@ -954,7 +954,9 @@ static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata) 
 }
 
 static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userdata) {
-    int buffer_size;
+    struct pal_voiceui_session_data *ses_data = userdata;
+    int in_buffer_size = 0;
+    int status = 0;
     DBusError error;
 
     pa_assert(conn);
@@ -964,9 +966,21 @@ static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userda
     dbus_error_init(&error);
 
     pa_log_debug("get buffer size");
-    buffer_size = 3840; /* Fixme: Modify this once pal_stream_get_buffer_size is implemented */
+    in_buffer_size = 3840; /* Fixme: Modify this once pal_stream_get_buffer_size is implemented */
 
-    pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &buffer_size);
+#ifdef ENABLE_HIST_CAP
+    status = pal_stream_get_buffer_size(ses_data->ses_handle, &in_buffer_size, NULL);
+    pa_log_debug("get buffer size: status=%d, in_buf_size=%d", status, in_buffer_size);
+
+    if (status != 0) {
+        pa_log_error("get buffer size failed\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "get_buffer_size failed");
+        dbus_error_free(&error);
+        return;
+    }
+#endif
+
+    pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &in_buffer_size);
 }
 
 static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata) {
