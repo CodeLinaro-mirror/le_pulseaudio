@@ -204,6 +204,9 @@ option('valgrind',
 option('x11',
        type : 'feature', value : 'auto',
        description : 'Optional X11 support')
+option('enable-acd',
+       type : 'boolean', value : false,
+       description: 'Enable audio ACD feature')
 
 # Echo cancellation
 
