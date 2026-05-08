@@ -111,7 +111,9 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
 static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_interface_version(DBusConnection *conn, DBusMessage *msg, void *userdata);
+#ifdef ENABLE_HIST_CAP
 static void force_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata);
+#endif
 
 enum module_handler_index {
     MODULE_HANDLER_LOAD_SOUND_MODEL,
@@ -131,7 +133,9 @@ enum session_handler_index {
     SESSION_HANDLER_STOP_BUFFERING,
     SESSION_HANDLER_REQUEST_READ_BUFFER,
     SESSION_HANDLER_GET_PARAM_DATA,
+#ifdef ENABLE_HIST_CAP
     SESSION_HANDLER_FORCE_RECOGNITION,
+#endif
     SESSION_HANDLER_MAX
 };
 
@@ -171,9 +175,11 @@ pa_dbus_arg_info read_buffer_args[] = {
 pa_dbus_arg_info stop_buffering_args[] = {
 };
 
+#ifdef ENABLE_HIST_CAP
 pa_dbus_arg_info force_recognition_args[] = {
     /* No IN/OUT args. */
 };
+#endif
 
 pa_dbus_arg_info request_read_buffer_args[] = {
     {"bytes", "u", "in"},
@@ -268,11 +274,13 @@ static pa_dbus_method_handler pal_voiceui_session_handlers[SESSION_HANDLER_MAX] 
         .arguments = get_param_data_args,
         .n_arguments = sizeof(get_param_data_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = get_param_data},
+#ifdef ENABLE_HIST_CAP
     [SESSION_HANDLER_FORCE_RECOGNITION] = {
         .method_name = "ForceRecognition",
         .arguments = force_recognition_args,
         .n_arguments = sizeof(force_recognition_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = force_recognition},
+#endif
 };
 
 enum signal_index {
@@ -868,6 +876,7 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
     pa_dbus_send_empty_reply(conn, msg);
 }
 
+#ifdef ENABLE_HIST_CAP
 static void force_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata)
 {
     struct pal_voiceui_session_data *ses_data = userdata;
@@ -898,6 +907,7 @@ static void force_recognition(DBusConnection *conn, DBusMessage *msg, void *user
     }
     pa_dbus_send_empty_reply(conn, msg);
 }
+#endif
 
 static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     struct pal_voiceui_session_data *ses_data = userdata;
