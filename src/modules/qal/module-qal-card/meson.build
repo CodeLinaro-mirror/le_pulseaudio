@@ -36,26 +36,30 @@ headers = [
 
 extra_inc = [include_directories(qal_inc)]
 extra_flags = []
+cc = meson.get_compiler('c')
+_ar_pal_dep = cc.find_library('ar-pal', required: false)
+_pal_dep = _ar_pal_dep.found() ? _ar_pal_dep : cc.find_library('pal')
+
 extra_deps = [ dbus_dep,
-               meson.get_compiler('c').find_library('pal'),
-               meson.get_compiler('c').find_library('agm')
+               _pal_dep,
+               cc.find_library('agm')
              ]
 
 if get_option('enable-pal-service') == 'yes'
-extra_deps += [ meson.get_compiler('c').find_library('palserverwrapper'),
-                meson.get_compiler('c').find_library('utils'),
-                meson.get_compiler('c').find_library('binder')
+extra_deps += [ cc.find_library('palserverwrapper'),
+                cc.find_library('utils'),
+                cc.find_library('binder')
               ]
 endif
 
 if get_option('with-refactored-pal')
 extra_deps += [ dbus_dep,
-               meson.get_compiler('c').find_library('session_compress'),
-               meson.get_compiler('c').find_library('session_agm'),
-               meson.get_compiler('c').find_library('session_pcm'),
-               meson.get_compiler('c').find_library('stream_compress'),
-               meson.get_compiler('c').find_library('stream_pcm'),
-               meson.get_compiler('c').find_library('stream_soundtrigger')
+               cc.find_library('session_compress'),
+               cc.find_library('session_agm'),
+               cc.find_library('session_pcm'),
+               cc.find_library('stream_compress'),
+               cc.find_library('stream_pcm'),
+               cc.find_library('stream_soundtrigger')
              ]
 endif
 
@@ -69,7 +73,7 @@ endif
 
 if get_option('pal-support-cutils')
 extra_flags += ['-DPAL_USES_CUTILS']
-extra_deps += [meson.get_compiler('c').find_library('cutils')]
+extra_deps += [cc.find_library('cutils')]
 endif
 
 if get_option('enable-timestamp')
