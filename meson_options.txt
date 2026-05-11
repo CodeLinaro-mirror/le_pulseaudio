@@ -210,6 +210,8 @@ option('enable-acd',
 option('enable-hist-cap',
        type : 'boolean', value : false,
        description: 'Enable audio history buffer capture feature')
+option('enable-timestamp', type: 'boolean', value: false,
+       description: 'Enable HW Timestamp')
 
 # Echo cancellation
 

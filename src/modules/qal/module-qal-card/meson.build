@@ -72,6 +72,10 @@ extra_flags += ['-DPAL_USES_CUTILS']
 extra_deps += [meson.get_compiler('c').find_library('cutils')]
 endif
 
+if get_option('enable-timestamp')
+extra_flags += ['-DENABLE_TIMESTAMP']
+endif
+
 extra_libs = []
 
 # build shared module
