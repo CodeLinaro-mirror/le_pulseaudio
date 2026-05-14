@@ -212,6 +212,9 @@ option('enable-hist-cap',
        description: 'Enable audio history buffer capture feature')
 option('enable-timestamp', type: 'boolean', value: false,
        description: 'Enable HW Timestamp')
+option('enable-cshm',
+       type : 'boolean', value : false,
+       description: 'Enable audio CSHM feature')
 
 # Echo cancellation
 

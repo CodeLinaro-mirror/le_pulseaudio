@@ -121,10 +121,22 @@ static void get_interface_version(DBusConnection *conn, DBusMessage *msg, void *
 static void force_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata);
 #endif
 static void cleanup_sessions(struct pal_voiceui_module_data *m_data);
+#ifdef ENABLE_CSHM
+static void cshm_alloc(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void cshm_dealloc(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void cshm_send_msg(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void cshm_get_tags_with_mod_info(DBusConnection *conn, DBusMessage *msg, void *userdata);
+#endif
 
 enum module_handler_index {
     MODULE_HANDLER_LOAD_SOUND_MODEL,
     MODULE_HANDLER_GET_INTERFACE_VERSION,
+#ifdef ENABLE_CSHM
+    MODULE_HANDLER_CSHM_ALLOC,
+    MODULE_HANDLER_CSHM_DEALLOC,
+    MODULE_HANDLER_CSHM_SEND_MSG,
+    MODULE_HANDLER_CSHM_GET_TAGS,
+#endif
     MODULE_HANDLER_MAX
 };
 
@@ -226,6 +238,40 @@ pa_dbus_arg_info stop_buffering_done_event_args[] = {
     {"status", "i", NULL},
 };
 
+#ifdef ENABLE_CSHM
+pa_dbus_arg_info cshm_alloc_args[] = {
+    {"size",   "u", "in"},
+    {"type",   "i", "in"},
+    {"flags",  "i", "in"},
+    {"ret",    "i", "out"},
+    {"mem_id", "i", "out"},
+    {"fd",     "h", "out"},
+};
+
+pa_dbus_arg_info cshm_dealloc_args[] = {
+    {"mem_id", "i", "in"},
+    {"ret",    "i", "out"},
+};
+
+pa_dbus_arg_info cshm_send_msg_args[] = {
+    {"stream_handle", "t",  "in"},
+    {"mem_id", "i", "in"},
+    {"offset", "i", "in"},
+    {"length", "i", "in"},
+    {"flags",  "i", "in"},
+    {"miid",   "i", "in"},
+    {"ret",    "i", "out"},
+};
+
+pa_dbus_arg_info cshm_get_tags_args[] = {
+    {"stream_handle", "t",  "in"},
+    {"size",     "u",  "in"},
+    {"ret",      "i",  "out"},
+    {"size_ret", "u",  "out"},
+    {"payload",  "ay", "out"},
+};
+#endif
+
 static pa_dbus_method_handler pal_voiceui_module_handlers[MODULE_HANDLER_MAX] = {
     [MODULE_HANDLER_LOAD_SOUND_MODEL] = {
         .method_name = "LoadSoundModel",
@@ -237,6 +283,28 @@ static pa_dbus_method_handler pal_voiceui_module_handlers[MODULE_HANDLER_MAX] = 
         .arguments = get_interface_version_args,
         .n_arguments = sizeof(get_interface_version_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = get_interface_version},
+#ifdef ENABLE_CSHM
+    [MODULE_HANDLER_CSHM_ALLOC] = {
+        .method_name = "CshmAlloc",
+        .arguments   = cshm_alloc_args,
+        .n_arguments = sizeof(cshm_alloc_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb  = cshm_alloc},
+    [MODULE_HANDLER_CSHM_DEALLOC] = {
+        .method_name = "CshmDealloc",
+        .arguments   = cshm_dealloc_args,
+        .n_arguments = sizeof(cshm_dealloc_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb  = cshm_dealloc},
+    [MODULE_HANDLER_CSHM_SEND_MSG] = {
+        .method_name = "CshmSendMsg",
+        .arguments   = cshm_send_msg_args,
+        .n_arguments = sizeof(cshm_send_msg_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb  = cshm_send_msg},
+    [MODULE_HANDLER_CSHM_GET_TAGS] = {
+        .method_name = "GetTagsWithModuleInfo",
+        .arguments   = cshm_get_tags_args,
+        .n_arguments = sizeof(cshm_get_tags_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb  = cshm_get_tags_with_mod_info},
+#endif
 };
 
 static pa_dbus_method_handler pal_voiceui_session_handlers[SESSION_HANDLER_MAX] = {
@@ -1608,6 +1676,207 @@ static void cleanup_sessions(struct pal_voiceui_module_data *m_data) {
         pa_xfree(ses_data);
     }
 }
+
+#ifdef ENABLE_CSHM
+/* ------------------------------------------------------------------ */
+/* cshm_alloc                                                           */
+/* CshmAlloc(size:u, type:i, flags:i) -> (ret:i, mem_id:i, fd:h)       */
+/* ------------------------------------------------------------------ */
+static void cshm_alloc(DBusConnection *conn, DBusMessage *msg, void *userdata)
+{
+    DBusError error;
+    DBusMessage *reply = NULL;
+    dbus_uint32_t size = 0;
+    dbus_int32_t  type = 0, flags = 0;
+    pal_cshm_info_t mem_info = {};
+    int ret = -EINVAL;
+    dbus_int32_t mem_id_out = -1;
+    int fd_to_send = -1;
+
+    pa_assert(conn); pa_assert(msg); pa_assert(userdata);
+    dbus_error_init(&error);
+
+    if (!dbus_message_get_args(msg, &error,
+                               DBUS_TYPE_UINT32, &size,
+                               DBUS_TYPE_INT32,  &type,
+                               DBUS_TYPE_INT32,  &flags,
+                               DBUS_TYPE_INVALID)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_log_debug("voiceui -> cshm_alloc:  size=%d, type=%d, flags=%d", size, type, flags);
+
+    mem_info.type  = (pal_cshm_type)type;
+    mem_info.flags = (uint32_t)flags;
+
+    ret = pal_cshm_alloc(size, &mem_info);
+    if (ret == 0) {
+        mem_id_out = (dbus_int32_t)mem_info.memID;
+        fd_to_send = mem_info.fd;
+    }
+
+    pa_assert_se((reply = dbus_message_new_method_return(msg)));
+
+    /* Send fd out-of-band using DBUS_TYPE_UNIX_FD */
+    dbus_int32_t fd_handle = -1;
+    if (ret == 0) {
+        fd_handle = fd_to_send;
+    }
+    dbus_message_append_args(reply,
+                             DBUS_TYPE_INT32,   &ret,
+                             DBUS_TYPE_INT32,   &mem_id_out,
+                             DBUS_TYPE_UNIX_FD, &fd_handle,
+                             DBUS_TYPE_INVALID);
+
+    pa_assert_se(dbus_connection_send(conn, reply, NULL));
+    dbus_message_unref(reply);
+
+    if (ret != 0)
+        pa_log_error("cshm_alloc: pal_cshm_alloc failed ret=%d", ret);
+}
+
+/* ------------------------------------------------------------------ */
+/* cshm_dealloc                                                         */
+/* CshmDealloc(mem_id:i) -> (ret:i)                                     */
+/* ------------------------------------------------------------------ */
+static void cshm_dealloc(DBusConnection *conn, DBusMessage *msg, void *userdata)
+{
+    DBusError    error;
+    DBusMessage *reply = NULL;
+    dbus_int32_t mem_id = -1;
+    dbus_int32_t ret    = -EINVAL;
+
+    pa_assert(conn); pa_assert(msg); pa_assert(userdata);
+    dbus_error_init(&error);
+
+    if (!dbus_message_get_args(msg, &error,
+                               DBUS_TYPE_INT32, &mem_id,
+                               DBUS_TYPE_INVALID)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    ret = (dbus_int32_t)pal_cshm_dealloc((pal_cshm_id_t)mem_id);
+
+    pa_assert_se((reply = dbus_message_new_method_return(msg)));
+    dbus_message_append_args(reply, DBUS_TYPE_INT32, &ret, DBUS_TYPE_INVALID);
+    pa_assert_se(dbus_connection_send(conn, reply, NULL));
+    dbus_message_unref(reply);
+    pa_log_debug("%s: mem_id=0x%x ret=%d", __func__, mem_id, ret);
+}
+
+/* ------------------------------------------------------------------ */
+/* cshm_send_msg                                                        */
+/* CshmSendMsg(mem_id:i, offset:i, length:i, flags:i, miid:i) -> (i)   */
+/* Called on the per-session object path.                               */
+/* ------------------------------------------------------------------ */
+static void cshm_send_msg(DBusConnection *conn, DBusMessage *msg, void *userdata)
+{
+    struct pal_voiceui_session_data *ses_data =
+        (struct pal_voiceui_session_data *)userdata;
+    DBusError     error;
+    DBusMessage  *reply = NULL;
+    dbus_uint64_t stream_handle = 0;
+    dbus_int32_t  mem_id = 0, offset = 0, length = 0, flags = 0, miid = 0;
+    dbus_int32_t  ret = -EINVAL;
+    char param_str[] = "sendMsg";
+
+    pa_assert(conn); pa_assert(msg); pa_assert(userdata);
+    dbus_error_init(&error);
+
+    if (!dbus_message_get_args(msg, &error,
+                               DBUS_TYPE_UINT64, &stream_handle,
+                               DBUS_TYPE_INT32,  &mem_id,
+                               DBUS_TYPE_INT32,  &offset,
+                               DBUS_TYPE_INT32,  &length,
+                               DBUS_TYPE_INT32,  &flags,
+                               DBUS_TYPE_INT32,  &miid,
+                               DBUS_TYPE_INVALID)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    pal_cshm_msg_payload_t payload = {};
+    payload.memID = (pal_cshm_id_t)mem_id;
+    payload.offset = (uint32_t)offset;
+    payload.length = (uint32_t)length;
+    payload.flags  = (uint32_t)flags;
+    payload.destID   = (uint32_t)miid;
+
+    ret = (dbus_int32_t)pal_stream_set_custom_param(
+        (pal_stream_handle_t *)stream_handle,
+        param_str, &payload, sizeof(pal_cshm_msg_payload_t));
+
+    pa_assert_se((reply = dbus_message_new_method_return(msg)));
+    dbus_message_append_args(reply, DBUS_TYPE_INT32, &ret, DBUS_TYPE_INVALID);
+    pa_assert_se(dbus_connection_send(conn, reply, NULL));
+    dbus_message_unref(reply);
+
+    pa_log_debug("%s: stream_handle=0x%lx mem_id=0x%x miid=0x%x flags=0x%x ret=%d",
+                 __func__, (unsigned long)stream_handle, mem_id, miid, flags, ret);
+}
+
+/* ------------------------------------------------------------------ */
+/* cshm_get_tags_with_mod_info                                          */
+/* GetTagsWithModuleInfo(size:u) -> (ret:i, size_ret:u, payload:ay)    */
+/* ------------------------------------------------------------------ */
+static void cshm_get_tags_with_mod_info(DBusConnection *conn,
+                                         DBusMessage *msg,
+                                         void *userdata)
+{
+    struct pal_voiceui_session_data *ses_data =
+        (struct pal_voiceui_session_data *)userdata;
+    DBusError    error;
+    DBusMessage *reply = NULL;
+    dbus_uint64_t stream_handle = 0;
+    dbus_uint32_t req_size = 0;
+    dbus_int32_t  ret      = -EINVAL;
+    uint8_t      *payload  = NULL;
+    size_t        sz       = 0;
+    dbus_uint32_t size_ret = 0;
+    DBusMessageIter arg_i, array_i;
+
+    pa_assert(conn); pa_assert(msg); pa_assert(userdata);
+    dbus_error_init(&error);
+
+    if (!dbus_message_get_args(msg, &error,
+                               DBUS_TYPE_UINT64, &stream_handle,
+                               DBUS_TYPE_UINT32, &req_size,
+                               DBUS_TYPE_INVALID)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+        dbus_error_free(&error);
+        return;
+    }
+
+    sz = (size_t)req_size;
+    if (sz > 0) {
+        payload = (uint8_t *)pa_xmalloc0(sz);
+    }
+
+    ret = (dbus_int32_t)pal_stream_get_tags_with_module_info(
+        (pal_stream_handle_t *)stream_handle, &sz, payload);
+
+    size_ret = (dbus_uint32_t)sz;
+
+    pa_assert_se((reply = dbus_message_new_method_return(msg)));
+    dbus_message_iter_init_append(reply, &arg_i);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_INT32,  &ret);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_UINT32, &size_ret);
+    dbus_message_iter_open_container(&arg_i, DBUS_TYPE_ARRAY, "y", &array_i);
+    if (ret == 0 && payload && sz > 0)
+        dbus_message_iter_append_fixed_array(&array_i, DBUS_TYPE_BYTE,
+                                             &payload, (int)sz);
+    dbus_message_iter_close_container(&arg_i, &array_i);
+    pa_assert_se(dbus_connection_send(conn, reply, NULL));
+
+    if (payload) pa_xfree(payload);
+    dbus_message_unref(reply);
+}
+#endif
 
 int pa__init(pa_module *m) {
     struct pal_voiceui_module_data *m_data;
