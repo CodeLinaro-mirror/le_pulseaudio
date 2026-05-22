@@ -91,6 +91,10 @@ struct pal_voiceui_session_data {
     pa_cond *cond;
     pal_stream_type_t type;
     PA_LLIST_FIELDS(struct pal_voiceui_session_data);
+#ifdef ENABLE_HIST_CAP
+    bool get_timestamp_enabled;
+    struct timespec timestamp;
+#endif
 };
 
 struct pal_doa {
@@ -186,6 +190,9 @@ pa_dbus_arg_info force_recognition_args[] = {
 
 pa_dbus_arg_info request_read_buffer_args[] = {
     {"bytes", "u", "in"},
+#ifdef ENABLE_HIST_CAP
+    {"get_timestamp", "b", "in"},
+#endif
 };
 
 pa_dbus_arg_info get_param_data_args[] = {
@@ -209,7 +216,10 @@ pa_dbus_arg_info detection_event_args[] = {
 pa_dbus_arg_info read_buffer_available_event_args[] = {
     {"read_buffer_sequence", "u", NULL},
     {"read_status", "i", NULL},
-    {"read_buffer", "ay", NULL}
+    {"read_buffer", "ay", NULL},
+#ifdef ENABLE_HIST_CAP
+    {"timestamp", "t", NULL},
+#endif
 };
 
 pa_dbus_arg_info stop_buffering_done_event_args[] = {
@@ -351,6 +361,18 @@ static void signal_read_buffer_available(struct pal_voiceui_session_data *ses_da
                                          &ses_data->read_buf->buffer, ses_data->read_bytes);
     dbus_message_iter_close_container(&arg_i, &array_i);
 
+#ifdef ENABLE_HIST_CAP
+    uint64_t ts_usec = 0;
+    if ((ses_data->read_buf->flags & (uint32_t)PAL_BUFFER_FLAGS_READ_TIMESTAMP) &&
+        ses_data->read_buf->ts != NULL) {
+        ts_usec = (uint64_t)ses_data->read_buf->ts->tv_sec * 1000000ULL +
+                  (uint64_t)ses_data->read_buf->ts->tv_nsec / 1000ULL;
+
+        pa_log_debug("TStamp: %llu", ts_usec);
+    }
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_UINT64, &ts_usec);
+#endif
+
     pa_dbus_protocol_send_signal(ses_data->common->dbus_protocol, message);
     dbus_message_unref(message);
 }
@@ -465,13 +487,26 @@ static void async_thread_func(void *userdata) {
             continue;
 
         if (ses_data->read_buf == NULL || ses_data->read_bytes != bytes) {
-            if (ses_data->read_buf)
+            if (ses_data->read_buf) {
+                pa_xfree(ses_data->read_buf->buffer);
                 pa_xfree(ses_data->read_buf);
+            }
+
             ses_data->read_buf = (struct pal_buffer *)pa_xmalloc0(sizeof(struct pal_buffer));
             ses_data->read_buf->buffer = pa_xmalloc0(ses_data->read_bytes);
             ses_data->read_buf->size = ses_data->read_bytes;
             bytes = ses_data->read_bytes;
         }
+
+#ifdef ENABLE_HIST_CAP
+        if (ses_data->get_timestamp_enabled) {
+            ses_data->read_buf->flags |= (uint32_t)PAL_BUFFER_FLAGS_READ_TIMESTAMP;
+            ses_data->read_buf->ts = &ses_data->timestamp;
+        } else {
+            ses_data->read_buf->flags &= ~(uint32_t)PAL_BUFFER_FLAGS_READ_TIMESTAMP;
+            ses_data->read_buf->ts = NULL;
+        }
+#endif
 
         pa_mutex_unlock(ses_data->mutex);
         ret = pal_stream_read(ses_data->ses_handle, ses_data->read_buf);
@@ -501,8 +536,12 @@ static void async_thread_func(void *userdata) {
             signal_stop_buffering_done(ses_data, ret);
         }
     }
-    pa_xfree(ses_data->read_buf);
-    ses_data->read_buf = NULL;
+
+    if (ses_data->read_buf) {
+        pa_xfree(ses_data->read_buf->buffer);
+        pa_xfree(ses_data->read_buf);
+        ses_data->read_buf = NULL;
+    }
     pa_mutex_unlock(ses_data->mutex);
 
     pa_log_debug("[%d]Exiting Async Thread", sm_handle);
@@ -817,6 +856,11 @@ static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *us
     struct pal_voiceui_session_data *ses_data = (struct pal_voiceui_session_data *)userdata;
     unsigned int bytes;
     DBusError error;
+#ifdef ENABLE_HIST_CAP
+    dbus_bool_t get_timestamp_enabled = FALSE;
+#endif
+    DBusMessageIter arg_i;
+
 
     pa_assert(conn);
     pa_assert(msg);
@@ -824,12 +868,22 @@ static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *us
 
     dbus_error_init(&error);
 
-    if (!dbus_message_get_args(msg, &error, DBUS_TYPE_UINT32,
-                               &bytes, DBUS_TYPE_INVALID)) {
-        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "%s", error.message);
+    if (!dbus_message_iter_init(msg, &arg_i) ||
+        dbus_message_iter_get_arg_type(&arg_i) != DBUS_TYPE_UINT32) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
+                           "request_read_buffer: missing bytes");
         dbus_error_free(&error);
         return;
     }
+    dbus_message_iter_get_basic(&arg_i, &bytes);
+
+#ifdef ENABLE_HIST_CAP
+    /* Try to read optional get_timestamp, default FALSE if not present */
+    if (dbus_message_iter_next(&arg_i) &&
+        dbus_message_iter_get_arg_type(&arg_i) == DBUS_TYPE_BOOLEAN) {
+        dbus_message_iter_get_basic(&arg_i, &get_timestamp_enabled);
+    }
+#endif
 
     pa_mutex_lock(ses_data->mutex);
     if (bytes == 0 || ses_data->async_thread == NULL ||
@@ -842,6 +896,11 @@ static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *us
 
     ses_data->thread_state = PAL_THREAD_READ_QUEUED;
     ses_data->read_bytes = bytes;
+#ifdef ENABLE_HIST_CAP
+    ses_data->get_timestamp_enabled = (bool)get_timestamp_enabled;
+    pa_log_debug("%s: bytes %d, get_timestamp %d",
+                 __func__, bytes, get_timestamp_enabled);
+#endif
     pa_cond_signal(ses_data->cond, 0);
     pa_mutex_unlock(ses_data->mutex);
 
