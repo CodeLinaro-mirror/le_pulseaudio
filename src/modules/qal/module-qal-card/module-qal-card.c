@@ -63,6 +63,7 @@ void load_pal_service();
 #define PAL_CARD_NAME_PREFIX "pal."
 #define DEFAULT_PROFILE "default"
 #define DEFAULT_SCO_SAMPLE_RATE 16000
+#define SCO_SAMPLE_RATE_8K 8000
 
 PA_MODULE_AUTHOR("QTI");
 PA_MODULE_DESCRIPTION("pal card module");
@@ -116,6 +117,7 @@ static int pa_pal_card_add_source(pa_module *module, pa_card *card, const char *
                                   pa_pal_source_handle_t **source_handle);
 static int pa_pal_card_add_sink(pa_module *module, pa_card *card, const char *driver, char *module_name, pa_pal_sink_config *sink,
                                 pa_pal_sink_handle_t **sink_handle);
+static int pa_pal_set_sco_params(uint32_t sample_rate);
 extern int pa_pal_module_extn_init(pa_core *core, pa_card *card);
 extern void pa_pal_module_extn_deinit(void);
 
@@ -622,6 +624,7 @@ static void pa_pal_card_set_sink_param(pa_device_port *port, struct userdata *u,
     int ret = 0;
     jack_prm_kvpair_t kvpair;
     bool connection_state = false;
+    int sco_rate;
 
     pa_assert(port);
     pa_assert(jack_param);
@@ -645,6 +648,24 @@ static void pa_pal_card_set_sink_param(pa_device_port *port, struct userdata *u,
             ret = pa_pal_sink_set_a2dp_suspend(kvpair.value);
             if (ret)
                 pa_log_error("Set sink param for a2dp suspend=%s failed", kvpair.value);
+            break;
+        case JACK_PARAM_KEY_DEVICE_SAMPLERATE:
+            sco_rate = atoi(kvpair.value);
+            if (!strcmp(port->name, "btsco-out")) {
+                switch (sco_rate) {
+                    case SCO_SAMPLE_RATE_8K:
+                    case DEFAULT_SCO_SAMPLE_RATE:
+                        if (!pa_pal_set_sco_params(sco_rate))
+                            pa_log_debug("%s: Set sco params for sample_rate %d on port %s succeeded",
+                                __func__, sco_rate, port->name);
+                        break;
+                    default:
+                        pa_log_error("%s: Invalid sco rate %d on port %s ", __func__, sco_rate, port->name);
+                        break;
+                }
+            } else {
+                pa_log_error("%s: set sco rate %d on invalid port %s ", __func__, sco_rate, port->name);
+            }
             break;
         default:
             break;
@@ -688,6 +709,7 @@ static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *
     int ret = 0;
     jack_prm_kvpair_t kvpair;
     bool connection_state = false;
+    int sco_rate;
 
     pa_assert(port);
     pa_assert(jack_param);
@@ -713,6 +735,24 @@ static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *
                 ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
                 if(ret)
                     pa_log_error("Set common sco params failed. ret=%d", ret);
+            }
+            break;
+        case JACK_PARAM_KEY_DEVICE_SAMPLERATE:
+            sco_rate = atoi(kvpair.value);
+            if (!strcmp(port->name, "btsco-in")) {
+                switch (sco_rate) {
+                    case SCO_SAMPLE_RATE_8K:
+                    case DEFAULT_SCO_SAMPLE_RATE:
+                        if (!pa_pal_set_sco_params(sco_rate))
+                            pa_log_debug("%s: Set sco params for sample_rate %d on port %s succeeded",
+                                __func__, sco_rate, port->name);
+                        break;
+                    default:
+                        pa_log_error("%s: Invalid sco rate %d on port %s ", __func__, sco_rate, port->name);
+                        break;
+                }
+            } else {
+                pa_log_error("%s: set sco rate %d on invalid port %s ", __func__, sco_rate, port->name);
             }
             break;
         default:
