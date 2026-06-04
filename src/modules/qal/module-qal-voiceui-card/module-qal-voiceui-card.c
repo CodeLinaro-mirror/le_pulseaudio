@@ -75,6 +75,7 @@ struct pal_voiceui_module_data {
     pa_pal_voiceui_hooks *pal;
     bool is_session_started;
     uint32_t session_id;
+    PA_LLIST_HEAD(struct pal_voiceui_session_data, sessions);
 };
 
 struct pal_voiceui_session_data {
@@ -89,6 +90,7 @@ struct pal_voiceui_session_data {
     pa_mutex *mutex;
     pa_cond *cond;
     pal_stream_type_t type;
+    PA_LLIST_FIELDS(struct pal_voiceui_session_data);
 };
 
 struct pal_doa {
@@ -114,6 +116,7 @@ static void get_interface_version(DBusConnection *conn, DBusMessage *msg, void *
 #ifdef ENABLE_HIST_CAP
 static void force_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata);
 #endif
+static void cleanup_sessions(struct pal_voiceui_module_data *m_data);
 
 enum module_handler_index {
     MODULE_HANDLER_LOAD_SOUND_MODEL,
@@ -798,6 +801,7 @@ static int unload_sm(DBusConnection *conn, struct pal_voiceui_session_data *ses_
     int status = 0;
 
     dbus_connection_remove_filter(conn, disconnection_filter_cb, ses_data);
+    PA_LLIST_REMOVE(struct pal_voiceui_session_data, ses_data->common->sessions, ses_data);
     status = pal_stream_close(ses_data->ses_handle);
 
     pa_assert_se(pa_dbus_protocol_remove_interface(ses_data->common->dbus_protocol,
@@ -1514,7 +1518,36 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
 
     pa_assert_se(dbus_connection_add_filter(conn, disconnection_filter_cb, ses_data, NULL));
 
+    PA_LLIST_PREPEND(struct pal_voiceui_session_data, m_data->sessions, ses_data);
     pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_OBJECT_PATH, &ses_data->obj_path);
+}
+
+static void cleanup_sessions(struct pal_voiceui_module_data *m_data) {
+    struct pal_voiceui_session_data *ses_data, *ses_next;
+
+    pa_assert(m_data);
+
+    PA_LLIST_FOREACH_SAFE(ses_data, ses_next, m_data->sessions) {
+        pa_log_debug("cleanup_sessions: cleaning up session %s", ses_data->obj_path);
+
+        ses_data->thread_state = PAL_THREAD_EXIT;
+        pa_cond_signal(ses_data->cond, 0);
+        pa_thread_free(ses_data->async_thread);
+        pa_cond_free(ses_data->cond);
+        pa_mutex_free(ses_data->mutex);
+
+        if (ses_data->recognition_started) {
+            if (pal_stream_stop(ses_data->ses_handle) != 0)
+                pa_log_error("cleanup_sessions: pal_stream_stop failed for %s", ses_data->obj_path);
+            ses_data->recognition_started = false;
+        }
+
+        if (pal_stream_close(ses_data->ses_handle) != 0)
+            pa_log_error("cleanup_sessions: pal_stream_close failed for %s", ses_data->obj_path);
+
+        pa_xfree(ses_data->obj_path);
+        pa_xfree(ses_data);
+    }
 }
 
 int pa__init(pa_module *m) {
@@ -1535,6 +1568,8 @@ int pa__init(pa_module *m) {
     m_data->modargs = ma;
     m_data->module = m;
     m_data->session_id = 0;
+
+    PA_LLIST_HEAD_INIT(struct pal_voiceui_session_data, m_data->sessions);
 
     m_data->obj_path = pa_sprintf_malloc("%s/%s", PAL_DBUS_OBJECT_PATH_PREFIX,
                          "primary");
@@ -1562,6 +1597,9 @@ void pa__done(pa_module *m) {
 
     if (!(m_data = m->userdata))
         return;
+
+    /* Clean up all active sessions before tearing down the module. */
+    cleanup_sessions(m_data);
 
     if (m_data->obj_path && m_data->dbus_protocol)
         pa_assert_se(pa_dbus_protocol_remove_interface(m_data->dbus_protocol,
