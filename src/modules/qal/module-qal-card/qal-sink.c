@@ -162,6 +162,8 @@ static const char *pa_pal_sink_get_name_from_type(pal_stream_type_t type) {
         name = "voip_rx";
     else if (type == PAL_STREAM_GENERIC)
         name = "direct_pcm";
+    else if (type == PAL_STREAM_PCM_OFFLOAD)
+        name = "pcm_offload";
 
     return name;
 }
@@ -487,6 +489,15 @@ static int pa_pal_sink_set_port_cb(pa_sink *s, pa_device_port *p) {
         if (switch_port) {
             switch_port_device_data = PA_DEVICE_PORT_DATA(switch_port);
             param_device_connection.device_config.dp_config.controller = 0;
+            param_device_connection.device_config.dp_config.stream = 0;
+        }
+    } else if (port_device_data->device == PAL_DEVICE_OUT_HDMI ||
+                    active_port_device_data->device == PAL_DEVICE_OUT_HDMI) {
+        param_device_connection.id = PAL_DEVICE_OUT_HDMI;
+        switch_port = pa_pal_util_get_port_from_device(s->ports, param_device_connection.id);
+        if (switch_port) {
+            switch_port_device_data = PA_DEVICE_PORT_DATA(switch_port);
+            param_device_connection.device_config.dp_config.controller = 1;
             param_device_connection.device_config.dp_config.stream = 0;
         }
     } else if (port_device_data->device == PAL_DEVICE_OUT_USB_HEADSET ||

@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -26,17 +27,22 @@
 #include <pulsecore/protocol-dbus.h>
 #include <pulsecore/thread.h>
 #include <pulsecore/shared.h>
-
 #include "PalApi.h"
 #include "PalDefs.h"
 #include "qal-voiceui-utils.h"
 #include "agm/agm_api.h"
+#ifdef ENABLE_ACD
+#include "SoundTriggerUtils.h"
+#endif
 
 #define OK 0
 #define PAL_DBUS_OBJECT_PATH_PREFIX "/org/pulseaudio/ext/qsthw"
 #define PAL_DBUS_MODULE_IFACE "org.PulseAudio.Ext.Qsthw"
 #define PAL_DBUS_SESSION_IFACE "org.PulseAudio.Ext.Qsthw.Session"
 #define PA_DBUS_PAL_MODULE_IFACE_VERSION 0x101
+#ifdef ENABLE_ACD
+#define MAX_ACD_NUMBER_OF_CONTEXT 10
+#endif
 
 PA_MODULE_AUTHOR("QTI");
 PA_MODULE_DESCRIPTION("pal voiceui card module");
@@ -82,6 +88,7 @@ struct pal_voiceui_session_data {
     pa_thread *async_thread;
     pa_mutex *mutex;
     pa_cond *cond;
+    pal_stream_type_t type;
 };
 
 struct pal_doa {
@@ -94,6 +101,9 @@ static int unload_sm(DBusConnection *conn, struct pal_voiceui_session_data *ses_
 static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void unload_sound_model(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata);
+#ifdef ENABLE_ACD
+static void start_recognition_v2(DBusConnection *conn, DBusMessage *msg, void *userdata);
+#endif
 static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -101,6 +111,9 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
 static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_param_data(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_interface_version(DBusConnection *conn, DBusMessage *msg, void *userdata);
+#ifdef ENABLE_HIST_CAP
+static void force_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata);
+#endif
 
 enum module_handler_index {
     MODULE_HANDLER_LOAD_SOUND_MODEL,
@@ -111,12 +124,18 @@ enum module_handler_index {
 enum session_handler_index {
     SESSION_HANDLER_UNLOAD_SOUND_MODEL,
     SESSION_HANDLER_START_RECOGNITION,
+#ifdef ENABLE_ACD
+    SESSION_HANDLER_START_RECOGNITION_V2,
+#endif
     SESSION_HANDLER_STOP_RECOGNITION,
     SESSION_HANDLER_GET_BUFFER_SIZE,
     SESSION_HANDLER_READ_BUFFER,
     SESSION_HANDLER_STOP_BUFFERING,
     SESSION_HANDLER_REQUEST_READ_BUFFER,
     SESSION_HANDLER_GET_PARAM_DATA,
+#ifdef ENABLE_HIST_CAP
+    SESSION_HANDLER_FORCE_RECOGNITION,
+#endif
     SESSION_HANDLER_MAX
 };
 
@@ -134,6 +153,13 @@ pa_dbus_arg_info start_recognition_args[] = {
     {"opaque_data", "ay", "in"},
 };
 
+#ifdef ENABLE_ACD
+pa_dbus_arg_info start_recognition_v2_args[] = {
+    {"recognition_config", "(ia(uuu))","in"},
+    {"opaque_data", "ay", "in"},
+};
+#endif
+
 pa_dbus_arg_info stop_recognition_args[] = {
 };
 
@@ -148,6 +174,12 @@ pa_dbus_arg_info read_buffer_args[] = {
 
 pa_dbus_arg_info stop_buffering_args[] = {
 };
+
+#ifdef ENABLE_HIST_CAP
+pa_dbus_arg_info force_recognition_args[] = {
+    /* No IN/OUT args. */
+};
+#endif
 
 pa_dbus_arg_info request_read_buffer_args[] = {
     {"bytes", "u", "in"},
@@ -205,6 +237,13 @@ static pa_dbus_method_handler pal_voiceui_session_handlers[SESSION_HANDLER_MAX] 
         .arguments = start_recognition_args,
         .n_arguments = sizeof(start_recognition_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = start_recognition},
+#ifdef ENABLE_ACD
+    [SESSION_HANDLER_START_RECOGNITION_V2] = {
+        .method_name = "StartRecognition_v2",
+        .arguments = start_recognition_v2_args,
+        .n_arguments = sizeof(start_recognition_v2_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = start_recognition_v2},
+#endif
     [SESSION_HANDLER_STOP_RECOGNITION] = {
         .method_name = "StopRecognition",
         .arguments = stop_recognition_args,
@@ -235,6 +274,13 @@ static pa_dbus_method_handler pal_voiceui_session_handlers[SESSION_HANDLER_MAX] 
         .arguments = get_param_data_args,
         .n_arguments = sizeof(get_param_data_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = get_param_data},
+#ifdef ENABLE_HIST_CAP
+    [SESSION_HANDLER_FORCE_RECOGNITION] = {
+        .method_name = "ForceRecognition",
+        .arguments = force_recognition_args,
+        .n_arguments = sizeof(force_recognition_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = force_recognition},
+#endif
 };
 
 enum signal_index {
@@ -305,6 +351,36 @@ static void signal_read_buffer_available(struct pal_voiceui_session_data *ses_da
     pa_dbus_protocol_send_signal(ses_data->common->dbus_protocol, message);
     dbus_message_unref(message);
 }
+
+#ifdef ENABLE_ACD
+static void pa_pal_fill_default_acd_stream_attributes(struct pal_stream_attributes *stream_attr,
+                                                      uint32_t *no_of_devices,
+                                                      struct pal_device *devices) {
+    pa_assert(stream_attr);
+    pa_assert(devices);
+
+    stream_attr->type = PAL_STREAM_ACD;
+    stream_attr->info.voice_rec_info.version = 1;
+    stream_attr->info.opt_stream_info.duration_us = 4000;
+    stream_attr->info.opt_stream_info.has_video = false;
+    stream_attr->info.opt_stream_info.is_streaming = false;
+    stream_attr->info.voice_rec_info.record_direction = PAL_AUDIO_INPUT;
+    stream_attr->flags = 0;
+    stream_attr->direction = PAL_AUDIO_INPUT;
+    stream_attr->in_media_config.sample_rate = 16000;
+    stream_attr->in_media_config.bit_width = 16;
+    stream_attr->in_media_config.aud_fmt_id = PAL_AUDIO_FMT_DEFAULT_PCM;
+    stream_attr->in_media_config.ch_info.channels = 1;
+
+    *no_of_devices = 1;
+
+    devices->id = PAL_DEVICE_IN_HANDSET_VA_MIC;
+    devices->config.sample_rate = 16000;
+    devices->config.bit_width = 16;
+    devices->config.ch_info.channels = 1;
+    memcpy(&devices->config.ch_info.ch_map, chmap, sizeof(chmap));
+}
+#endif
 
 static void pa_pal_fill_default_attributes(struct pal_stream_attributes *stream_attr, uint32_t *no_of_devices,
                                           struct pal_device *devices) {
@@ -445,12 +521,33 @@ static int32_t event_callback(pal_stream_handle_t *stream_handle, uint32_t event
     dbus_bool_t trigger_in_data;
     uint32_t channels;
 
+#ifdef ENABLE_ACD
+    struct st_param_header* st_param_header_ptr = NULL;
+    struct acd_context_event* acd_context_event_ptr = NULL;
+    struct acd_per_context_event_info* event_info_ptr = NULL;
+#endif
+
     pa_assert(event_data);
     pa_assert(ses_data);
 
-    pal_event = (pa_pal_st_phrase_recognition_event *)((void *)event_data);
-    phrase_event = &pal_event->phrase_event;
-    event = &phrase_event->common;
+#ifdef ENABLE_ACD
+    if (ses_data->type == PAL_STREAM_ACD) {
+        event = (struct pal_st_recognition_event*) event_data;
+        st_param_header_ptr = (struct st_param_header*)((uint8_t *)event +
+                                                     sizeof(struct pal_st_recognition_event));
+        acd_context_event_ptr = (struct acd_context_event*)((uint8_t *)st_param_header_ptr +
+                                                     sizeof(struct st_param_header));
+        event_info_ptr = (struct acd_per_context_event_info*)((uint8_t *)acd_context_event_ptr +
+                                                     sizeof(struct acd_context_event));
+        if(acd_context_event_ptr->num_contexts > MAX_ACD_NUMBER_OF_CONTEXT)
+            acd_context_event_ptr->num_contexts = MAX_ACD_NUMBER_OF_CONTEXT;
+    } else
+#endif
+    {
+        pal_event = (pa_pal_st_phrase_recognition_event *)((void *)event_data);
+        phrase_event = &pal_event->phrase_event;
+        event = &phrase_event->common;
+    }
     capture_available = event->capture_available;
     trigger_in_data = event->trigger_in_data;
     channels = event->media_config.ch_info.channels;
@@ -476,38 +573,82 @@ static int32_t event_callback(pal_stream_handle_t *stream_handle, uint32_t event
     dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &event->media_config.sample_rate);
     dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &channels);
     dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &event->media_config.aud_fmt_id);
-    dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &frame_count);
+
+#ifdef ENABLE_ACD
+    if (ses_data->type == PAL_STREAM_ACD) {
+        dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &acd_context_event_ptr->num_contexts);
+    } else
+#endif
+    {
+        dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32, &frame_count);
+    }
+
     dbus_message_iter_close_container(&struct_i, &struct_ii);
     dbus_message_iter_close_container(&arg_i, &struct_i);
 
     dbus_message_iter_open_container(&arg_i, DBUS_TYPE_ARRAY, "(uuua(uu))", &array_i);
-    for (i = 0; i < phrase_event->num_phrases; i++) {
-        dbus_message_iter_open_container(&array_i, DBUS_TYPE_STRUCT, NULL, &struct_i);
-        dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
-            &phrase_event->phrase_extras[i].id);
-        dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
-            &phrase_event->phrase_extras[i].recognition_modes);
-        dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
-            &phrase_event->phrase_extras[i].confidence_level);
+#ifdef ENABLE_ACD
+    if (ses_data->type == PAL_STREAM_ACD) {
 
-        dbus_message_iter_open_container(&struct_i, DBUS_TYPE_ARRAY, "(uu)", &array_ii);
-        for (j = 0; j < phrase_event->phrase_extras[i].num_levels; j++) {
-            dbus_message_iter_open_container(&array_ii, DBUS_TYPE_STRUCT, NULL, &struct_ii);
-            dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32,
-                &phrase_event->phrase_extras[i].levels[j].user_id);
-            dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32,
-                &phrase_event->phrase_extras[i].levels[j].level);
-            dbus_message_iter_close_container(&array_ii, &struct_ii);
+        for (i = 0; i < acd_context_event_ptr->num_contexts; i++) {
+            dbus_message_iter_open_container(&array_i, DBUS_TYPE_STRUCT, NULL, &struct_i);
+            dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
+                 &event_info_ptr->context_id);
+            dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
+                 &event_info_ptr->event_type);
+            dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
+                 &event_info_ptr->confidence_score);
+            dbus_message_iter_open_container(&struct_i, DBUS_TYPE_ARRAY, "(uu)", &array_ii);
+            int user_num = 1;
+            for (j = 0; j < user_num; j++) {
+                dbus_message_iter_open_container(&array_ii, DBUS_TYPE_STRUCT, NULL, &struct_ii);
+                dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32,&event_info_ptr->context_id);
+                dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32,&event_info_ptr->confidence_score);
+                dbus_message_iter_close_container(&array_ii, &struct_ii);
+            }
+            event_info_ptr++;
+            dbus_message_iter_close_container(&struct_i, &array_ii);
+            dbus_message_iter_close_container(&array_i, &struct_i);
         }
-        dbus_message_iter_close_container(&struct_i, &array_ii);
-        dbus_message_iter_close_container(&array_i, &struct_i);
+    } else
+#endif
+    if (event->type == PAL_SOUND_MODEL_TYPE_KEYPHRASE) {
+        for (i = 0; i < phrase_event->num_phrases; i++) {
+            dbus_message_iter_open_container(&array_i, DBUS_TYPE_STRUCT, NULL, &struct_i);
+            dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
+                &phrase_event->phrase_extras[i].id);
+            dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
+                &phrase_event->phrase_extras[i].recognition_modes);
+            dbus_message_iter_append_basic(&struct_i, DBUS_TYPE_UINT32,
+                &phrase_event->phrase_extras[i].confidence_level);
+
+            dbus_message_iter_open_container(&struct_i, DBUS_TYPE_ARRAY, "(uu)", &array_ii);
+            for (j = 0; j < phrase_event->phrase_extras[i].num_levels; j++) {
+                dbus_message_iter_open_container(&array_ii, DBUS_TYPE_STRUCT, NULL, &struct_ii);
+                dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32,
+                    &phrase_event->phrase_extras[i].levels[j].user_id);
+                dbus_message_iter_append_basic(&struct_ii, DBUS_TYPE_UINT32,
+                    &phrase_event->phrase_extras[i].levels[j].level);
+                dbus_message_iter_close_container(&array_ii, &struct_ii);
+            }
+            dbus_message_iter_close_container(&struct_i, &array_ii);
+            dbus_message_iter_close_container(&array_i, &struct_i);
+        }
     }
     dbus_message_iter_close_container(&arg_i, &array_i);
+#ifdef ENABLE_ACD
+    if (ses_data->type == PAL_STREAM_ACD) {
+        dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_UINT64, &event_info_ptr->detection_ts);
+        value = (char*)event + event->data_offset;
+        n_elements = event->data_size;
+    } else
+#endif
+    {
+        dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_UINT64, &pal_event->timestamp);
+        value = (char*)pal_event + event->data_offset;
+        n_elements = event->data_size;
+    }
 
-    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_UINT64, &pal_event->timestamp);
-
-    n_elements = event->data_size;
-    value = (char*)pal_event + event->data_offset;
     dbus_message_iter_open_container(&arg_i, DBUS_TYPE_ARRAY, "y", &array_i);
     dbus_message_iter_append_fixed_array(&array_i, DBUS_TYPE_BYTE, &value, n_elements);
     dbus_message_iter_close_container(&arg_i, &array_i);
@@ -735,6 +876,39 @@ static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdat
     pa_dbus_send_empty_reply(conn, msg);
 }
 
+#ifdef ENABLE_HIST_CAP
+static void force_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata)
+{
+    struct pal_voiceui_session_data *ses_data = userdata;
+    int status = 0;
+    bool started;
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+    pa_log_debug("force recognition");
+    pa_mutex_lock(ses_data->mutex);
+    started = ses_data->recognition_started;
+    if (started) {
+        status = pal_stream_set_param(ses_data->ses_handle,
+                                      PAL_PARAM_ID_FORCE_RECOGNITION,
+                                      NULL);
+        pa_log_debug("force recognition status: %d", status);
+    }
+    pa_mutex_unlock(ses_data->mutex);
+    if (!started) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED,
+                           "recognition session is not started");
+        dbus_error_free(&error);
+        return;
+    }
+    pa_dbus_send_empty_reply(conn, msg);
+}
+#endif
+
 static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     struct pal_voiceui_session_data *ses_data = userdata;
     int ret = 0;
@@ -780,7 +954,9 @@ static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata) 
 }
 
 static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userdata) {
-    int buffer_size;
+    struct pal_voiceui_session_data *ses_data = userdata;
+    int in_buffer_size = 0;
+    int status = 0;
     DBusError error;
 
     pa_assert(conn);
@@ -790,9 +966,21 @@ static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userda
     dbus_error_init(&error);
 
     pa_log_debug("get buffer size");
-    buffer_size = 3840; /* Fixme: Modify this once pal_stream_get_buffer_size is implemented */
+    in_buffer_size = 3840; /* Fixme: Modify this once pal_stream_get_buffer_size is implemented */
 
-    pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &buffer_size);
+#ifdef ENABLE_HIST_CAP
+    status = pal_stream_get_buffer_size(ses_data->ses_handle, &in_buffer_size, NULL);
+    pa_log_debug("get buffer size: status=%d, in_buf_size=%d", status, in_buffer_size);
+
+    if (status != 0) {
+        pa_log_error("get buffer size failed\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "get_buffer_size failed");
+        dbus_error_free(&error);
+        return;
+    }
+#endif
+
+    pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &in_buffer_size);
 }
 
 static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata) {
@@ -822,6 +1010,119 @@ static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userd
 
     pa_dbus_send_empty_reply(conn, msg);
 }
+
+#ifdef ENABLE_ACD
+/* start_recognition_v2 api is for ACD, since ACD requires diffrent arguments to be passed
+    compared VOICEUI usecase.
+*/
+static void start_recognition_v2(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct pal_voiceui_session_data *ses_data = (struct pal_voiceui_session_data *)userdata;
+    DBusError error;
+    DBusMessageIter arg_i, struct_i, struct_ii, array_i;
+    dbus_int32_t i, j, status = 0;
+    int  arg_type;
+    int num_contexts = 1;
+    struct pal_st_recognition_config  *rec_config = NULL;
+    uint32_t rec_config_size = 0;
+    pal_param_payload *rec_config_payload = NULL;
+    struct st_param_header * st_param_header_instance = NULL;
+    struct acd_recognition_cfg *acd_recognition_cfg_instance = NULL;
+    struct acd_per_context_cfg *context_cfg_ptr = NULL;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    pa_log_debug("start recognition");
+    dbus_error_init(&error);
+
+    if (!dbus_message_iter_init(msg, &arg_i)) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
+            "start_recognition has no arguments");
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (!pa_streq(dbus_message_get_signature(msg), "(ia(uuu))ay")) {
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS,
+            "Invalid signature for start_recognition");
+        dbus_error_free(&error);
+        return;
+    }
+
+    if (ses_data->common->is_session_started) {
+        pa_hook_fire(&ses_data->common->pal->hooks[PA_HOOK_PAL_VOICEUI_STOP_DETECTION],NULL);
+        ses_data->common->is_session_started = false;
+    }
+
+    dbus_message_iter_recurse(&arg_i, &struct_i);
+    dbus_message_iter_get_basic(&struct_i, &num_contexts);
+    dbus_message_iter_next(&struct_i);
+    dbus_message_iter_recurse(&struct_i, &array_i);
+
+    rec_config_size = sizeof(struct pal_st_recognition_config) +
+        sizeof(struct st_param_header) + sizeof(struct acd_recognition_cfg) +
+            num_contexts * sizeof(struct acd_per_context_cfg);
+    rec_config_payload = (pal_param_payload *)pa_xmalloc0(sizeof(pal_param_payload) + rec_config_size);
+    if (!rec_config_payload) {
+        pa_log_error("Failed to alloc memory for recognition config\n");
+        return;
+    }
+    rec_config_payload->payload_size = rec_config_size;
+    rec_config = (struct pal_st_recognition_config *)rec_config_payload->payload;
+
+    rec_config->data_size = rec_config_size - sizeof(struct pal_st_recognition_config);
+    rec_config->data_offset = sizeof(struct pal_st_recognition_config);
+
+    st_param_header_instance = (struct st_param_header *) ((uint8_t *)rec_config + rec_config->data_offset);
+    st_param_header_instance->key_id =  ST_PARAM_KEY_CONTEXT_RECOGNITION_INFO;
+    st_param_header_instance->payload_size = sizeof(struct acd_recognition_cfg) +
+                                        num_contexts * sizeof(struct acd_per_context_cfg);
+
+    // construct acd_recognition_cfg
+    acd_recognition_cfg_instance = (struct acd_recognition_cfg *) ((uint8_t *)st_param_header_instance +
+                                    sizeof(struct st_param_header));
+    acd_recognition_cfg_instance->version = 0x1;
+    acd_recognition_cfg_instance->num_contexts = num_contexts;
+    i = 1;
+    context_cfg_ptr = (struct acd_per_context_cfg *) ((uint8_t *)acd_recognition_cfg_instance +
+                    sizeof(struct acd_recognition_cfg));
+    while (((arg_type = dbus_message_iter_get_arg_type(&array_i)) !=
+                        DBUS_TYPE_INVALID) &&(i <= num_contexts)) {
+        dbus_message_iter_recurse(&array_i, &struct_ii);
+        dbus_message_iter_get_basic(&struct_ii, &context_cfg_ptr->context_id);
+        dbus_message_iter_next(&struct_ii);
+        dbus_message_iter_get_basic(&struct_ii, &context_cfg_ptr->step_size);
+        dbus_message_iter_next(&struct_ii);
+        dbus_message_iter_get_basic(&struct_ii, &context_cfg_ptr->threshold);
+        dbus_message_iter_next(&struct_ii);
+        dbus_message_iter_next(&array_i);
+        context_cfg_ptr = (struct acd_per_context_cfg *)((uint8_t *)context_cfg_ptr + sizeof(struct acd_per_context_cfg));
+        i++;
+    }
+    status = pal_stream_set_param(ses_data->ses_handle, PAL_PARAM_ID_RECOGNITION_CONFIG, rec_config_payload);
+    pa_xfree(rec_config_payload);
+
+    if (status != 0) {
+        pa_log_error("param PAL_PARAM_ID_START_RECOGNITION set failed\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "start_recognition failed");
+        dbus_error_free(&error);
+        return;
+    }
+
+    status = pal_stream_start(ses_data->ses_handle);
+
+    if (status != 0) {
+        pa_log_error("pal_stream_start failed\n");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "start_recognition failed");
+        dbus_error_free(&error);
+        return;
+    }
+
+    ses_data->recognition_started = true;
+    pa_dbus_send_empty_reply(conn, msg);
+}
+#endif
 
 /* Call pal_stream_set_param followed by pal_stream_start */
 static void start_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata) {
@@ -1028,7 +1329,17 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     dbus_message_iter_get_basic(&struct_ii, &sm_type);
     common_sound_model->type = sm_type;
 
-    pa_pal_fill_default_attributes(stream_attr, &no_of_devices, devices);
+#ifdef ENABLE_ACD
+    if (sm_type == PAL_SOUND_MODEL_TYPE_GENERIC) {
+        pa_pal_fill_default_acd_stream_attributes(stream_attr, &no_of_devices, devices);
+        stream_attr->type = PAL_STREAM_ACD;
+    } else
+#endif
+    {
+        pa_pal_fill_default_attributes(stream_attr, &no_of_devices, devices);
+        stream_attr->type = PAL_STREAM_VOICE_UI;
+    }
+
     /* read sampling rate and number of channels for pal stream & pal device */
     dbus_message_iter_next(&struct_ii);
     dbus_message_iter_recurse(&struct_ii, &struct_iii);
@@ -1075,9 +1386,29 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
     ses_data = pa_xnew0(struct pal_voiceui_session_data, 1);
     ses_data->common = (struct pal_voiceui_module_data *)userdata;
 
+    /* Re-determine stream type if the type is GENERIC. */
+    if (sm_type == PAL_SOUND_MODEL_TYPE_GENERIC) {
+        common_sound_model->data_offset = sizeof(struct pal_st_sound_model);
+        /*skip phrase related fields */
+        dbus_message_iter_next(&arg_i);
+        dbus_message_iter_recurse(&arg_i, &array_i);
+        dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
+        sm_data_size = sizeof(struct pal_st_sound_model) + n_elements;
+        common_sound_model->data_size = n_elements;
+
+        /* Overwrite stream type to VOICE_UI as ACD stream has data_size=0. */
+        if (common_sound_model->data_size != 0 && stream_attr->type == PAL_STREAM_ACD) {
+            stream_attr->type = PAL_STREAM_VOICE_UI;
+        }
+    }
+
+#ifdef ENABLE_ACD
+    ses_data->type = stream_attr->type;
+#endif
+
     rc = pal_stream_open(stream_attr, no_of_devices, devices, no_of_modifiers, modifiers, event_callback, (uint64_t)ses_data, &stream_handle);
     if (rc != 0) {
-        free(ses_data);
+        pa_xfree(ses_data);
         ses_data = NULL;
         pa_log_error("pal stream open failed\n");
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "load_sound_model failed");
@@ -1139,27 +1470,23 @@ static void load_sound_model(DBusConnection *conn, DBusMessage *msg, void *userd
         memcpy((char*)p_sound_model + common_sound_model->data_offset, value,
                common_sound_model->data_size);
     } else if (sm_type == PAL_SOUND_MODEL_TYPE_GENERIC) {
-        common_sound_model->data_offset = sizeof(struct pal_st_sound_model);
-        /*skip phrase related fields */
-        dbus_message_iter_next(&arg_i);
-        dbus_message_iter_recurse(&arg_i, &array_i);
-        dbus_message_iter_get_fixed_array(&array_i, addr_value, &n_elements);
-        sm_data_size = sizeof(struct pal_st_sound_model) + n_elements;
         prm_payload = (pal_param_payload *)pa_xmalloc0(sizeof(pal_param_payload) + sm_data_size);
         prm_payload->payload_size = sizeof(pal_param_payload) + sm_data_size;
-        common_sound_model = (struct pal_st_sound_model *) prm_payload->payload;
-        common_sound_model->data_size = n_elements;
-        memcpy((char*)common_sound_model + common_sound_model->data_offset,
+        p_sound_model = (struct pal_st_sound_model *) prm_payload->payload;
+        memcpy(p_sound_model, common_sound_model, sizeof(struct pal_st_sound_model));
+        memcpy((char*)p_sound_model + common_sound_model->data_offset,
                value, common_sound_model->data_size);
     }
+    pa_log_debug("smtype: %d, opaque_size: %d", sm_type, common_sound_model->data_size);
 
     status = pal_stream_set_param(stream_handle, PAL_PARAM_ID_LOAD_SOUND_MODEL, prm_payload);
 
     pa_xfree(prm_payload);
     prm_payload = NULL;
     p_sound_model = NULL;
+    common_sound_model = NULL;
     if (status != 0) {
-        free(ses_data);
+        pa_xfree(ses_data);
         ses_data = NULL;
         pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "load_sound_model failed");
         dbus_error_free(&error);

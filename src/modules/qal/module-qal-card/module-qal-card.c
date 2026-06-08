@@ -887,10 +887,14 @@ exit:
 }
 
 bool pa_pal_is_bt_jack_type(pa_pal_jack_type_t jack_type) {
-    return jack_type == PA_PAL_JACK_TYPE_BTA2DP_OUT ||
-           jack_type == PA_PAL_JACK_TYPE_BTA2DP_IN  ||
-           jack_type == PA_PAL_JACK_TYPE_BTSCO_IN   ||
-           jack_type == PA_PAL_JACK_TYPE_BTSCO_OUT;
+    return jack_type == PA_PAL_JACK_TYPE_BTA2DP_OUT     ||
+           jack_type == PA_PAL_JACK_TYPE_BTA2DP_IN      ||
+           jack_type == PA_PAL_JACK_TYPE_BTSCO_IN       ||
+           jack_type == PA_PAL_JACK_TYPE_BTSCO_OUT      ||
+           jack_type == PA_PAL_JACK_TYPE_BTLE_VOIP_OUT  ||
+           jack_type == PA_PAL_JACK_TYPE_BTLE_VOIP_IN   ||
+           jack_type == PA_PAL_JACK_TYPE_BTLE_OUT       ||
+           jack_type == PA_PAL_JACK_TYPE_BTLE_IN;
 }
 
 static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused)), pa_pal_jack_event_data_t *event_data, void *prv_data) {
