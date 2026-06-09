@@ -106,6 +106,10 @@ pa_pal_jack_handle_t *pa_pal_jack_register_event_callback(pa_pal_jack_type_t jac
            case PA_PAL_JACK_TYPE_BTA2DP_OUT:
            case PA_PAL_JACK_TYPE_BTSCO_IN:
            case PA_PAL_JACK_TYPE_BTSCO_OUT:
+           case PA_PAL_JACK_TYPE_BTLE_OUT:
+           case PA_PAL_JACK_TYPE_BTLE_IN:
+           case PA_PAL_JACK_TYPE_BTLE_VOIP_OUT:
+           case PA_PAL_JACK_TYPE_BTLE_VOIP_IN:
                jdata = pa_pal_external_jack_detection_enable(jack_type, m, &(u->hook_slot),
                        callback, client_data);
                break;

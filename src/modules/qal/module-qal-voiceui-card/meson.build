@@ -26,6 +26,10 @@ else
 vui_intf_headers_dep = dependency('', required: false)
 endif
 
+if get_option('enable-hist-cap')
+extra_flags += ['-DENABLE_HIST_CAP']
+endif
+
 # build shared module
 mod = shared_module(name,
   sources,
