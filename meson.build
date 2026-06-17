@@ -640,6 +640,11 @@ if qal_voiceui_inc != ''
   cdata.set('HAVE_QAL_VOICEUI', 1)
 endif
 
+qal_sourcetrack_inc = get_option('with-qal-sourcetrack')
+if qal_sourcetrack_inc != ''
+  cdata.set('HAVE_QAL_SOURCETRACK', 1)
+endif
+
 pal_inc = get_option('with-pal')
 paldatadir = ''
 if pal_inc != ''
@@ -970,6 +975,7 @@ summary = [
   'Enable QSTHW:                  @0@'.format(cdata.has('HAVE_QSTHW')),
   'Enable QAL:                    @0@'.format(cdata.has('HAVE_QAL')),
   'Enable QAL VOICEUI:            @0@'.format(cdata.has('HAVE_QAL_VOICEUI')),
+  'Enable QAL SOURCETRACK:        @0@'.format(cdata.has('HAVE_QAL_SOURCETRACK')),
   'Enable PAL:                    @0@'.format(cdata.has('HAVE_PAL')),
   'Enable PAL VOICEUI:            @0@'.format(cdata.has('HAVE_PAL_VOICEUI')),
 #  'Enable CoreAudio:              @0@'.format(${ENABLE_COREAUDIO}),
