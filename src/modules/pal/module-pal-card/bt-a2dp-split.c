@@ -88,7 +88,12 @@ int start_btsink(btsink_t *btsink, pa_pal_loopback_config *loopback_conf)
     /* Stream info */
     stream_attr.type = PAL_STREAM_LOOPBACK;
     stream_attr.direction = PAL_AUDIO_INPUT_OUTPUT;
+#ifdef TARGET_USES_A2DP_LOOPBACK_TYPE
+    stream_attr.info.opt_stream_info.loopback_type = PAL_STREAM_LOOPBACK_A2DP_SINK;
+    stream_attr.info.opt_stream_info.isBitPerfect = false;
+#else
     stream_attr.info.opt_stream_info.loopback_type = PAL_STREAM_LOOPBACK_PCM;
+#endif
     stream_attr.in_media_config.sample_rate = config_port_in->default_spec.rate;
     stream_attr.in_media_config.bit_width = BIT_WIDTH;
     stream_attr.in_media_config.aud_fmt_id = PAL_AUDIO_FMT_PCM_S16_LE;

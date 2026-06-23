@@ -893,6 +893,13 @@ AS_IF([test "x$with_pal" != "xno"], [PAL_CFLAGS="-I$with_pal"])
 
 AC_SUBST(PAL_CFLAGS)
 
+#### A2DP loopback type (optional) ####
+AC_ARG_ENABLE([a2dp-loopback-type],
+    AS_HELP_STRING([--enable-a2dp-loopback-type],[Use A2DP sink loopback type instead of PCM]))
+AS_IF([test "x$enable_a2dp_loopback_type" = "xyes"],
+    [PAL_CFLAGS="$PAL_CFLAGS -DTARGET_USES_A2DP_LOOPBACK_TYPE"])
+
+
 #### AGM Support (optional) ####
 AC_ARG_WITH([agm],
     AS_HELP_STRING([--without-agm],[Disable optional AGM support]),[],[with_agm=no])
