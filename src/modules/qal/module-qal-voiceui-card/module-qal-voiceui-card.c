@@ -112,6 +112,7 @@ static void start_recognition_v2(DBusConnection *conn, DBusMessage *msg, void *u
 #endif
 static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void get_stream_handle(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void stop_buffering(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void request_read_buffer(DBusConnection *conn, DBusMessage *msg, void *userdata);
@@ -155,6 +156,7 @@ enum session_handler_index {
 #ifdef ENABLE_HIST_CAP
     SESSION_HANDLER_FORCE_RECOGNITION,
 #endif
+    SESSION_HANDLER_GET_STREAM_HANDLE,
     SESSION_HANDLER_MAX
 };
 
@@ -232,6 +234,10 @@ pa_dbus_arg_info read_buffer_available_event_args[] = {
 #ifdef ENABLE_HIST_CAP
     {"timestamp", "t", NULL},
 #endif
+};
+
+pa_dbus_arg_info get_stream_handle_args[] = {
+    {"stream_handle", "t", "out"},
 };
 
 pa_dbus_arg_info stop_buffering_done_event_args[] = {
@@ -362,6 +368,11 @@ static pa_dbus_method_handler pal_voiceui_session_handlers[SESSION_HANDLER_MAX] 
         .n_arguments = sizeof(force_recognition_args)/sizeof(pa_dbus_arg_info),
         .receive_cb = force_recognition},
 #endif
+    [SESSION_HANDLER_GET_STREAM_HANDLE] = {
+        .method_name = "GetStreamHandle",
+        .arguments = get_stream_handle_args,
+        .n_arguments = sizeof(get_stream_handle_args)/sizeof(pa_dbus_arg_info),
+        .receive_cb = get_stream_handle},
 };
 
 enum signal_index {
@@ -1112,6 +1123,19 @@ static void get_buffer_size(DBusConnection *conn, DBusMessage *msg, void *userda
 #endif
 
     pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_INT32, &in_buffer_size);
+}
+
+static void get_stream_handle(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    struct pal_voiceui_session_data *ses_data = userdata;
+    dbus_uint64_t handle;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    handle = (dbus_uint64_t)ses_data->ses_handle;
+    pa_log_debug("%s: ses_handle=%p", __func__, ses_data->ses_handle);
+    pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_UINT64, &handle);
 }
 
 static void stop_recognition(DBusConnection *conn, DBusMessage *msg, void *userdata) {
