@@ -1434,6 +1434,8 @@ dist_palconfsets_DATA = \
       modules/pal/module-pal-card/configs/kona-mtp-snd-card.conf \
       modules/pal/module-pal-card/configs/kona-xrfusionult-snd-card.conf \
       modules/pal/module-pal-card/configs/kona-arglass-snd-card.conf \
+      modules/pal/module-pal-card/configs/seraph-idp-snd-card.conf \
+      modules/pal/module-pal-card/configs/seraph-qar-snd-card.conf \
       modules/pal/module-pal-card/configs/neo-idp-sg-snd-card.conf \
       modules/pal/module-pal-card/configs/neo-idp-snd-card.conf \
       modules/pal/module-pal-card/configs/neo-qxr-snd-card.conf \
