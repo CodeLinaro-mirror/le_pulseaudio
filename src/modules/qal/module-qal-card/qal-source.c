@@ -512,7 +512,10 @@ static void pa_pal_source_thread_func(void *userdata) {
             struct pal_buffer in_buf;
 
             memset(&in_buf, 0, sizeof(struct pal_buffer));
-
+#ifdef ENABLE_TIMESTAMP
+            struct timespec ts = {0};
+            in_buf.ts = &ts;
+#endif
             chunk.memblock = pa_memblock_new(pa_sdata->source->core->mempool, pal_sdata->buffer_size);
             data = pa_memblock_acquire(chunk.memblock);
             chunk.length = pa_memblock_get_length(chunk.memblock);
@@ -520,7 +523,10 @@ static void pa_pal_source_thread_func(void *userdata) {
 
             in_buf.buffer = data;
             in_buf.size = chunk.length;
-
+#ifdef ENABLE_TIMESTAMP
+            pa_log_debug("pal buffer %p, in_buf.buffer:%p, in_buf.ts:%p, in_buf.size:%zu",
+                         &in_buf, in_buf.buffer, in_buf.ts, in_buf.size);
+#endif
             pa_mutex_lock(pal_sdata->mutex);
             if (pal_sdata->stream_handle) {
                 if ((ret = pal_stream_read(pal_sdata->stream_handle, &in_buf)) <= 0) {
@@ -530,8 +536,11 @@ static void pa_pal_source_thread_func(void *userdata) {
                 }
             }
             pa_mutex_unlock(pal_sdata->mutex);
-
             chunk.length = ret;
+#ifdef ENABLE_TIMESTAMP
+            pa_log_debug("ret:%d, get timestamp %ld", ret, in_buf.ts->tv_nsec);
+#endif
+
 #ifdef SOURCE_DUMP_ENABLED
             pa_log_debug("chunk length %d chunk index %d in_buf.size %d ",chunk.length, chunk.index, ret);
             if ((ret = write(pal_sdata->write_fd, in_buf.buffer, ret)) < 0)

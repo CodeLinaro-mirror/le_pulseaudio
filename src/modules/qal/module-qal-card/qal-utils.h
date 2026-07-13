@@ -54,4 +54,5 @@ int pa_pal_util_set_device(pal_stream_handle_t *stream_handle, pal_device_id_t i
 int pa_pal_device_connection_state(pa_device_port *port,
                                               pal_device_id_t pal_device_id,
                                               bool connection_state);
+int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connection_state);
 #endif
