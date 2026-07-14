@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -170,6 +170,10 @@ bool pa_pal_jack_deregister_event_callback(pa_pal_jack_handle_t *jack_handle, pa
             case PA_PAL_JACK_TYPE_BTA2DP_OUT:
             case PA_PAL_JACK_TYPE_BTSCO_IN:
             case PA_PAL_JACK_TYPE_BTSCO_OUT:
+            case PA_PAL_JACK_TYPE_BTLE_OUT:
+            case PA_PAL_JACK_TYPE_BTLE_IN:
+            case PA_PAL_JACK_TYPE_BTLE_VOIP_OUT:
+            case PA_PAL_JACK_TYPE_BTLE_VOIP_IN:
                 pa_pal_external_jack_detection_disable(jdata, m);
                 break;
             case PA_PAL_JACK_TYPE_USB_OUT:
