@@ -162,6 +162,8 @@ static const char *pa_pal_sink_get_name_from_type(pal_stream_type_t type) {
         name = "voip_rx";
     else if (type == PAL_STREAM_GENERIC)
         name = "direct_pcm";
+    else if (type == PAL_STREAM_PCM_OFFLOAD)
+        name = "pcm_offload";
 
     return name;
 }
