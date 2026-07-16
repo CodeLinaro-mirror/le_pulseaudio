@@ -60,6 +60,10 @@
 #define PA_LOW_LATENCY_DURATION_MS 5
 #define PA_DEEP_BUFFER_DURATION_MS 20
 
+enum {
+    PA_QAL_SOURCE_MESSAGE_PREPARE_START = PA_SOURCE_MESSAGE_MAX,
+};
+
 static int restart_pal_source(pa_pal_source_data *sdata, pa_encoding_t encoding, pa_sample_spec *ss, pa_channel_map *map);
 static int create_pal_source(pa_pal_source_config *source, pa_pal_card_port_device_data *port_device_data, pa_pal_source_data *sdata);
 static int close_pal_source(pa_pal_source_data *sdata);
@@ -211,13 +215,16 @@ static int pa_pal_source_start(pa_pal_source_data *sdata) {
             rc = open_pal_source(sdata);
             if (rc) {
                 pa_log_error("open_pal_source failed, error %d", rc);
-                pa_xfree(sdata->pal_sdata);
-                sdata->pal_sdata = NULL;
                 return rc;
             }
         }
         rc = pal_stream_start(pal_sdata->stream_handle);
         pa_log_debug("pal_stream_start returned %d", rc);
+        if (rc) {
+            pa_log_error("pal_stream_start failed, error %d", rc);
+            close_pal_source(sdata);
+            return rc;
+        }
         pal_sdata->standby = false;
     } else {
         pa_log_debug("pal_stream already started");
@@ -367,6 +374,9 @@ static int pa_pal_source_process_msg(pa_msgobject *o, int code, void *data, int6
             *((pa_usec_t*) data) = 0;
             return 0;
         }
+
+        case PA_QAL_SOURCE_MESSAGE_PREPARE_START:
+            return pa_pal_source_start(source_data);
 
         default:
              break;
@@ -604,7 +614,7 @@ static int open_pal_source(pa_pal_source_data *sdata) {
     if (rc) {
         pal_sdata->stream_handle = NULL;
         pa_log_error("Could not open input stream %d", rc);
-        goto fail;
+        goto exit;
     }
 
     pa_log_debug("pal source opened %p", pal_sdata->stream_handle);
@@ -618,13 +628,25 @@ static int open_pal_source(pa_pal_source_data *sdata) {
     in_buf_cfg.buf_count = pal_sdata->buffer_count;
 
     rc = pal_stream_set_buffer_size(pal_sdata->stream_handle, &in_buf_cfg, &out_buf_cfg);
-    if(rc) {
-        pa_log_error("pal_stream_set_buffer_size failed\n");
+    if (rc) {
+        pa_log_error("pal_stream_set_buffer_size failed, error %d", rc);
+        goto close_stream;
     }
 
     sdata->pal_source_opened = true;
 
-fail:
+    goto exit;
+
+close_stream:
+    if (pal_sdata->stream_handle) {
+        if (pal_stream_close(pal_sdata->stream_handle))
+            pa_log_error("pal_stream_close failed after buffer size error");
+        pal_sdata->stream_handle = NULL;
+    }
+    pal_sdata->standby = true;
+    sdata->pal_source_opened = false;
+
+exit:
     return rc;
 }
 
@@ -777,8 +799,9 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_format_info *in_format;
     void *state;
     uint32_t i;
-
     bool port_source_mapping = false;
+    bool new_data_done = false;
+    bool source_suspended_on_create = false;
 
     pa_assert(source_data->pal_sdata);
 
@@ -829,8 +852,9 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_pal_source_get_name_from_type(pal_sdata->stream_attributes->type));
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
 
-    if (suspend_on_create &&
-        pa_pal_util_is_suspend_on_idle_module_loaded(m->core)) {
+    source_suspended_on_create = suspend_on_create &&
+        pa_pal_util_is_suspend_on_idle_module_loaded(m->core);
+    if (source_suspended_on_create) {
         new_data.suspend_cause = PA_SUSPEND_IDLE;
         pa_log_debug("Source %s: will start suspended", source_name);
     }
@@ -843,6 +867,7 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
 
     pa_log_info("pa source opened %p", pa_sdata->source);
     pa_source_new_data_done(&new_data);
+    new_data_done = true;
 
     pa_sdata->avoid_config_processing = avoid_config_processing;
 
@@ -877,20 +902,45 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
         goto fail;
     }
 
+    if (!source_suspended_on_create) {
+        /* Start PAL before publishing. */
+        if (pa_asyncmsgq_send(pa_sdata->thread_mq.inq,
+                              PA_MSGOBJECT(pa_sdata->source),
+                              PA_QAL_SOURCE_MESSAGE_PREPARE_START,
+                              NULL, 0, NULL)) {
+            pa_log_error("Could not start source %s", source_name);
+            goto fail;
+        }
+    }
+
     pa_source_put(pa_sdata->source);
 
     return 0;
 
 fail :
-    if (pa_sdata->rtpoll)
-        pa_rtpoll_free(pa_sdata->rtpoll);
+    if (source_data->pal_source_opened)
+        close_pal_source(source_data);
+
+    if (pa_sdata->thread) {
+        pa_asyncmsgq_send(pa_sdata->thread_mq.inq, NULL, PA_MESSAGE_SHUTDOWN, NULL, 0, NULL);
+        pa_thread_free(pa_sdata->thread);
+    }
 
     if (pa_sdata->source) {
-        pa_source_new_data_done(&new_data);
         pa_source_unlink(pa_sdata->source);
         pa_source_unref(pa_sdata->source);
-        pa_idxset_free(pa_sdata->formats, (pa_free_cb_t) pa_format_info_free);
     }
+
+    if (pa_sdata->formats)
+        pa_idxset_free(pa_sdata->formats, (pa_free_cb_t) pa_format_info_free);
+
+    if (!new_data_done)
+        pa_source_new_data_done(&new_data);
+
+    pa_thread_mq_done(&pa_sdata->thread_mq);
+
+    if (pa_sdata->rtpoll)
+        pa_rtpoll_free(pa_sdata->rtpoll);
 
     pa_xfree(pa_sdata);
     source_data->pa_sdata = NULL;
