@@ -77,6 +77,8 @@ PA_MODULE_USAGE(
         "conf_file_name= pal conf name is present in conf_dir_name"
 );
 
+static uint32_t cached_sco_sample_rate = 0;
+
 static const char* const valid_modargs[] = {
     "module",
     "conf_dir_name",
@@ -678,6 +680,11 @@ static int pa_pal_set_sco_params(uint32_t sample_rate) {
     pal_param_btsco_t param_btsco;
     pal_param_id_type_t param_id;
 
+    /* Skip all PAL calls if sample rate hasn't changed. */
+    if (sample_rate == cached_sco_sample_rate) {
+        return ret;
+    }
+
     memset(&param_btsco, 0, sizeof(param_btsco));
     param_id = PAL_PARAM_ID_BT_SCO;
     param_btsco.is_bt_hfp = false; //false for HFP-AG case
@@ -687,6 +694,7 @@ static int pa_pal_set_sco_params(uint32_t sample_rate) {
             sizeof(pal_param_btsco_t));
     if (ret != 0) {
         pa_log_error("Set param_id=%d failed", param_id);
+        return ret;
     }
 
     param_id = PAL_PARAM_ID_BT_SCO_WB;
@@ -700,8 +708,10 @@ static int pa_pal_set_sco_params(uint32_t sample_rate) {
             sizeof(pal_param_btsco_t));
     if (ret != 0) {
         pa_log_error("Set param_id=%d failed", param_id);
+        return ret;
     }
 
+    cached_sco_sample_rate = sample_rate;
     return ret;
 }
 
@@ -731,10 +741,16 @@ static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *
                 pa_log_error("Set source device connection params failed ret=%d", ret);
 
             if (!strcmp(port->name, "btsco-in")) {
-                /* setting common params for SCO  mode */
-                ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
-                if(ret)
-                    pa_log_error("Set common sco params failed. ret=%d", ret);
+                /* Reset cached sample rate before connect so that reconnect
+                 * (including abnormal reconnect without prior disconnect)
+                 * always triggers full PAL reconfiguration. */
+                cached_sco_sample_rate = 0;
+                if (connection_state) {
+                    /* setting common params for SCO mode on connect */
+                    ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
+                    if(ret)
+                        pa_log_error("Set common sco params failed. ret=%d", ret);
+                }
             }
             break;
         case JACK_PARAM_KEY_DEVICE_SAMPLERATE:
