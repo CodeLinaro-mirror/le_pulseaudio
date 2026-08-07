@@ -23,6 +23,9 @@
 #endif
 
 #include <errno.h>
+#include <fcntl.h>
+#include <linux/netlink.h>
+#include <sys/socket.h>
 #include <pulsecore/dbus-util.h>
 #include <pulsecore/protocol-dbus.h>
 #include <pulsecore/core-util.h>
@@ -34,6 +37,8 @@
 
 #define PAL_DBUS_OBJECT_PATH_PREFIX        "/org/pulseaudio/ext/pal/port"
 #define PAL_DBUS_MODULE_IFACE              "org.PulseAudio.Ext.Pal.Module"
+#define UEVENT_MSG_LEN                     (4 * 1024)
+#define UEVENT_SOCKET_BUFFER_SIZE          (64 * 1024)
 
 typedef struct {
     char *obj_path;
@@ -43,6 +48,10 @@ typedef struct {
     pa_core *core;
     pa_hook_slot *client_unlink_slot;
     pa_client *bt_client;   /* D-Bus client that sent BtConnect(true); NULL when disconnected */
+    /* extcon monitoring for wired headset */
+    int extcon_fd;
+    pa_io_event *extcon_io;
+    pa_pal_jack_event_t headset_status;
 } pa_pal_external_jack_data;
 
 typedef enum {
@@ -374,6 +383,60 @@ signal:
     pa_log_debug("Exiting Async Thread");
 }
 
+static void extcon_headset_io_callback(pa_mainloop_api *api, pa_io_event *e,
+                                        int fd, pa_io_event_flags_t events, void *userdata) {
+    pa_pal_external_jack_data *external_jdata = userdata;
+    char buffer[UEVENT_MSG_LEN + 2];
+    int count, j = 0;
+    pa_pal_jack_event_data_t event_data;
+    char *headphone_state = NULL;
+    char *microphone_state = NULL;
+
+    count = recv(fd, buffer, UEVENT_MSG_LEN, 0);
+    if (count <= 0) {
+        pa_log_error("%s: recv failed, count=%d", __func__, count);
+        return;
+    }
+
+    buffer[count] = '\0';
+    buffer[count + 1] = '\0';
+
+    while (j < count) {
+        if (pa_strneq(&buffer[j], "HEADPHONE=", strlen("HEADPHONE="))) {
+            headphone_state = &buffer[j + strlen("HEADPHONE=")];
+            j += strlen("HEADPHONE=");
+            continue;
+        } else if (pa_strneq(&buffer[j], "MICROPHONE=", strlen("MICROPHONE="))) {
+            microphone_state = &buffer[j + strlen("MICROPHONE=")];
+            j += strlen("MICROPHONE=");
+            continue;
+        }
+        j++;
+    }
+
+    if (!headphone_state && !microphone_state) {
+        pa_log_debug("%s: no HEADPHONE or MICROPHONE state in uevent, ignoring", __func__);
+        return;
+    }
+
+    event_data.jack_type = external_jdata->jack_type;
+
+    /* Headset connected: HEADPHONE=1 or MICROPHONE=1 (4-pole headset) */
+    if (((headphone_state && atoi(headphone_state) == 1) ||
+         (microphone_state && atoi(microphone_state) == 1)) &&
+        external_jdata->headset_status != PA_PAL_JACK_AVAILABLE) {
+        event_data.event = PA_PAL_JACK_AVAILABLE;
+        pa_hook_fire(&(external_jdata->event_hook), &event_data);
+        external_jdata->headset_status = PA_PAL_JACK_AVAILABLE;
+    } else if ((headphone_state && atoi(headphone_state) == 0) &&
+               (microphone_state == NULL || atoi(microphone_state) == 0) &&
+               external_jdata->headset_status != PA_PAL_JACK_UNAVAILABLE) {
+        event_data.event = PA_PAL_JACK_UNAVAILABLE;
+        pa_hook_fire(&(external_jdata->event_hook), &event_data);
+        external_jdata->headset_status = PA_PAL_JACK_UNAVAILABLE;
+    }
+}
+
 struct pa_pal_jack_data* pa_pal_external_jack_detection_enable(pa_pal_jack_type_t jack_type, pa_module *m,
         pa_hook_slot **hook_slot, pa_pal_jack_callback_t callback, void *client_data) {
     struct pa_pal_jack_data *jdata = NULL;
@@ -428,6 +491,37 @@ struct pa_pal_jack_data* pa_pal_external_jack_detection_enable(pa_pal_jack_type_
 
     *hook_slot = pa_hook_connect(&(external_jdata->event_hook), PA_HOOK_NORMAL, (pa_hook_cb_t)callback, client_data);
 
+    /* For wired headset, also monitor extcon uevent for plug/unplug */
+    external_jdata->extcon_fd = -1;
+    external_jdata->extcon_io = NULL;
+    external_jdata->headset_status = PA_PAL_JACK_UNAVAILABLE;
+    if (jack_type == PA_PAL_JACK_TYPE_WIRED_HEADSET) {
+        struct sockaddr_nl sock_addr;
+        int sz = UEVENT_SOCKET_BUFFER_SIZE;
+        int soc;
+
+        memset(&sock_addr, 0, sizeof(sock_addr));
+        sock_addr.nl_family = AF_NETLINK;
+        sock_addr.nl_pid = getpid() + jack_type;
+        sock_addr.nl_groups = 0xffffffff;
+
+        soc = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_KOBJECT_UEVENT);
+        if (soc >= 0) {
+            setsockopt(soc, SOL_SOCKET, SO_RCVBUF, &sz, sizeof(sz));
+            if (bind(soc, (struct sockaddr *)&sock_addr, sizeof(sock_addr)) == 0) {
+                external_jdata->extcon_fd = soc;
+                external_jdata->extcon_io = m->core->mainloop->io_new(
+                    m->core->mainloop, soc,
+                    PA_IO_EVENT_INPUT | PA_IO_EVENT_HANGUP,
+                    extcon_headset_io_callback, external_jdata);
+            } else {
+                close(soc);
+            }
+        } else {
+            pa_log_error("extcon socket failed: %s", strerror(errno));
+        }
+    }
+
     return jdata;
 }
 
@@ -458,6 +552,12 @@ void pa_pal_external_jack_detection_disable(struct pa_pal_jack_data *jdata, pa_m
     pa_dbus_protocol_unref(external_jdata->dbus_protocol);
 
     pa_xfree(external_jdata->obj_path);
+
+    /* Clean up extcon monitoring for wired headset */
+    if (external_jdata->extcon_io)
+        m->core->mainloop->io_free(external_jdata->extcon_io);
+    if (external_jdata->extcon_fd >= 0)
+        close(external_jdata->extcon_fd);
 
     pa_hook_done(&(external_jdata->event_hook));
 

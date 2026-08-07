@@ -1043,8 +1043,11 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
 
         if (pa_streq(port_name, "headset")) {
             port = pa_hashmap_get(u->card->ports, "headset-mic");
-            if (port)
+            if (port) {
                 pa_device_port_set_available(port, status);
+                pa_pal_device_connection_state(port, 0,
+                    (event == PA_PAL_JACK_AVAILABLE) ? true : false);
+            }
         }
     } else {
         pa_log_error("unsupport jack type %d", event_data->jack_type);
