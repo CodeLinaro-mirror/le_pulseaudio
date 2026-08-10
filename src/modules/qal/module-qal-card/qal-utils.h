@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -55,4 +55,5 @@ int pa_pal_device_connection_state(pa_device_port *port,
                                               pal_device_id_t pal_device_id,
                                               bool connection_state);
 int pa_pal_set_device_connection_state(pal_device_id_t pal_dev_id, bool connection_state);
+bool pa_pal_util_is_suspend_on_idle_module_loaded(pa_core *core);
 #endif
