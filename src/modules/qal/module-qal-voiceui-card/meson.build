@@ -10,12 +10,16 @@ headers = [
 
 extra_inc = [include_directories(qal_voiceui_inc)]
 extra_flags = []
+cc = meson.get_compiler('c')
+_ar_pal_dep = cc.find_library('ar-pal', required: false)
+_pal_dep = _ar_pal_dep.found() ? _ar_pal_dep : cc.find_library('pal')
+
 extra_deps = [ dbus_dep,
-               meson.get_compiler('c').find_library('pal'),
-               meson.get_compiler('c').find_library('agm')
+               _pal_dep,
+               cc.find_library('agm')
              ]
 if get_option('pal-support-cutils')
-extra_deps += [meson.get_compiler('c').find_library('cutils')]
+extra_deps += [cc.find_library('cutils')]
 endif
 extra_libs = []
 
