@@ -853,6 +853,31 @@ exit:
     return ret;
 }
 
+static int pa_pal_config_parse_suspend_on_create(pa_config_parser_state *state) {
+    pa_pal_config_data* config_data = state->userdata;
+    pa_pal_source_config *source = NULL;
+
+    int ret = -1;
+
+    pa_assert(config_data);
+    pa_assert(state);
+    pa_assert(state->rvalue);
+
+    if (!(source = pa_pal_config_get_source(config_data->sources, state->section))) {
+        pa_log_error("%s: invalid section name %s", __func__, state->section);
+        goto exit;
+    }
+
+    source->suspend_on_create = pa_parse_boolean(state->rvalue);
+
+    pa_log_debug("%s: suspend_on_create %d for source %s", __func__, source->suspend_on_create, source->name);
+
+    ret = 0;
+
+exit:
+    return ret;
+}
+
 
 static void pa_pal_config_free_sink(pa_pal_sink_config *sink) {
     pa_assert(sink);
@@ -1580,6 +1605,7 @@ pa_pal_config_data* pa_pal_config_parse_new(char *dir, char *conf_file_name) {
         { "max-source-channels",         pa_pal_config_parse_profile_max_source_channels ,        NULL, NULL },
 
         { "use-hw-volume",               pa_pal_config_parse_use_hw_volume,                       NULL, NULL },
+        { "suspend-on-create",           pa_pal_config_parse_suspend_on_create,                   NULL, NULL },
 
         /* common between sink and source*/
         { "type",                        pa_pal_config_parse_type,                                NULL, NULL },

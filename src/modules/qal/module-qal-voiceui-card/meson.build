@@ -30,6 +30,10 @@ if get_option('enable-hist-cap')
 extra_flags += ['-DENABLE_HIST_CAP']
 endif
 
+if get_option('enable-cshm')
+extra_flags += ['-DENABLE_CSHM']
+endif
+
 # build shared module
 mod = shared_module(name,
   sources,

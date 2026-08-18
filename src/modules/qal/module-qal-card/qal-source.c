@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -512,7 +512,10 @@ static void pa_pal_source_thread_func(void *userdata) {
             struct pal_buffer in_buf;
 
             memset(&in_buf, 0, sizeof(struct pal_buffer));
-
+#ifdef ENABLE_TIMESTAMP
+            struct timespec ts = {0};
+            in_buf.ts = &ts;
+#endif
             chunk.memblock = pa_memblock_new(pa_sdata->source->core->mempool, pal_sdata->buffer_size);
             data = pa_memblock_acquire(chunk.memblock);
             chunk.length = pa_memblock_get_length(chunk.memblock);
@@ -520,7 +523,10 @@ static void pa_pal_source_thread_func(void *userdata) {
 
             in_buf.buffer = data;
             in_buf.size = chunk.length;
-
+#ifdef ENABLE_TIMESTAMP
+            pa_log_debug("pal buffer %p, in_buf.buffer:%p, in_buf.ts:%p, in_buf.size:%zu",
+                         &in_buf, in_buf.buffer, in_buf.ts, in_buf.size);
+#endif
             pa_mutex_lock(pal_sdata->mutex);
             if (pal_sdata->stream_handle) {
                 if ((ret = pal_stream_read(pal_sdata->stream_handle, &in_buf)) <= 0) {
@@ -530,8 +536,11 @@ static void pa_pal_source_thread_func(void *userdata) {
                 }
             }
             pa_mutex_unlock(pal_sdata->mutex);
-
             chunk.length = ret;
+#ifdef ENABLE_TIMESTAMP
+            pa_log_debug("ret:%d, get timestamp %ld", ret, in_buf.ts->tv_nsec);
+#endif
+
 #ifdef SOURCE_DUMP_ENABLED
             pa_log_debug("chunk length %d chunk index %d in_buf.size %d ",chunk.length, chunk.index, ret);
             if ((ret = write(pal_sdata->write_fd, in_buf.buffer, ret)) < 0)
@@ -758,7 +767,7 @@ static int create_pal_source(pa_pal_source_config *source, pa_pal_card_port_devi
 }
 
 static int create_pa_source(pa_module *m, char *source_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, uint32_t alternate_sample_rate, pa_card *card,
-                            pa_pal_card_avoid_processing_config_id_t avoid_config_processing, pa_hashmap *ports, const char *driver, pa_pal_source_data *source_data) {
+                            pa_pal_card_avoid_processing_config_id_t avoid_config_processing, pa_hashmap *ports, const char *driver, pa_pal_source_data *source_data, bool suspend_on_create) {
     pa_source_new_data new_data;
     pa_source_data *pa_sdata = NULL;
     pal_source_data *pal_sdata = NULL;
@@ -819,6 +828,12 @@ static int create_pa_source(pa_module *m, char *source_name, char *description, 
 
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_pal_source_get_name_from_type(pal_sdata->stream_attributes->type));
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
+
+    if (suspend_on_create &&
+        pa_pal_util_is_suspend_on_idle_module_loaded(m->core)) {
+        new_data.suspend_cause = PA_SUSPEND_IDLE;
+        pa_log_debug("Source %s: will start suspended", source_name);
+    }
 
     pa_sdata->source = pa_source_new(m->core, &new_data, PA_SOURCE_HARDWARE);
     if (!pa_sdata->source) {
@@ -1018,7 +1033,7 @@ int pa_pal_source_create(pa_module *m, pa_card *card, const char *driver, const 
         pa_log_error("fill dynamic port(%s) info failed %d", card_port->name, rc);
     }
 
-    rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate, card, source->avoid_config_processing, ports, driver, sdata);
+    rc = create_pa_source(m, source->name, source->description, source->formats, &source->default_spec, &source->default_map, source->alternate_sample_rate, card, source->avoid_config_processing, ports, driver, sdata, source->suspend_on_create);
     pa_hashmap_free(ports);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa source for source %s, error %d", source->name, rc);
