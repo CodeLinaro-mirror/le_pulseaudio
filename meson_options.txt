@@ -10,6 +10,9 @@ option('pal-support-cutils',
 option('pa-support-compress-volumeset',
        type : 'boolean', value : false,
        description : 'pa-support-compress-volumeset')
+option('enable-jack-external-set-param-async',
+       type : 'boolean', value : true,
+       description : 'Enable external jack SetParam async handling')
 option('daemon',
        type : 'boolean', value : true,
        description : 'Enable building and installation of pulseaudio daemon and supporting configuration files')

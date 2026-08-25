@@ -26,7 +26,9 @@
 #include <pulsecore/dbus-util.h>
 #include <pulsecore/protocol-dbus.h>
 #include <pulsecore/core-util.h>
+#ifndef JACK_EXTERNAL_SET_PARAM_ASYNC_DISABLED
 #include <pulsecore/thread.h>
+#endif
 
 #include "qal-jack-common.h"
 #include "qal-jack-format.h"
@@ -45,17 +47,20 @@ typedef struct {
     pa_client *bt_client;   /* D-Bus client that sent BtConnect(true); NULL when disconnected */
 } pa_pal_external_jack_data;
 
+#ifndef JACK_EXTERNAL_SET_PARAM_ASYNC_DISABLED
 typedef enum {
     JACK_THREAD_STATE_IDLE,
     JACK_THREAD_STATE_SET_PARAM,
     JACK_THREAD_STATE_EXIT,
 } jack_ext_async_thread_state_t;
+#endif
 
 enum signal_index {
     SIGNAL_JACK_SET_PARAM_DONE_EVENT,
     SIGNAL_MAX
 };
 
+#ifndef JACK_EXTERNAL_SET_PARAM_ASYNC_DISABLED
 typedef struct {
     char *param;
     int jack_ref_count; /* Number of jacks sharing async thread */
@@ -66,7 +71,8 @@ typedef struct {
     pa_pal_external_jack_data *external_jdata;
 } pa_pal_async_thread_data;
 
-pa_pal_async_thread_data *async_thr_data = NULL;
+static pa_pal_async_thread_data *async_thr_data = NULL;
+#endif
 
 enum module_method_handler_index {
     METHOD_HANDLER_BT_CONNECT,
@@ -209,6 +215,64 @@ static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *m
 
 }
 
+#ifdef JACK_EXTERNAL_SET_PARAM_ASYNC_DISABLED
+static void pal_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, void *userdata) {
+    int ret = 0;
+    pa_pal_jack_event_data_t event_data;
+    pa_pal_external_jack_data *external_jdata = userdata;
+    pa_pal_jack_out_config config;
+    jack_prm_kvpair_t kvpair;
+    const char *param = NULL;
+
+    DBusError error;
+
+    pa_assert(conn);
+    pa_assert(msg);
+    pa_assert(userdata);
+
+    dbus_error_init(&error);
+
+    pa_log_debug("%s", __func__);
+
+    if (!dbus_message_get_args(msg, &error, DBUS_TYPE_STRING, &param, DBUS_TYPE_INVALID)) {
+        pa_log_error("Invalid signature for SetParam - %s\n", error.message);
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_FAILED, "Invalid signature for SetParam");
+        dbus_error_free(&error);
+        return;
+    }
+
+    pa_log_info("%s: external source port %s  set param %s", __func__,
+            pa_pal_util_get_port_name_from_jack_type(external_jdata->jack_type), param);
+
+    /* Validate jack kvpair */
+    ret = pa_pal_external_jack_parse_kvpair(param, &kvpair);
+    if (ret) {
+        pa_log_error("Invalid jack param !!");
+        pa_dbus_send_error(conn, msg, DBUS_ERROR_INVALID_ARGS, "Invalid jack param");
+        return;
+    }
+
+    pa_dbus_send_empty_reply(conn, msg);
+
+    /* Generate jack set param event */
+    event_data.jack_type = external_jdata->jack_type;
+    event_data.event = PA_PAL_JACK_SET_PARAM;
+    event_data.pa_pal_jack_info = (void *)param;
+    ret = pa_hook_fire(&(external_jdata->event_hook), &event_data);
+
+    /* Fire hook to add sink/source for the ports */
+    if (!ret && (kvpair.key == JACK_PARAM_KEY_DEVICE_CONNECTION) &&
+            !strcmp(kvpair.value, "true")) {
+        /* Generate jack config update event */
+        set_default_config(external_jdata->jack_type, &config);
+        event_data.event = PA_PAL_JACK_CONFIG_UPDATE;
+        event_data.pa_pal_jack_info = &config;
+        ret = pa_hook_fire(&(external_jdata->event_hook), &event_data);
+    }
+
+    signal_jack_set_param_done(external_jdata, ret);
+}
+#else
 static void pal_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, void *userdata) {
     int ret = 0;
     pa_pal_jack_event_data_t event_data;
@@ -243,6 +307,7 @@ static void pal_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, 
 
     pa_dbus_send_empty_reply(conn, msg);
 }
+#endif
 
 static int parse_keyidx(const char *keystr)
 {
@@ -323,6 +388,7 @@ static void signal_jack_set_param_done(pa_pal_external_jack_data *external_jdata
     dbus_message_unref(message);
 }
 
+#ifndef JACK_EXTERNAL_SET_PARAM_ASYNC_DISABLED
 static void jack_ext_async_thread_func(void *userdata) {
     pa_pal_jack_event_data_t event_data;
     pa_pal_jack_out_config config;
@@ -373,6 +439,7 @@ signal:
 
     pa_log_debug("Exiting Async Thread");
 }
+#endif
 
 struct pa_pal_jack_data* pa_pal_external_jack_detection_enable(pa_pal_jack_type_t jack_type, pa_module *m,
         pa_hook_slot **hook_slot, pa_pal_jack_callback_t callback, void *client_data) {
@@ -400,6 +467,7 @@ struct pa_pal_jack_data* pa_pal_external_jack_detection_enable(pa_pal_jack_type_
 
     pa_xfree(port_name_underscore);
 
+#ifndef JACK_EXTERNAL_SET_PARAM_ASYNC_DISABLED
     /* Create async thread once for all jacks */
     if (!async_thr_data) {
         async_thr_data = pa_xnew0(pa_pal_async_thread_data, 1);
@@ -410,6 +478,7 @@ struct pa_pal_jack_data* pa_pal_external_jack_detection_enable(pa_pal_jack_type_
             pa_log_error("%s: Creation of async thread for set_param failed", __func__);
     }
     async_thr_data->jack_ref_count++;
+#endif
 
     pa_assert_se(pa_dbus_protocol_add_interface(external_jdata->dbus_protocol, external_jdata->obj_path, &module_interface_info, external_jdata) >= 0);
 
@@ -437,6 +506,7 @@ void pa_pal_external_jack_detection_disable(struct pa_pal_jack_data *jdata, pa_m
 
     external_jdata = (pa_pal_external_jack_data *)jdata->prv_data;
 
+#ifndef JACK_EXTERNAL_SET_PARAM_ASYNC_DISABLED
     async_thr_data->jack_ref_count--;
 
     /* Destroy async thread once all jacks are disabled */
@@ -449,6 +519,7 @@ void pa_pal_external_jack_detection_disable(struct pa_pal_jack_data *jdata, pa_m
         pa_xfree(async_thr_data);
         async_thr_data = NULL;
     }
+#endif
 
     pa_assert_se(pa_dbus_protocol_remove_interface(external_jdata->dbus_protocol, external_jdata->obj_path, module_interface_info.name) >= 0);
 
