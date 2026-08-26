@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -605,6 +605,10 @@ static int pa_pal_sink_io_process_msg(pa_msgobject *o, int code, void *data, int
             pa_sink_drain_complete(sdata->pa_sdata->sink);
             return 0;
 
+        case PA_QAL_SINK_MESSAGE_SSR_RECOVERY:
+            sdata->pal_sdata->bytes_written = 0;
+            return 0;
+
         default:
              break;
     }
@@ -997,6 +1001,13 @@ static int32_t pa_pal_out_cb(pal_stream_handle_t *stream_handle,
             pa_asyncmsgq_post(sdata->pa_sdata->thread_mq.inq, PA_MSGOBJECT(sdata->pa_sdata->sink),
                                                 PA_QAL_SINK_MESSAGE_DRAIN_READY, NULL, 0, NULL, NULL);
 
+            break;
+
+        case PAL_STREAM_CBK_EVENT_SSR_RECOVERY:
+            pa_asyncmsgq_post(sdata->pa_sdata->thread_mq.inq,
+                                PA_MSGOBJECT(sdata->pa_sdata->sink),
+                                PA_QAL_SINK_MESSAGE_SSR_RECOVERY,
+                                NULL, 0, NULL, NULL);
             break;
 
         default:
