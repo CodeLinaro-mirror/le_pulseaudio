@@ -40,6 +40,9 @@ typedef struct {
     pa_dbus_protocol *dbus_protocol;
     pa_hook event_hook;
     pa_pal_jack_type_t jack_type;
+    pa_core *core;
+    pa_hook_slot *client_unlink_slot;
+    pa_client *bt_client;   /* D-Bus client that sent BtConnect(true); NULL when disconnected */
 } pa_pal_external_jack_data;
 
 typedef enum {
@@ -80,6 +83,31 @@ static char const *jack_prmkey_names[JACK_PARAM_KEY_MAX] = {
 
 static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pal_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, void *userdata);
+
+static pa_hook_result_t client_unlink_cb(pa_core *core __attribute__((unused)),
+        pa_client *client, void *userdata)
+{
+    pa_pal_external_jack_data *external_jdata = userdata;
+    pa_pal_jack_event_data_t event_data;
+
+    pa_assert(client);
+    pa_assert(userdata);
+
+    if (external_jdata->bt_client != client)
+        return PA_HOOK_OK;
+
+    pa_log_info("BT client %s disappeared unexpectedly. BtConnect(false) was not received, triggering jack unavailable for jack type %d",
+            pa_strnull(pa_proplist_gets(client->proplist, PA_PROP_APPLICATION_NAME)),
+            external_jdata->jack_type);
+
+    external_jdata->bt_client = NULL;
+
+    event_data.event = PA_PAL_JACK_UNAVAILABLE;
+    event_data.jack_type = external_jdata->jack_type;
+    pa_hook_fire(&(external_jdata->event_hook), &event_data);
+
+    return PA_HOOK_OK;
+}
 
 static pa_dbus_arg_info connection_args[] = {
     {"connection_args", "b", "in"},
@@ -163,10 +191,12 @@ static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *m
     }
 
     if (is_connect) {
+        external_jdata->bt_client = pa_dbus_protocol_get_client(external_jdata->dbus_protocol, conn);
         event_data.event = PA_PAL_JACK_AVAILABLE;
         pa_log_info("pal jack type %d available", external_jdata->jack_type);
     }
     else {
+        external_jdata->bt_client = NULL;
         event_data.event = PA_PAL_JACK_UNAVAILABLE;
         pa_log_info("pal jack type %d unavailable", external_jdata->jack_type);
     }
@@ -386,6 +416,13 @@ struct pa_pal_jack_data* pa_pal_external_jack_detection_enable(pa_pal_jack_type_
     external_jdata->jack_type = jack_type;
     jdata->jack_type = jack_type;
 
+    external_jdata->core = m->core;
+    external_jdata->client_unlink_slot = pa_hook_connect(
+            &m->core->hooks[PA_CORE_HOOK_CLIENT_UNLINK],
+            PA_HOOK_NORMAL,
+            (pa_hook_cb_t)client_unlink_cb,
+            external_jdata);
+
     pa_hook_init(&(external_jdata->event_hook), NULL);
     jdata->event_hook = &(external_jdata->event_hook);
 
@@ -414,6 +451,9 @@ void pa_pal_external_jack_detection_disable(struct pa_pal_jack_data *jdata, pa_m
     }
 
     pa_assert_se(pa_dbus_protocol_remove_interface(external_jdata->dbus_protocol, external_jdata->obj_path, module_interface_info.name) >= 0);
+
+    if (external_jdata->client_unlink_slot)
+        pa_hook_slot_free(external_jdata->client_unlink_slot);
 
     pa_dbus_protocol_unref(external_jdata->dbus_protocol);
 
