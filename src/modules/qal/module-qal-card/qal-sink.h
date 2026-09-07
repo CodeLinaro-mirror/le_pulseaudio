@@ -103,7 +103,9 @@ typedef struct {
 
 typedef enum {
     PA_QAL_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
+#ifdef ENABLE_SSR_RECOVERY
     PA_QAL_SINK_MESSAGE_SSR_RECOVERY
+#endif
 } pa_qal_sink_msgs_t;
 
 bool pa_pal_sink_is_supported_sample_rate(uint32_t sample_rate);

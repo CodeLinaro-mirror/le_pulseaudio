@@ -605,9 +605,11 @@ static int pa_pal_sink_io_process_msg(pa_msgobject *o, int code, void *data, int
             pa_sink_drain_complete(sdata->pa_sdata->sink);
             return 0;
 
+#ifdef ENABLE_SSR_RECOVERY
         case PA_QAL_SINK_MESSAGE_SSR_RECOVERY:
             sdata->pal_sdata->bytes_written = 0;
             return 0;
+#endif
 
         default:
              break;
@@ -1003,12 +1005,14 @@ static int32_t pa_pal_out_cb(pal_stream_handle_t *stream_handle,
 
             break;
 
+#ifdef ENABLE_SSR_RECOVERY
         case PAL_STREAM_CBK_EVENT_SSR_RECOVERY:
             pa_asyncmsgq_post(sdata->pa_sdata->thread_mq.inq,
                                 PA_MSGOBJECT(sdata->pa_sdata->sink),
                                 PA_QAL_SINK_MESSAGE_SSR_RECOVERY,
                                 NULL, 0, NULL, NULL);
             break;
+#endif
 
         default:
             pa_log_error("Unsupported event %d handle %p", event_id, pal_sdata->stream_handle);

@@ -215,6 +215,9 @@ option('enable-timestamp', type: 'boolean', value: false,
 option('enable-cshm',
        type : 'boolean', value : false,
        description: 'Enable audio CSHM feature')
+option('enable-ssr-recovery',
+       type : 'boolean', value : false,
+       description: 'Enable ssr event callback method')
 
 # Echo cancellation
 

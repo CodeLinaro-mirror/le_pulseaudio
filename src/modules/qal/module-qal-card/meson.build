@@ -80,6 +80,10 @@ if get_option('enable-timestamp')
 extra_flags += ['-DENABLE_TIMESTAMP']
 endif
 
+if get_option('enable-ssr-recovery')
+extra_flags += ['-DENABLE_SSR_RECOVERY']
+endif
+
 extra_libs = []
 
 # build shared module
