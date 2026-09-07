@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
@@ -37,6 +37,10 @@ typedef struct {
     pa_pal_jack_in_config *jack_in_config;
     pa_pal_jack_usb_device_address_t usb_addr;
 } pa_pal_udev_jack_data_t;
+
+static inline bool is_usb_gadget_path(const char *path) {
+    return path && (strstr(path, "/gadget/") || strstr(path, "/gadget."));
+}
 
 static int get_capability(pa_pal_udev_jack_data_t *udev_jdata, int card_id) {
     const char *card_stream = "/proc/asound/card%u/stream0";
@@ -122,6 +126,7 @@ static void report_events(pa_pal_udev_jack_data_t *udev_jdata, bool plugin) {
 static void check_usb_audio_connection(pa_pal_udev_jack_data_t *udev_jdata) {
     const char *cards = "/proc/asound/cards";
     const char *snd = "/dev/snd/pcmC%uD%u%c";
+    const char *card_device = "/sys/class/sound/card%d/device";
     FILE *pf = NULL;
     char path[SYSFS_PATH_MAX];
     int fd;
@@ -150,8 +155,16 @@ static void check_usb_audio_connection(pa_pal_udev_jack_data_t *udev_jdata) {
             continue;
         }
 
-        if (strstr((char *)card_string, " ["))
+        if (strstr((char *)card_string, " [")){
             card_id = atoi(items[0]);
+            char syspath[SYSFS_PATH_MAX], real[PATH_MAX];
+            snprintf(syspath, sizeof(syspath), card_device, card_id);
+            if (realpath(syspath, real) && is_usb_gadget_path(real)) {
+                pa_log_info("%s: skip gadget sound card %d (%s)", __func__, card_id, real);
+                found_usb_card = false;
+                continue;
+            }
+        }
 
         i = 0;
         while ((item = items[i++])) {
@@ -199,7 +212,7 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event* e, int fd, pa_io_
     const char *path;
     const char *action;
     const char *tail;
-    int card_id, device_num = -1;
+    int card_id = -1, device_num = -1;
     int capability = UNKNOWN;
 
     pa_assert(io);
@@ -211,6 +224,13 @@ static void jack_io_callback(pa_mainloop_api *io, pa_io_event* e, int fd, pa_io_
     }
 
     path = udev_device_get_devpath(dev);
+    pa_log_debug("%s: udev devpath %s action %s", __func__,
+            path ? path : "(null)",
+            udev_device_get_action(dev) ? udev_device_get_action(dev) : "(null)");
+    if (is_usb_gadget_path(path)) {
+        pa_log_info("%s: skip gadget sound card path=%s", __func__, path);
+        goto end;
+    }
 
     /* Get card id and capability */
     if ((tail = strrchr(path, '/')) && pa_startswith(tail, "/pcmC")) {

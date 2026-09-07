@@ -145,6 +145,8 @@ static inline pal_stream_type_t pa_pal_sink_get_type_from_string(const char *str
         type = PAL_STREAM_VOIP_RX;
     } else if (pa_streq(stream_type, "PAL_STREAM_COMPRESSED")) {
         type = PAL_STREAM_COMPRESSED;
+    } else if (pa_streq(stream_type, "PAL_STREAM_PCM_OFFLOAD")) {
+        type = PAL_STREAM_PCM_OFFLOAD;
     } else {
         type = PAL_STREAM_GENERIC; //No PAL_STREAM_NONE. Hence using generic one.
         pa_log_error("%s: Unsupported stream_type %s", __func__, stream_type);
