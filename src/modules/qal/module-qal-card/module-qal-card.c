@@ -323,7 +323,7 @@ static int pa_pal_card_create_sources(struct userdata *u, const char *profile_na
         rc = pa_pal_card_add_source(u->module, u->card, u->driver, u->module_name, source, &(source_info->handle));
         if (rc) {
             pa_log_error("%s: source %s create failed for profile %s, error %d ", __func__, source->name, profile_name, rc);
-            source_info->handle = NULL;
+            pa_xfree(source_info);
             continue;
         }
 
@@ -388,7 +388,7 @@ static int pa_pal_card_create_sinks(struct userdata *u, const char *profile_name
         rc = pa_pal_card_add_sink(u->module, u->card, u->driver, u->module_name, sink, &(sink_info->handle));
         if (rc) {
             pa_log_error("%s: sink %s create failed for profile %s, error %d ", __func__, sink->name, profile_name, rc);
-            sink_info->handle = NULL;
+            pa_xfree(sink_info);
             continue;
         }
 
@@ -612,7 +612,7 @@ static void pa_pal_card_add_dynamic_source(pa_device_port *port, pa_pal_jack_out
     rc = pa_pal_card_add_source(u->module, u->card, u->driver, u->module_name, &new_source, &(source_info->handle));
     if (rc) {
         pa_log_error("%s: source %s create failed for port %s, error %d ", __func__, source->name, port->name, rc);
-        source_info->handle = NULL;
+        pa_xfree(source_info);
     } else {
         pa_hashmap_put(u->sources, new_source.name, source_info);
     }
@@ -932,7 +932,7 @@ static void pa_pal_card_add_dynamic_sink(pa_device_port *port, pa_pal_jack_out_c
 
     if (rc) {
         pa_log_error("%s: sink %s create failed for port %s, error %d ", __func__, sink->name, port->name, rc);
-        sink_info->handle = NULL;
+        pa_xfree(sink_info);
     } else {
         pa_hashmap_put(u->sinks, new_sink.name, sink_info);
     }
