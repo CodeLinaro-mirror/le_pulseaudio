@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -1293,7 +1293,7 @@ static int pa_pal_sink_alloc_common_resources(pa_pal_sink_data *sdata) {
 }
 
 static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_idxset *formats, pa_sample_spec *ss, pa_channel_map *map, bool use_hw_volume, uint32_t alternate_sample_rate, pa_card *card,
-                          pa_pal_card_avoid_processing_config_id_t avoid_config_processing, pa_hashmap *ports, const char *driver, pa_pal_sink_data *sdata) {
+                          pa_pal_card_avoid_processing_config_id_t avoid_config_processing, pa_hashmap *ports, const char *driver, pa_pal_sink_data *sdata, bool suspend_on_create) {
     pa_sink_new_data new_data;
     pa_sink_data *pa_sdata;
     pa_device_port *port;
@@ -1354,6 +1354,12 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
 
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_STRING, pa_pal_sink_get_name_from_type(sdata->pal_sdata->stream_attributes->type));
     pa_proplist_sets(new_data.proplist, PA_PROP_DEVICE_DESCRIPTION, description);
+
+    if (suspend_on_create &&
+        pa_pal_util_is_suspend_on_idle_module_loaded(m->core)) {
+        new_data.suspend_cause = PA_SUSPEND_IDLE;
+        pa_log_debug("Sink %s: will start suspended", sink_name);
+    }
 
     pa_sdata->sink = pa_sink_new(m->core, &new_data, PA_SINK_HARDWARE | PA_SINK_LATENCY );
     pa_sink_new_data_done(&new_data);
@@ -1536,7 +1542,7 @@ int pa_pal_sink_create(pa_module *m, pa_card *card, const char *driver, const ch
         pa_log_error("fill dynamic port(%s) info failed %d", card_port->name, rc);
     }
 
-    rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &sink->default_spec, &sink->default_map, sink->use_hw_volume, sink->alternate_sample_rate, card, sink->avoid_config_processing, ports, driver, sdata);
+    rc = create_pa_sink(m, sink->name, sink->description, sink->formats, &sink->default_spec, &sink->default_map, sink->use_hw_volume, sink->alternate_sample_rate, card, sink->avoid_config_processing, ports, driver, sdata, sink->suspend_on_create);
     pa_hashmap_free(ports);
     if (PA_UNLIKELY(rc)) {
         pa_log_error("Could not create pa sink for sink %s, error %d", sink->name, rc);

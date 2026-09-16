@@ -855,6 +855,7 @@ exit:
 
 static int pa_pal_config_parse_suspend_on_create(pa_config_parser_state *state) {
     pa_pal_config_data* config_data = state->userdata;
+    pa_pal_sink_config *sink = NULL;
     pa_pal_source_config *source = NULL;
 
     int ret = -1;
@@ -863,14 +864,16 @@ static int pa_pal_config_parse_suspend_on_create(pa_config_parser_state *state) 
     pa_assert(state);
     pa_assert(state->rvalue);
 
-    if (!(source = pa_pal_config_get_source(config_data->sources, state->section))) {
+    if ((sink = pa_pal_config_get_sink(config_data->sinks, state->section))) {
+        sink->suspend_on_create = pa_parse_boolean(state->rvalue);
+        pa_log_debug("%s: suspend_on_create %d for sink %s", __func__, sink->suspend_on_create, sink->name);
+    } else if ((source = pa_pal_config_get_source(config_data->sources, state->section))) {
+        source->suspend_on_create = pa_parse_boolean(state->rvalue);
+        pa_log_debug("%s: suspend_on_create %d for source %s", __func__, source->suspend_on_create, source->name);
+    } else {
         pa_log_error("%s: invalid section name %s", __func__, state->section);
         goto exit;
     }
-
-    source->suspend_on_create = pa_parse_boolean(state->rvalue);
-
-    pa_log_debug("%s: suspend_on_create %d for source %s", __func__, source->suspend_on_create, source->name);
 
     ret = 0;
 
