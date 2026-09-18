@@ -98,6 +98,7 @@ static char const *jack_prmkey_names[JACK_PARAM_KEY_MAX] = {
 
 static void pal_jack_external_bt_connection(DBusConnection *conn, DBusMessage *msg, void *userdata);
 static void pal_jack_external_set_param(DBusConnection *conn, DBusMessage *msg, void *userdata);
+static void signal_jack_set_param_done(pa_pal_external_jack_data *external_jdata, int status);
 
 static pa_hook_result_t client_unlink_cb(pa_core *core __attribute__((unused)),
         pa_client *client, void *userdata)
