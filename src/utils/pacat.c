@@ -3,6 +3,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -16,10 +17,6 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
-
-  Changes from Qualcomm Technologies, Inc. are provided under the following license:
-  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
