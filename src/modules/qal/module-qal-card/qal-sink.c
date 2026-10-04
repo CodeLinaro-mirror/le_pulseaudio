@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -401,8 +401,6 @@ static int pa_pal_sink_start(pa_pal_sink_data *sdata) {
             rc = open_pal_sink(sdata);
             if (rc) {
                 pa_log_error("pal sink open failed, error %d", rc);
-                pa_xfree(sdata->pal_sdata);
-                sdata->pal_sdata = NULL;
                 return rc;
             }
         }
@@ -604,6 +602,15 @@ static int pa_pal_sink_io_process_msg(pa_msgobject *o, int code, void *data, int
         case PA_QAL_SINK_MESSAGE_DRAIN_READY:
             pa_sink_drain_complete(sdata->pa_sdata->sink);
             return 0;
+
+#ifdef ENABLE_SSR_RECOVERY
+        case PA_QAL_SINK_MESSAGE_SSR_RECOVERY:
+            sdata->pal_sdata->bytes_written = 0;
+            return 0;
+#endif
+
+        case PA_QAL_SINK_MESSAGE_PREPARE_START:
+            return pa_pal_sink_start(sdata);
 
         default:
              break;
@@ -999,6 +1006,15 @@ static int32_t pa_pal_out_cb(pal_stream_handle_t *stream_handle,
 
             break;
 
+#ifdef ENABLE_SSR_RECOVERY
+        case PAL_STREAM_CBK_EVENT_SSR_RECOVERY:
+            pa_asyncmsgq_post(sdata->pa_sdata->thread_mq.inq,
+                                PA_MSGOBJECT(sdata->pa_sdata->sink),
+                                PA_QAL_SINK_MESSAGE_SSR_RECOVERY,
+                                NULL, 0, NULL, NULL);
+            break;
+#endif
+
         default:
             pa_log_error("Unsupported event %d handle %p", event_id, pal_sdata->stream_handle);
 
@@ -1119,9 +1135,9 @@ static int open_pal_sink(pa_pal_sink_data *sdata) {
 
     out_buf_cfg.buf_count = pal_sdata->buffer_count;
     rc = pal_stream_set_buffer_size(pal_sdata->stream_handle, &in_buf_cfg, &out_buf_cfg);
-    if(rc) {
-        pa_log_error("pal_stream_set_buffer_size failed\n");
-        goto exit;
+    if (rc) {
+        pa_log_error("pal_stream_set_buffer_size failed, error %d", rc);
+        goto close_stream;
     }
 
     sdata->pal_sink_opened = true;
@@ -1135,6 +1151,17 @@ static int open_pal_sink(pa_pal_sink_data *sdata) {
 
     pa_xfree(file_name);
 #endif
+
+    goto exit;
+
+close_stream:
+    if (pal_sdata->stream_handle) {
+        if (pal_stream_close(pal_sdata->stream_handle))
+            pa_log_error("pal_stream_close failed after buffer size error");
+        pal_sdata->stream_handle = NULL;
+    }
+    pal_sdata->standby = true;
+    sdata->pal_sink_opened = false;
 
 exit:
     return rc;
@@ -1302,7 +1329,6 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
 
     void *state;
     uint32_t i;
-
     bool port_sink_mapping = false;
 
     pa_assert(sdata->pal_sdata);
@@ -1406,11 +1432,23 @@ static int create_pa_sink(pa_module *m, char *sink_name, char *description, pa_i
         goto fail;
     }
 
+    /* Start PAL before publishing. */
+    if (pa_asyncmsgq_send(pa_sdata->thread_mq.inq,
+                          PA_MSGOBJECT(pa_sdata->sink),
+                          PA_QAL_SINK_MESSAGE_PREPARE_START,
+                          NULL, 0, NULL)) {
+        pa_log_error("Could not start sink %s", sink_name);
+        goto fail;
+    }
+
    pa_sink_put(pa_sdata->sink);
 
    return 0;
 
 fail :
+    if (sdata->pal_sink_opened)
+        close_pal_sink(sdata);
+
     if (pa_sdata)
         free_pa_sink(sdata);
 
