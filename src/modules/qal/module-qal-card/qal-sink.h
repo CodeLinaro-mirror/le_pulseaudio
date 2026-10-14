@@ -50,6 +50,7 @@ typedef struct {
     pa_pal_card_usecase_type_t usecase_type;
     uint32_t buffer_size;
     uint32_t buffer_count;
+    bool suspend_on_create;
 } pa_pal_sink_config;
 
 typedef struct {
