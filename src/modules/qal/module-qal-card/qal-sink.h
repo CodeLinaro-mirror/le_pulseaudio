@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version
@@ -50,6 +50,7 @@ typedef struct {
     pa_pal_card_usecase_type_t usecase_type;
     uint32_t buffer_size;
     uint32_t buffer_count;
+    bool suspend_on_create;
 } pa_pal_sink_config;
 
 typedef struct {
@@ -103,6 +104,10 @@ typedef struct {
 
 typedef enum {
     PA_QAL_SINK_MESSAGE_DRAIN_READY = PA_SINK_MESSAGE_MAX + 1,
+#ifdef ENABLE_SSR_RECOVERY
+    PA_QAL_SINK_MESSAGE_SSR_RECOVERY,
+#endif
+    PA_QAL_SINK_MESSAGE_PREPARE_START,
 } pa_qal_sink_msgs_t;
 
 bool pa_pal_sink_is_supported_sample_rate(uint32_t sample_rate);

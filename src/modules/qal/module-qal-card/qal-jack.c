@@ -102,6 +102,7 @@ pa_pal_jack_handle_t *pa_pal_jack_register_event_callback(pa_pal_jack_type_t jac
                jdata = pa_pal_hdmi_out_jack_detection_enable(jack_type, m, &(u->hook_slot),
                        callback, jack_in_config, client_data);
                break;
+           case PA_PAL_JACK_TYPE_WIRED_HEADSET:
            case PA_PAL_JACK_TYPE_BTA2DP_IN:
            case PA_PAL_JACK_TYPE_BTA2DP_OUT:
            case PA_PAL_JACK_TYPE_BTSCO_IN:
@@ -166,6 +167,7 @@ bool pa_pal_jack_deregister_event_callback(pa_pal_jack_handle_t *jack_handle, pa
             case PA_PAL_JACK_TYPE_NATIVE_HDMI_OUT:
                 pa_pal_hdmi_out_jack_detection_disable(jdata, m);
                 break;
+            case PA_PAL_JACK_TYPE_WIRED_HEADSET:
             case PA_PAL_JACK_TYPE_BTA2DP_IN:
             case PA_PAL_JACK_TYPE_BTA2DP_OUT:
             case PA_PAL_JACK_TYPE_BTSCO_IN:

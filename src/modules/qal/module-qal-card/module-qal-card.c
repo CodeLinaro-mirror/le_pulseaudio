@@ -77,6 +77,8 @@ PA_MODULE_USAGE(
         "conf_file_name= pal conf name is present in conf_dir_name"
 );
 
+static uint32_t cached_sco_sample_rate = 0;
+
 static const char* const valid_modargs[] = {
     "module",
     "conf_dir_name",
@@ -321,7 +323,7 @@ static int pa_pal_card_create_sources(struct userdata *u, const char *profile_na
         rc = pa_pal_card_add_source(u->module, u->card, u->driver, u->module_name, source, &(source_info->handle));
         if (rc) {
             pa_log_error("%s: source %s create failed for profile %s, error %d ", __func__, source->name, profile_name, rc);
-            source_info->handle = NULL;
+            pa_xfree(source_info);
             continue;
         }
 
@@ -386,7 +388,7 @@ static int pa_pal_card_create_sinks(struct userdata *u, const char *profile_name
         rc = pa_pal_card_add_sink(u->module, u->card, u->driver, u->module_name, sink, &(sink_info->handle));
         if (rc) {
             pa_log_error("%s: sink %s create failed for profile %s, error %d ", __func__, sink->name, profile_name, rc);
-            sink_info->handle = NULL;
+            pa_xfree(sink_info);
             continue;
         }
 
@@ -610,7 +612,7 @@ static void pa_pal_card_add_dynamic_source(pa_device_port *port, pa_pal_jack_out
     rc = pa_pal_card_add_source(u->module, u->card, u->driver, u->module_name, &new_source, &(source_info->handle));
     if (rc) {
         pa_log_error("%s: source %s create failed for port %s, error %d ", __func__, source->name, port->name, rc);
-        source_info->handle = NULL;
+        pa_xfree(source_info);
     } else {
         pa_hashmap_put(u->sources, new_source.name, source_info);
     }
@@ -678,6 +680,11 @@ static int pa_pal_set_sco_params(uint32_t sample_rate) {
     pal_param_btsco_t param_btsco;
     pal_param_id_type_t param_id;
 
+    /* Skip all PAL calls if sample rate hasn't changed. */
+    if (sample_rate == cached_sco_sample_rate) {
+        return ret;
+    }
+
     memset(&param_btsco, 0, sizeof(param_btsco));
     param_id = PAL_PARAM_ID_BT_SCO;
     param_btsco.is_bt_hfp = false; //false for HFP-AG case
@@ -687,6 +694,7 @@ static int pa_pal_set_sco_params(uint32_t sample_rate) {
             sizeof(pal_param_btsco_t));
     if (ret != 0) {
         pa_log_error("Set param_id=%d failed", param_id);
+        return ret;
     }
 
     param_id = PAL_PARAM_ID_BT_SCO_WB;
@@ -700,8 +708,10 @@ static int pa_pal_set_sco_params(uint32_t sample_rate) {
             sizeof(pal_param_btsco_t));
     if (ret != 0) {
         pa_log_error("Set param_id=%d failed", param_id);
+        return ret;
     }
 
+    cached_sco_sample_rate = sample_rate;
     return ret;
 }
 
@@ -731,10 +741,16 @@ static void pa_pal_card_set_source_param(pa_device_port *port, struct userdata *
                 pa_log_error("Set source device connection params failed ret=%d", ret);
 
             if (!strcmp(port->name, "btsco-in")) {
-                /* setting common params for SCO  mode */
-                ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
-                if(ret)
-                    pa_log_error("Set common sco params failed. ret=%d", ret);
+                /* Reset cached sample rate before connect so that reconnect
+                 * (including abnormal reconnect without prior disconnect)
+                 * always triggers full PAL reconfiguration. */
+                cached_sco_sample_rate = 0;
+                if (connection_state) {
+                    /* setting common params for SCO mode on connect */
+                    ret = pa_pal_set_sco_params(DEFAULT_SCO_SAMPLE_RATE);
+                    if(ret)
+                        pa_log_error("Set common sco params failed. ret=%d", ret);
+                }
             }
             break;
         case JACK_PARAM_KEY_DEVICE_SAMPLERATE:
@@ -916,7 +932,7 @@ static void pa_pal_card_add_dynamic_sink(pa_device_port *port, pa_pal_jack_out_c
 
     if (rc) {
         pa_log_error("%s: sink %s create failed for port %s, error %d ", __func__, sink->name, port->name, rc);
-        sink_info->handle = NULL;
+        pa_xfree(sink_info);
     } else {
         pa_hashmap_put(u->sinks, new_sink.name, sink_info);
     }
@@ -1027,8 +1043,11 @@ static pa_hook_result_t pa_pal_jack_callback(void *dummy __attribute__((unused))
 
         if (pa_streq(port_name, "headset")) {
             port = pa_hashmap_get(u->card->ports, "headset-mic");
-            if (port)
+            if (port) {
                 pa_device_port_set_available(port, status);
+                pa_pal_device_connection_state(port, 0,
+                    (event == PA_PAL_JACK_AVAILABLE) ? true : false);
+            }
         }
     } else {
         pa_log_error("unsupport jack type %d", event_data->jack_type);

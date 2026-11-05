@@ -3,6 +3,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -16,10 +17,6 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
-
-  Changes from Qualcomm Innovation Center are provided under the following license:
-  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
-  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
@@ -563,6 +560,12 @@ static void stdin_callback(pa_mainloop_api*a, pa_io_event *e, int fd, pa_io_even
     if (pa_stream_begin_write(stream, (void **)&buf, &writable) < 0) {
         pa_log(_("pa_stream_begin_write() failed: %s"), pa_strerror(pa_context_errno(context)));
         quit(1);
+        return;
+    }
+
+    /* No enough writable space to write */
+    if (writable <= partialframe_len) {
+        pa_stream_cancel_write(stream);
         return;
     }
 

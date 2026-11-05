@@ -74,6 +74,7 @@ struct pal_voiceui_module_data {
     pa_dbus_protocol *dbus_protocol;
     pa_pal_voiceui_hooks *pal;
     bool is_session_started;
+    bool ssr_in_progress;
     uint32_t session_id;
     PA_LLIST_HEAD(struct pal_voiceui_session_data, sessions);
 };
@@ -244,6 +245,10 @@ pa_dbus_arg_info stop_buffering_done_event_args[] = {
     {"status", "i", NULL},
 };
 
+pa_dbus_arg_info ssr_event_args[] = {
+      {"ssr_online", "b", NULL},
+};
+
 #ifdef ENABLE_CSHM
 pa_dbus_arg_info cshm_alloc_args[] = {
     {"size",   "u", "in"},
@@ -379,6 +384,7 @@ enum signal_index {
     SIGNAL_DETECTION_EVENT,
     SIGNAL_READ_BUFFER_AVAILABLE_EVENT,
     SIGNAL_STOP_BUFFERING_DONE_EVENT,
+    SIGNAL_SSR_EVENT,
     SIGNAL_MAX
 };
 
@@ -395,6 +401,10 @@ static pa_dbus_signal_info det_event_signals[SIGNAL_MAX] = {
         .name = "StopBufferingDoneEvent",
         .arguments = stop_buffering_done_event_args,
         .n_arguments = sizeof(stop_buffering_done_event_args)/sizeof(pa_dbus_arg_info)},
+    [SIGNAL_SSR_EVENT] = {
+        .name = "SsrEvent",
+        .arguments = ssr_event_args,
+        .n_arguments = sizeof(ssr_event_args)/sizeof(pa_dbus_arg_info)},
 };
 
 static pa_dbus_interface_info module_interface_info = {
@@ -511,6 +521,61 @@ static void pa_pal_fill_default_attributes(struct pal_stream_attributes *stream_
     devices->config.bit_width = 16;
     devices->config.ch_info.channels = 1;
     memcpy(&devices->config.ch_info.ch_map, chmap, sizeof(chmap));
+}
+
+static void signal_ssr_event(struct pal_voiceui_session_data *ses_data, bool online) {
+    DBusMessage *message = NULL;
+    DBusMessageIter arg_i;
+    dbus_bool_t up = (dbus_bool_t)online;
+
+    pa_assert_se(message = dbus_message_new_signal(ses_data->obj_path,
+                    session_interface_info.name,
+                    det_event_signals[SIGNAL_SSR_EVENT].name));
+    dbus_message_iter_init_append(message, &arg_i);
+    dbus_message_iter_append_basic(&arg_i, DBUS_TYPE_BOOLEAN, &up);
+    pa_dbus_protocol_send_signal(ses_data->common->dbus_protocol, message);
+    dbus_message_unref(message);
+}
+
+static int32_t pal_global_event_callback(uint32_t event_id,
+                                        uint32_t *event_data,
+                                        uint64_t cookie) {
+    struct pal_voiceui_module_data *m_data = (struct pal_voiceui_module_data *)cookie;
+    struct pal_voiceui_session_data *ses_data;
+    card_status_t status;
+
+    if (!m_data || !event_data || event_id != PAL_SND_CARD_STATE)
+        return 0;
+
+    status = (card_status_t)(*event_data);
+
+    if (PAL_CARD_STATUS_DOWN(status)) {
+        m_data->ssr_in_progress = true;
+
+        PA_LLIST_FOREACH(ses_data, m_data->sessions) {
+            pa_mutex_lock(ses_data->mutex);
+            ses_data->recognition_started = false;
+            if (ses_data->thread_state == PAL_THREAD_READ_QUEUED) {
+                ses_data->thread_state = PAL_THREAD_IDLE;
+                pa_cond_signal(ses_data->cond, 0);
+            }
+            pa_mutex_unlock(ses_data->mutex);
+            signal_ssr_event(ses_data, false);
+        }
+
+        if (m_data->is_session_started) {
+            pa_hook_fire(&m_data->pal->hooks[PA_HOOK_PAL_VOICEUI_STOP_DETECTION], NULL);
+            m_data->is_session_started = false;
+        }
+
+    } else if (PAL_CARD_STATUS_UP(status)) {
+        m_data->ssr_in_progress = false;
+
+        PA_LLIST_FOREACH(ses_data, m_data->sessions)
+            signal_ssr_event(ses_data, true);
+    }
+
+    return 0;
 }
 
 static void signal_stop_buffering_done(struct pal_voiceui_session_data *ses_data,
@@ -1934,6 +1999,7 @@ int pa__init(pa_module *m) {
         pa_hook_init(&m_data->pal->hooks[i], NULL);
 
     pa_shared_set(m->core, "voice-ui-session", m_data->pal);
+    pal_register_global_callback(pal_global_event_callback, (uint64_t)m_data);
 
     return 0;
 

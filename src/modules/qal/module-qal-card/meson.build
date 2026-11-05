@@ -71,6 +71,10 @@ if get_option('pal-support-card-status')
 extra_flags += ['-DPAL_CARD_STATUS_SUPPORTED']
 endif
 
+if not get_option('enable-jack-external-set-param-async')
+extra_flags += ['-DJACK_EXTERNAL_SET_PARAM_ASYNC_DISABLED']
+endif
+
 if get_option('pal-support-cutils')
 extra_flags += ['-DPAL_USES_CUTILS']
 extra_deps += [cc.find_library('cutils')]
@@ -78,6 +82,10 @@ endif
 
 if get_option('enable-timestamp')
 extra_flags += ['-DENABLE_TIMESTAMP']
+endif
+
+if get_option('enable-ssr-recovery')
+extra_flags += ['-DENABLE_SSR_RECOVERY']
 endif
 
 extra_libs = []
