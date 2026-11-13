@@ -3,6 +3,7 @@
 
   Copyright 2004-2006 Lennart Poettering
   Copyright 2006 Pierre Ossman <ossman@cendio.se> for Cendio AB
+  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
@@ -16,10 +17,6 @@
 
   You should have received a copy of the GNU Lesser General Public License
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
-
-  Changes from Qualcomm Innovation Center are provided under the following license:
-  Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
-  SPDX-License-Identifier: BSD-3-Clause-Clear
 ***/
 
 #ifdef HAVE_CONFIG_H
@@ -1681,6 +1678,8 @@ static void sink_input_drain_complete_cb(pa_sink_input *i)
      * went away, and a new one came in */
     if (!s->drain_request)
         return;
+
+    s->drain_request = false;
 
     pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_DRAIN_ACK, PA_UINT_TO_PTR(s->drain_tag), 0, NULL, NULL);
     pa_log_debug("Drain acknowledged of '%s'", pa_strnull(pa_proplist_gets(s->sink_input->proplist, PA_PROP_MEDIA_NAME)));
